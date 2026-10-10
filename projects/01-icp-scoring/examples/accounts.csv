@@ -1,0 +1,7 @@
+domain,name,industry,employee_count,annual_revenue_usd,country,technologies
+northwind-saas.example,Northwind SaaS,Software,120,15000000,US,HubSpot;Segment;Google Workspace
+tiny-agency.example,Tiny Agency,Marketing Services,6,400000,PL,Zapier
+bigcorp.example,BigCorp,Software,12000,2500000000,US,Salesforce
+casino-royale.example,Casino Royale,Gambling,80,9000000,GB,HubSpot
+unknown-co.example,Unknown Co,,,,DE,
+state-agency.gov,State Agency,Government,900,,US,Salesforce

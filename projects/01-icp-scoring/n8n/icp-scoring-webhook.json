@@ -1,0 +1,114 @@
+{
+  "name": "ICP scoring → tier routing (marketing-automation-lab/01)",
+  "nodes": [
+    {
+      "id": "b1f0c6a2-0001-4a7e-9a10-000000000001",
+      "name": "Webhook: account in",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "b1f0c6a2-0001-4a7e-9a10-0000000000aa",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "icp-score",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "b1f0c6a2-0001-4a7e-9a10-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-scoring-url",
+              "name": "scoring_url",
+              "value": "http://icp-scoring:8001",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "b1f0c6a2-0001-4a7e-9a10-000000000003",
+      "name": "Score account",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.scoring_url }}/v1/score",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 10000
+        }
+      }
+    },
+    {
+      "id": "b1f0c6a2-0001-4a7e-9a10-000000000004",
+      "name": "Route by tier",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [660, 0],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "route-owner",
+              "name": "owner_queue",
+              "value": "={{ { 1: 'ae', 2: 'nurture', 3: 'sdr_programmatic', 4: 'none' }[$json.tier] }}",
+              "type": "string"
+            },
+            {
+              "id": "route-enrich",
+              "name": "send_to_enrichment",
+              "value": "={{ $json.needs_enrichment }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "b1f0c6a2-0001-4a7e-9a10-000000000005",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [880, 0],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook: account in": {
+      "main": [[{ "node": "Config", "type": "main", "index": 0 }]]
+    },
+    "Config": {
+      "main": [[{ "node": "Score account", "type": "main", "index": 0 }]]
+    },
+    "Score account": {
+      "main": [[{ "node": "Route by tier", "type": "main", "index": 0 }]]
+    },
+    "Route by tier": {
+      "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

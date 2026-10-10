@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "icp-scoring"
+version = "0.1.0"
+description = "Explainable ICP fit + time-decayed engagement scoring with tiered routing"
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.110", "pydantic>=2.6"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.5", "uvicorn>=0.29"]
+
+[project.scripts]
+icp-score = "icp_scoring.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+icp_scoring = ["default_icp.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

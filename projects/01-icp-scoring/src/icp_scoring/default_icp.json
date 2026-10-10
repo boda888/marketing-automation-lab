@@ -1,0 +1,91 @@
+{
+  "version": "example-b2b-saas-2026.10",
+  "employees": {
+    "weight": 25,
+    "hard_min": 5,
+    "ideal_min": 30,
+    "ideal_max": 500,
+    "hard_max": 5000,
+    "log_scale": true
+  },
+  "revenue_usd": {
+    "weight": 15,
+    "hard_min": 500000,
+    "ideal_min": 3000000,
+    "ideal_max": 100000000,
+    "hard_max": 1000000000,
+    "log_scale": true
+  },
+  "industry": {
+    "weight": 25,
+    "values": {
+      "software": 1.0,
+      "saas": 1.0,
+      "fintech": 0.9,
+      "marketing services": 0.8,
+      "it services": 0.6,
+      "e-commerce": 0.6,
+      "professional services": 0.4
+    },
+    "default": 0.1
+  },
+  "country": {
+    "weight": 10,
+    "values": {
+      "US": 1.0,
+      "CA": 0.9,
+      "GB": 0.9,
+      "DE": 0.8,
+      "NL": 0.8,
+      "SE": 0.8,
+      "PL": 0.6,
+      "UA": 0.6
+    },
+    "default": 0.3
+  },
+  "technographics": {
+    "weight": 25,
+    "positive": {
+      "hubspot": 0.5,
+      "salesforce": 0.5,
+      "pipedrive": 0.4,
+      "segment": 0.3,
+      "n8n": 0.3,
+      "zapier": 0.2,
+      "google workspace": 0.1
+    },
+    "competitors": ["examplecompetitor-ai"],
+    "competitor_penalty": 0.5
+  },
+  "disqualifiers": {
+    "industries": ["gambling", "tobacco"],
+    "countries": [],
+    "domain_suffixes": [".gov", ".mil", ".edu"],
+    "domains": []
+  },
+  "engagement": {
+    "event_weights": {
+      "pricing_page_view": 3.0,
+      "demo_request": 8.0,
+      "comparison_page_view": 2.5,
+      "email_reply": 5.0,
+      "email_click": 1.0,
+      "content_download": 1.5,
+      "webinar_attended": 2.0,
+      "site_visit": 0.5,
+      "third_party_intent": 1.0
+    },
+    "half_life_days": 14,
+    "max_age_days": 90,
+    "saturation": 10,
+    "stakeholder_bonus": 0.15,
+    "max_stakeholder_multiplier": 1.6
+  },
+  "tiers": {
+    "fit_high": 70,
+    "fit_medium": 45,
+    "engagement_high": 50
+  },
+  "missing_value_credit": 0.3,
+  "enrichment_threshold": 0.25
+}
