@@ -12,6 +12,12 @@ from .dmarc import (
 from .dns import DNSTempError, FakeResolver, Resolver
 from .findings import Finding, worst
 from .spf import SpfReport, SpfSyntaxError, check_spf, parse_spf
+from .unsubscribe import (
+    UnsubscribeReport,
+    check_one_click,
+    dkim_signed_headers,
+    headers_from_message,
+)
 
 __all__ = [
     "DmarcRecord",
@@ -27,7 +33,11 @@ __all__ = [
     "Resolver",
     "SpfReport",
     "SpfSyntaxError",
+    "UnsubscribeReport",
+    "check_one_click",
     "check_spf",
+    "dkim_signed_headers",
+    "headers_from_message",
     "parse_spf",
     "worst",
 ]

@@ -11,6 +11,7 @@ injectable DNS resolver, so the whole suite runs offline.
 | SPF | [`spf.py`](src/deliverability_preflight/spf.py) | parsed record, DNS-lookup count (limit 10), void-lookup count (limit 2), include/redirect tree, `+all` / `?all` / no `all`, `ptr`, terms after `all`, missing / duplicate records, include loops, `mx` with > 10 records |
 | DMARC | [`dmarc.py`](src/deliverability_preflight/dmarc.py) | record parsing, discovery (own domain, then parents), effective policy (`sp` for subdomains), `p=none` / partial `pct` / no `rua`, non-`mailto` report URIs, external report destinations without the `_report._dmarc` authorisation record |
 | Alignment | `dmarc.check_alignment` | whether Return-Path and DKIM `d=` align with From under relaxed / strict `aspf` / `adkim`; warns when only SPF aligns |
+| One-click unsubscribe | [`unsubscribe.py`](src/deliverability_preflight/unsubscribe.py) | RFC 8058: exactly one HTTPS URI in `List-Unsubscribe` (angle brackets, `mailto:` allowed alongside), `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, and a DKIM-Signature whose `h=` covers both headers (warning if the draft is not signed yet) |
 
 Each finding has a stable `code`, a `severity` (`error` / `warning` / `info`),
 a human `message` and the `ref` (RFC section) it is based on.
@@ -68,7 +69,9 @@ connecting IP: they are counted but not resolved.
 - DMARCbis (reported published in 2026 as the RFC 7489 successor) has not been
   checked against its text yet; the parser keeps unknown tags (e.g. `np`, `psd`,
   `t`) and parses `np` when present, but no DMARCbis-specific rule is applied.
-- RFC 8058 one-click unsubscribe, content lint, complaint-rate
+- The unsubscribe check reads headers only: it does not verify the DKIM
+  signature or call the unsubscribe URL.
+- Content lint, complaint-rate
   guardrail, FastAPI and n8n node are on the [roadmap](../../ROADMAP.md).
 
 ## Run
