@@ -12,45 +12,104 @@
     {
       "id": "02-deliverability-preflight",
       "path": "projects/02-deliverability-preflight",
-      "status": "planned",
-      "summary": "SPF/DKIM/DMARC + RFC 8058 + content preflight against current Gmail/Yahoo/Microsoft sender rules."
+      "status": "in_progress",
+      "summary": "SPF lookup budget, DMARC parsing/discovery/alignment and RFC 8058 header checks done (61 offline tests); content lint, complaint guardrail, DKIM selector, API and n8n pending.",
+      "version": "0.0.1"
     },
-    {"id": "03-enrichment-waterfall", "path": "projects/03-enrichment-waterfall", "status": "planned", "summary": "Provider waterfall with provenance, confidence, cost budget."},
-    {"id": "04-email-verification", "path": "projects/04-email-verification", "status": "planned", "summary": "Contact hygiene and risk scoring."},
-    {"id": "05-llm-personalization", "path": "projects/05-llm-personalization", "status": "planned", "summary": "Grounded LLM first lines with citation guard and evals."},
-    {"id": "06-intent-signals", "path": "projects/06-intent-signals", "status": "planned", "summary": "Normalise intent signals into engagement events."},
-    {"id": "07-crm-sync", "path": "projects/07-crm-sync", "status": "planned", "summary": "Idempotent HubSpot/Pipedrive upserts."},
-    {"id": "08-orchestration", "path": "projects/08-orchestration", "status": "planned", "summary": "docker-compose + end-to-end n8n."},
-    {"id": "09-reply-handling", "path": "projects/09-reply-handling", "status": "planned", "summary": "Reply classification and routing."},
-    {"id": "10-calibration", "path": "projects/10-calibration", "status": "planned", "summary": "Learn ICP weights from won/lost."}
+    {
+      "id": "03-enrichment-waterfall",
+      "path": "projects/03-enrichment-waterfall",
+      "status": "planned",
+      "summary": "Provider waterfall with provenance, confidence, cost budget."
+    },
+    {
+      "id": "04-email-verification",
+      "path": "projects/04-email-verification",
+      "status": "planned",
+      "summary": "Contact hygiene and risk scoring."
+    },
+    {
+      "id": "05-llm-personalization",
+      "path": "projects/05-llm-personalization",
+      "status": "planned",
+      "summary": "Grounded LLM first lines with citation guard and evals."
+    },
+    {
+      "id": "06-intent-signals",
+      "path": "projects/06-intent-signals",
+      "status": "planned",
+      "summary": "Normalise intent signals into engagement events."
+    },
+    {
+      "id": "07-crm-sync",
+      "path": "projects/07-crm-sync",
+      "status": "planned",
+      "summary": "Idempotent HubSpot/Pipedrive upserts."
+    },
+    {
+      "id": "08-orchestration",
+      "path": "projects/08-orchestration",
+      "status": "planned",
+      "summary": "docker-compose + end-to-end n8n."
+    },
+    {
+      "id": "09-reply-handling",
+      "path": "projects/09-reply-handling",
+      "status": "planned",
+      "summary": "Reply classification and routing."
+    },
+    {
+      "id": "10-calibration",
+      "path": "projects/10-calibration",
+      "status": "planned",
+      "summary": "Learn ICP weights from won/lost."
+    }
   ],
   "done": [
     "Monorepo scaffold: README, ROADMAP, ruff config, CI (ruff + repo checks + pytest matrix 3.11/3.13), scripts/check_repo.py",
-    "01-icp-scoring v0.1.0"
+    "01-icp-scoring v0.1.0",
+    "02: SPF parser + worst-case lookup/void-lookup budget checker (RFC 7208)",
+    "02: DMARC parsing, discovery, rua authorisation and SPF/DKIM alignment (RFC 7489)",
+    "02: RFC 8058 one-click unsubscribe header + DKIM h= coverage check"
   ],
   "next_steps": [
-    "Research current Gmail/Yahoo/Microsoft bulk-sender requirements from primary sources (Google Workspace admin help, Yahoo Sender Hub, Microsoft Outlook blog) before writing 02.",
-    "Create projects/02-deliverability-preflight skeleton: pyproject, models, injectable DNS resolver interface + fake, README with sourced requirements table.",
-    "Implement SPF parsing incl. include/redirect lookup counting (limit 10) with tests.",
-    "Implement DMARC record parsing (p, sp, pct, rua, adkim/aspf) and alignment checks with tests.",
-    "Implement RFC 8058 List-Unsubscribe / List-Unsubscribe-Post header validation with tests."
+    "Re-run research from primary sources when the network allows: Google sender guidelines (support.google.com/a/answer/81126), Yahoo Sender Hub, Microsoft Outlook high-volume sender requirements, RFC 9989 (DMARCbis) text; record opened URLs and fix any outdated rule.",
+    "Apply DMARCbis (RFC 9989) changes if confirmed: tree-walk discovery, np/psd/t tags, pct/rf/ri status; add findings with refs.",
+    "DKIM selector check: fetch <selector>._domainkey.<d> TXT, parse p=/k=, flag revoked keys and RSA < 1024 bits.",
+    "Complaint-rate guardrail (target < 0.1%, hard 0.3%) from provided stats, plus a preflight() aggregator returning one report.",
+    "FastAPI /v1/preflight endpoint + n8n 'preflight before send' workflow (structure-tested).",
+    "Optional dnspython Resolver adapter behind an extra, still tested offline with the fake."
   ],
   "known_gaps": [
     "01 n8n workflow is structure-tested only; never imported into a live n8n instance.",
-    "01 weights are hand-set; no calibration on real won/lost data yet (project 10)."
+    "01 weights are hand-set; no calibration on real won/lost data yet (project 10).",
+    "02: no live DNS adapter; all checks verified only against FakeResolver.",
+    "02: organizational domain is naive last-two-labels (no PSL); DMARC discovery walks parents rather than PSL/tree-walk spec.",
+    "02: DMARCbis (reported as RFC 9989, May 2026) seen only in a web-search summary, not verified against the RFC text.",
+    "02: provider bulk-sender thresholds (Gmail/Yahoo/Microsoft) not re-verified this run: primary pages were unreachable from the run environment.",
+    "Run environment: bare `pytest` on PATH is an isolated uv tool without project deps; use `python -m pytest`."
   ],
   "last_run": {
     "date": "2026-10-10",
-    "by": "initial setup session",
-    "commits": 2,
-    "notes": "Scaffold + project 01."
+    "by": "daily agent",
+    "commits": 4,
+    "notes": "Started 02-deliverability-preflight: SPF, DMARC/alignment, RFC 8058. Egress policy blocked all web pages, so implementation follows RFC 7208/7489/8058 as known; no source opened."
   },
   "run_log": [
     {
       "date": "2026-10-10",
       "commits": 2,
       "summary": "Initial scaffold and 01-icp-scoring v0.1.0 (33 tests passing).",
-      "sources": ["https://abmatic.ai/blog/account-fit-score"]
+      "sources": [
+        "https://abmatic.ai/blog/account-fit-score"
+      ]
+    },
+    {
+      "date": "2026-10-10",
+      "commits": 4,
+      "summary": "02-deliverability-preflight v0.0.1: SPF lookup-budget checker, DMARC parse/discover/alignment, RFC 8058 one-click check; 61 tests (01 still 33).",
+      "sources": [],
+      "research_note": "Tried rfc-editor.org (RFC 7208/7489/8058), support.google.com/a/answer/81126 and datatracker.ietf.org: all rejected by the environment's egress proxy (HTTP 403 on CONNECT). Web search summaries (not opened pages) mentioned DMARCbis RFC 9989-9991 (May 2026); recorded as an unverified gap, no code relies on it."
     }
   ]
 }

@@ -22,14 +22,16 @@ Open follow-ups:
 - [ ] per-account `as_of` in CSV + events from a JSONL file
 - [ ] config diff endpoint / versioned configs
 
-## 02 · Deliverability preflight — next
+## 02 · Deliverability preflight — in progress (v0.0.1)
 Check a sending setup and a message before it goes out, against current
 Gmail / Yahoo / Microsoft bulk-sender requirements.
-- [ ] DNS checks: SPF (incl. 10-lookup limit), DKIM selector, DMARC policy + `rua`, alignment
-- [ ] message checks: `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058), From/Return-Path alignment
+- [x] DNS checks: SPF (incl. 10-lookup and void-lookup limits), DMARC policy + `rua`, alignment
+- [ ] DNS checks: DKIM selector key (`<s>._domainkey`), DMARCbis (RFC 9989) review
+- [x] message checks: `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058), From/Return-Path alignment
 - [ ] content lint (links, tracking domains, spammy patterns) with explainable findings
 - [ ] complaint-rate guardrail (0.1% target / 0.3% hard) from provided stats
-- [ ] FastAPI + n8n "preflight before send" node; DNS via injectable resolver (offline tests)
+- [x] DNS via injectable resolver (offline tests)
+- [ ] FastAPI + n8n "preflight before send" node
 
 ## 03 · Enrichment waterfall
 - [ ] provider interface + fake providers; field-level merge with confidence and provenance

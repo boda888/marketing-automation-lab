@@ -26,7 +26,8 @@ This is an **AI-assisted lab by [Lunaris Tech](https://lunaris.tech)**.
 | # | Project | Status | What it does |
 |---|---|---|---|
 | 01 | [icp-scoring](projects/01-icp-scoring) | ✅ v0.1 | Explainable ICP fit + time-decayed engagement → tier + next action. FastAPI, CSV CLI, n8n workflow. |
-| 02+ | see [ROADMAP.md](ROADMAP.md) | planned | deliverability preflight, enrichment waterfall, email verification, LLM personalisation, intent signals, CRM sync, orchestration |
+| 02 | [deliverability-preflight](projects/02-deliverability-preflight) | 🚧 v0.0.1 | SPF lookup budget, DMARC policy + alignment, RFC 8058 one-click unsubscribe checks; offline DNS fake. API + n8n pending. |
+| 03+ | see [ROADMAP.md](ROADMAP.md) | planned | enrichment waterfall, email verification, LLM personalisation, intent signals, CRM sync, orchestration |
 
 ## Conventions
 
@@ -48,4 +49,5 @@ state, n8n JSON), then pytest for every project on Python 3.11 and 3.13.
 ```bash
 pip install ruff && ruff check . && python scripts/check_repo.py
 cd projects/01-icp-scoring && pip install -e ".[dev]" && pytest -q
+cd ../02-deliverability-preflight && pip install -e ".[dev]" && pytest -q
 ```
