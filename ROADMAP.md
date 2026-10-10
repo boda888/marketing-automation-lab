@@ -1,19 +1,29 @@
 # Roadmap
 
-The pipeline this lab is building, left to right:
+Project line-up and rules come from [`.agent/FOCUS.md`](.agent/FOCUS.md): every
+project removes a concrete GTM failure mode, targets the stack people hire for
+(Clay, Apollo, Instantly, Smartlead, HeyReach, HubSpot, Pipedrive, Attio, n8n,
+Supabase/Postgres, OpenAI/Claude) behind offline fakes, and ships a demo-able v0.1.
+
+The signal-based outbound pipeline, left to right:
 
 ```
-accounts ──► 03 enrichment ──► 01 ICP scoring ──► 04 verification ──► 05 personalisation ──► send
-               ▲                    ▲                                         │
-               │               06 intent signals                     02 deliverability preflight
-               └──────────── needs_enrichment                                  │
-                                                     07 CRM sync ◄── 09 reply handling
-                                 08 orchestration (n8n + docker-compose) wires it together
-                                 10 calibration feeds won/lost data back into 01
+03 signals ──► 04 enrich + verify + dedupe ──► 01 ICP scoring ──► 05 research + personalise
+                                                                         │
+                                       02 deliverability preflight ◄─────┘
+                                                   │
+                                       06 sequencer sync (Instantly / Smartlead / HeyReach)
+                                                   │
+                         08 CRM sync ◄── 07 reply intent & routing
+                                                   │
+                         10 reporting (from raw events) ──► 12 calibration ──► 01, 03
+  09 n8n reliability kit · 11 end-to-end docker-compose · 13 GTM MCP server wrap the whole line
 ```
 
 Order is a plan, not a contract: the daily agent may reorder when research
 shows something is more urgent (e.g. a mailbox-provider rule change).
+A project's v0.1 = FastAPI service and/or CLI, n8n workflow, synthetic `.example`
+dataset, README with problem → architecture → run it → limits.
 
 ## 01 · ICP scoring — ✅ v0.1 (2026-10-10)
 Explainable fit + decayed engagement → tier/action. FastAPI, CSV CLI, n8n.
@@ -22,7 +32,7 @@ Open follow-ups:
 - [ ] per-account `as_of` in CSV + events from a JSONL file
 - [ ] config diff endpoint / versioned configs
 
-## 02 · Deliverability preflight — in progress (v0.0.1)
+## 02 · Deliverability preflight → + sending-capacity & warmup planner — in progress (v0.0.1)
 Check a sending setup and a message before it goes out, against current
 Gmail / Yahoo / Microsoft bulk-sender requirements.
 - [x] DNS checks: SPF (incl. 10-lookup and void-lookup limits), DMARC policy + `rua`, alignment
@@ -32,31 +42,61 @@ Gmail / Yahoo / Microsoft bulk-sender requirements.
 - [ ] complaint-rate guardrail (0.1% target / 0.3% hard) from provided stats
 - [x] DNS via injectable resolver (offline tests)
 - [ ] FastAPI + n8n "preflight before send" node
+- [ ] sending-capacity & warmup planner: mailboxes × domains × daily caps → safe volume
+      and ramp schedule, using current provider limits (link the vendor docs)
 
-## 03 · Enrichment waterfall
-- [ ] provider interface + fake providers; field-level merge with confidence and provenance
-- [ ] cost budget per record, cache, stop-when-complete
-- [ ] consumes `needs_enrichment` / `missing_fields` from 01
+## 03 · Signal engine
+Pain: list-based outreach with 2–4% replies.
+- [ ] signal sources: hiring (job posts), funding, new office/expansion, tech change, site visits
+- [ ] evidence-backed signal events: every event carries source URL + observed-at timestamp
+- [ ] priority rules + mapping into engagement events for 01
 
-## 04 · Email verification & contact hygiene
-- [ ] syntax, MX, disposable, role-based, catch-all heuristics; risk score, no SMTP probing by default
+## 04 · Waterfall enrichment + email verification + CRM dedupe
+Pain: 40–60% match rates, bounces, duplicates.
+- [ ] provider interface (Clay / Apollo shapes) + fake providers; field-level merge with confidence and provenance
+- [ ] cost budget per record, cache, stop-when-complete; consumes `needs_enrichment` / `missing_fields` from 01
+- [ ] verification: syntax, MX, disposable, role-based, catch-all heuristics; risk score, no SMTP probing by default
+- [ ] dedupe / match against existing CRM records
 
-## 05 · LLM personalisation for cold email
-- [ ] grounded first lines: every claim must cite an enrichment fact id; reject otherwise
+## 05 · AI research + first-line personalisation
+Pain: one bad model response ships to the whole list.
+- [ ] generator → reviewer → deterministic QA; JSON-schema-validated output
+- [ ] citation guard: every claim cites a signal/enrichment fact with source URL; no evidence → no line
 - [ ] provider abstraction (Anthropic / OpenAI) + deterministic fake LLM for tests
-- [ ] small eval set and scorer (groundedness, length, banned phrases)
+- [ ] eval set and scorer (groundedness, length, banned phrases)
 
-## 06 · Intent signals
-- [ ] normalise hiring, funding, tech-change and website signals into engagement events for 01
+## 06 · Sequencer sync
+Pain: leads pushed twice, unsubscribed people re-contacted.
+- [ ] Instantly / Smartlead / HeyReach adapters (shapes from current vendor docs), custom variables
+- [ ] suppression list, idempotent pushes, rate limits, mocked HTTP tests
 
-## 07 · CRM sync
-- [ ] HubSpot / Pipedrive upsert with idempotency keys, dedupe, field mapping, dry-run; mocked HTTP tests
+## 07 · Reply intent classification & routing
+Pain: replies triaged by hand, hot leads go cold.
+- [ ] classes: interested, objection, referral, OOO + return date, unsubscribe, bounce
+- [ ] routing + suppression actions, eval set
 
-## 08 · Orchestration
-- [ ] docker-compose: n8n + services; end-to-end n8n workflow; import test against live n8n
+## 08 · CRM sync
+Pain: CRM no longer matches reality.
+- [ ] HubSpot / Pipedrive / Attio upsert with idempotency keys, dedupe, field mapping, dry-run
+- [ ] lifecycle stages, assignment/territory rules, field-level ownership; mocked HTTP tests
 
-## 09 · Reply handling
-- [ ] classify replies (interested / not now / OOO / unsubscribe / bounce), route and suppress
+## 09 · n8n reliability kit
+Pain: branches that fail silently.
+- [ ] error workflow, retries/backoff, idempotency keys, dead-letter-queue service, alerts
 
-## 10 · Calibration & analytics
-- [ ] learn ICP weights from closed-won/lost (logistic regression), propose config diff for 01
+## 10 · Reporting that reconciles
+Pain: dashboard numbers nobody trusts.
+- [ ] funnel by segment/signal computed from raw events; reconciliation checks
+- [ ] A/B test significance
+
+## 11 · End-to-end
+Pain: parts that never ran together.
+- [ ] docker-compose: n8n + services + Postgres; full synthetic run; live n8n import test
+
+## 12 · Calibration
+Pain: hand-set weights drift.
+- [ ] learn ICP and signal weights from closed-won/lost (logistic regression), propose config diff for 01/03
+
+## 13 · GTM MCP server
+Pain: agents with no safe access to the pipeline.
+- [ ] expose score, enrich, preflight, classify as MCP tools with input validation and dry-run

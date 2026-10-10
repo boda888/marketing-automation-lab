@@ -10,6 +10,7 @@ agent should only change it when the owner asked for that.
    and `pytest -q` in every project. If baseline is red, the first job is fixing it.
 
 ## 1. Orient
+- Read .agent/FOCUS.md; every commit must serve a project in it and follow its rules.
 - Read `ROADMAP.md`, `.agent/state.json` (`current_project`, `next_steps`, `known_gaps`, last `run_log` entries) and the README of the current project.
 - Check the latest CI run on `main` (`gh run list --limit 3` if `gh` works). If red, fix that first.
 

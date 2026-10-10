@@ -1,8 +1,9 @@
 # marketing-automation-lab
 
-End-to-end marketing and lead-generation automation, built in public as small,
-tested, composable services: enrichment → ICP scoring → LLM-personalised cold
-email → intent signals → CRM sync → deliverability, glued together with n8n.
+A public GTM-engineering lab: production-style building blocks for signal-based
+B2B outbound — source → enrich → qualify → personalise → send → handle replies →
+CRM → report — as small, tested services glued together with n8n. Focus and
+rules: [`.agent/FOCUS.md`](.agent/FOCUS.md).
 
 ## How this repo is built (read this first)
 
@@ -27,7 +28,7 @@ This is an **AI-assisted lab by [Lunaris Tech](https://lunaris.tech)**.
 |---|---|---|---|
 | 01 | [icp-scoring](projects/01-icp-scoring) | ✅ v0.1 | Explainable ICP fit + time-decayed engagement → tier + next action. FastAPI, CSV CLI, n8n workflow. |
 | 02 | [deliverability-preflight](projects/02-deliverability-preflight) | 🚧 v0.0.1 | SPF lookup budget, DMARC policy + alignment, RFC 8058 one-click unsubscribe checks; offline DNS fake. API + n8n pending. |
-| 03+ | see [ROADMAP.md](ROADMAP.md) | planned | enrichment waterfall, email verification, LLM personalisation, intent signals, CRM sync, orchestration |
+| 03–13 | see [ROADMAP.md](ROADMAP.md) | planned | signal engine, enrichment + verification, AI personalisation, sequencer sync, reply routing, CRM sync, n8n reliability, reporting, end-to-end, calibration, GTM MCP server |
 
 ## Conventions
 

@@ -13,56 +13,74 @@
       "id": "02-deliverability-preflight",
       "path": "projects/02-deliverability-preflight",
       "status": "in_progress",
-      "summary": "SPF lookup budget, DMARC parsing/discovery/alignment and RFC 8058 header checks done (61 offline tests); content lint, complaint guardrail, DKIM selector, API and n8n pending.",
+      "summary": "SPF lookup budget, DMARC parsing/discovery/alignment and RFC 8058 header checks done (61 offline tests); content lint, complaint guardrail, DKIM selector, API, n8n and sending-capacity & warmup planner pending.",
       "version": "0.0.1"
     },
     {
-      "id": "03-enrichment-waterfall",
-      "path": "projects/03-enrichment-waterfall",
+      "id": "03-signal-engine",
+      "path": "projects/03-signal-engine",
       "status": "planned",
-      "summary": "Provider waterfall with provenance, confidence, cost budget."
+      "summary": "Hiring/funding/expansion/tech-change/site-visit signals as evidence-backed events with priority rules."
     },
     {
-      "id": "04-email-verification",
-      "path": "projects/04-email-verification",
+      "id": "04-enrichment-verification",
+      "path": "projects/04-enrichment-verification",
       "status": "planned",
-      "summary": "Contact hygiene and risk scoring."
+      "summary": "Waterfall enrichment with provenance and cost budget, email verification, CRM dedupe."
     },
     {
-      "id": "05-llm-personalization",
-      "path": "projects/05-llm-personalization",
+      "id": "05-ai-personalization",
+      "path": "projects/05-ai-personalization",
       "status": "planned",
-      "summary": "Grounded LLM first lines with citation guard and evals."
+      "summary": "Research + first lines: generator -> reviewer -> deterministic QA, JSON schema, citation guard, evals."
     },
     {
-      "id": "06-intent-signals",
-      "path": "projects/06-intent-signals",
+      "id": "06-sequencer-sync",
+      "path": "projects/06-sequencer-sync",
       "status": "planned",
-      "summary": "Normalise intent signals into engagement events."
+      "summary": "Instantly / Smartlead / HeyReach adapters, custom variables, suppression, idempotent pushes."
     },
     {
-      "id": "07-crm-sync",
-      "path": "projects/07-crm-sync",
+      "id": "07-reply-routing",
+      "path": "projects/07-reply-routing",
       "status": "planned",
-      "summary": "Idempotent HubSpot/Pipedrive upserts."
+      "summary": "Reply intent classification (interested, objection, referral, OOO+return date, unsubscribe, bounce) and routing."
     },
     {
-      "id": "08-orchestration",
-      "path": "projects/08-orchestration",
+      "id": "08-crm-sync",
+      "path": "projects/08-crm-sync",
       "status": "planned",
-      "summary": "docker-compose + end-to-end n8n."
+      "summary": "HubSpot / Pipedrive / Attio upsert, lifecycle stages, assignment rules, field-level ownership."
     },
     {
-      "id": "09-reply-handling",
-      "path": "projects/09-reply-handling",
+      "id": "09-n8n-reliability",
+      "path": "projects/09-n8n-reliability",
       "status": "planned",
-      "summary": "Reply classification and routing."
+      "summary": "n8n error workflow, retries/backoff, idempotency keys, DLQ service, alerts."
     },
     {
-      "id": "10-calibration",
-      "path": "projects/10-calibration",
+      "id": "10-reporting",
+      "path": "projects/10-reporting",
       "status": "planned",
-      "summary": "Learn ICP weights from won/lost."
+      "summary": "Funnel by segment/signal from raw events with reconciliation; A/B significance."
+    },
+    {
+      "id": "11-end-to-end",
+      "path": "projects/11-end-to-end",
+      "status": "planned",
+      "summary": "docker-compose n8n + services + Postgres, full synthetic run, live n8n import test."
+    },
+    {
+      "id": "12-calibration",
+      "path": "projects/12-calibration",
+      "status": "planned",
+      "summary": "Learn ICP and signal weights from won/lost."
+    },
+    {
+      "id": "13-gtm-mcp-server",
+      "path": "projects/13-gtm-mcp-server",
+      "status": "planned",
+      "summary": "MCP server exposing score, enrich, preflight, classify to AI agents."
     }
   ],
   "done": [
@@ -73,21 +91,21 @@
     "02: RFC 8058 one-click unsubscribe header + DKIM h= coverage check"
   ],
   "next_steps": [
-    "Re-run research from primary sources when the network allows: Google sender guidelines (support.google.com/a/answer/81126), Yahoo Sender Hub, Microsoft Outlook high-volume sender requirements, RFC 9989 (DMARCbis) text; record opened URLs and fix any outdated rule.",
-    "Apply DMARCbis (RFC 9989) changes if confirmed: tree-walk discovery, np/psd/t tags, pct/rf/ri status; add findings with refs.",
-    "DKIM selector check: fetch <selector>._domainkey.<d> TXT, parse p=/k=, flag revoked keys and RSA < 1024 bits.",
-    "Complaint-rate guardrail (target < 0.1%, hard 0.3%) from provided stats, plus a preflight() aggregator returning one report.",
-    "FastAPI /v1/preflight endpoint + n8n 'preflight before send' workflow (structure-tested).",
-    "Optional dnspython Resolver adapter behind an extra, still tested offline with the fake."
+    "Follow .agent/FOCUS.md: each commit serves a project in its line-up; 02 README should open with the pain it removes.",
+    "Re-run research from primary sources when the network allows: Google sender guidelines, Yahoo Sender Hub, Microsoft high-volume sender requirements, RFC 9989 (DMARCbis); record opened URLs and fix any outdated rule.",
+    "02: DKIM selector check (<selector>._domainkey.<d>: p=/k=, revoked keys, RSA < 1024 bits).",
+    "02: complaint-rate guardrail (target < 0.1%, hard 0.3%) + preflight() aggregator returning one report.",
+    "02: FastAPI /v1/preflight + n8n 'preflight before send' workflow (structure-tested) to reach v0.1.",
+    "02: sending-capacity & warmup planner (mailboxes x domains x daily caps -> ramp schedule) with limits sourced from current vendor docs; then move to 03 signal engine."
   ],
   "known_gaps": [
     "01 n8n workflow is structure-tested only; never imported into a live n8n instance.",
-    "01 weights are hand-set; no calibration on real won/lost data yet (project 10).",
     "02: no live DNS adapter; all checks verified only against FakeResolver.",
     "02: organizational domain is naive last-two-labels (no PSL); DMARC discovery walks parents rather than PSL/tree-walk spec.",
     "02: DMARCbis (reported as RFC 9989, May 2026) seen only in a web-search summary, not verified against the RFC text.",
     "02: provider bulk-sender thresholds (Gmail/Yahoo/Microsoft) not re-verified this run: primary pages were unreachable from the run environment.",
-    "Run environment: bare `pytest` on PATH is an isolated uv tool without project deps; use `python -m pytest`."
+    "Run environment: bare `pytest` on PATH is an isolated uv tool without project deps; use `python -m pytest`.",
+    "01 weights are hand-set; no calibration on real won/lost data yet (project 12)."
   ],
   "last_run": {
     "date": "2026-10-10",
