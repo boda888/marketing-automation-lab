@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "current_project": "02-deliverability-preflight",
+  "projects": [
+    {
+      "id": "01-icp-scoring",
+      "path": "projects/01-icp-scoring",
+      "status": "done",
+      "version": "0.1.0",
+      "summary": "Explainable ICP fit + time-decayed engagement -> tier/action; FastAPI, CSV CLI, n8n workflow; 33 tests."
+    },
+    {
+      "id": "02-deliverability-preflight",
+      "path": "projects/02-deliverability-preflight",
+      "status": "planned",
+      "summary": "SPF/DKIM/DMARC + RFC 8058 + content preflight against current Gmail/Yahoo/Microsoft sender rules."
+    },
+    {"id": "03-enrichment-waterfall", "path": "projects/03-enrichment-waterfall", "status": "planned", "summary": "Provider waterfall with provenance, confidence, cost budget."},
+    {"id": "04-email-verification", "path": "projects/04-email-verification", "status": "planned", "summary": "Contact hygiene and risk scoring."},
+    {"id": "05-llm-personalization", "path": "projects/05-llm-personalization", "status": "planned", "summary": "Grounded LLM first lines with citation guard and evals."},
+    {"id": "06-intent-signals", "path": "projects/06-intent-signals", "status": "planned", "summary": "Normalise intent signals into engagement events."},
+    {"id": "07-crm-sync", "path": "projects/07-crm-sync", "status": "planned", "summary": "Idempotent HubSpot/Pipedrive upserts."},
+    {"id": "08-orchestration", "path": "projects/08-orchestration", "status": "planned", "summary": "docker-compose + end-to-end n8n."},
+    {"id": "09-reply-handling", "path": "projects/09-reply-handling", "status": "planned", "summary": "Reply classification and routing."},
+    {"id": "10-calibration", "path": "projects/10-calibration", "status": "planned", "summary": "Learn ICP weights from won/lost."}
+  ],
+  "done": [
+    "Monorepo scaffold: README, ROADMAP, ruff config, CI (ruff + repo checks + pytest matrix 3.11/3.13), scripts/check_repo.py",
+    "01-icp-scoring v0.1.0"
+  ],
+  "next_steps": [
+    "Research current Gmail/Yahoo/Microsoft bulk-sender requirements from primary sources (Google Workspace admin help, Yahoo Sender Hub, Microsoft Outlook blog) before writing 02.",
+    "Create projects/02-deliverability-preflight skeleton: pyproject, models, injectable DNS resolver interface + fake, README with sourced requirements table.",
+    "Implement SPF parsing incl. include/redirect lookup counting (limit 10) with tests.",
+    "Implement DMARC record parsing (p, sp, pct, rua, adkim/aspf) and alignment checks with tests.",
+    "Implement RFC 8058 List-Unsubscribe / List-Unsubscribe-Post header validation with tests."
+  ],
+  "known_gaps": [
+    "01 n8n workflow is structure-tested only; never imported into a live n8n instance.",
+    "01 weights are hand-set; no calibration on real won/lost data yet (project 10)."
+  ],
+  "last_run": {
+    "date": "2026-10-10",
+    "by": "initial setup session",
+    "commits": 2,
+    "notes": "Scaffold + project 01."
+  },
+  "run_log": [
+    {
+      "date": "2026-10-10",
+      "commits": 2,
+      "summary": "Initial scaffold and 01-icp-scoring v0.1.0 (33 tests passing).",
+      "sources": ["https://abmatic.ai/blog/account-fit-score"]
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repo-checks:
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.discover.outputs.projects }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Lint (ruff)
+        run: |
+          pip install ruff
+          ruff check .
+          ruff format --check .
+      - name: Repo structure, state and n8n JSON checks
+        run: python scripts/check_repo.py
+      - name: Discover projects
+        id: discover
+        run: |
+          projects=$(ls -d projects/*/ | xargs -n1 basename | jq -R . | jq -cs .)
+          echo "projects=$projects" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: repo-checks
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJson(needs.repo-checks.outputs.projects) }}
+        python: ["3.11", "3.13"]
+    defaults:
+      run:
+        working-directory: projects/${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
