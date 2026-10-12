@@ -1,5 +1,14 @@
 """Offline-testable deliverability preflight checks."""
 
+from .dkim import (
+    DkimKeyError,
+    DkimKeyRecord,
+    DkimReport,
+    check_dkim,
+    check_dkim_selectors,
+    parse_dkim_key,
+    rsa_key_bits,
+)
 from .dmarc import (
     DmarcRecord,
     DmarcReport,
@@ -20,6 +29,13 @@ from .unsubscribe import (
 )
 
 __all__ = [
+    "DkimKeyError",
+    "DkimKeyRecord",
+    "DkimReport",
+    "check_dkim",
+    "check_dkim_selectors",
+    "parse_dkim_key",
+    "rsa_key_bits",
     "DmarcRecord",
     "DmarcReport",
     "DmarcSyntaxError",

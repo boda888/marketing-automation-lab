@@ -11,6 +11,7 @@ injectable DNS resolver, so the whole suite runs offline.
 | SPF | [`spf.py`](src/deliverability_preflight/spf.py) | parsed record, DNS-lookup count (limit 10), void-lookup count (limit 2), include/redirect tree, `+all` / `?all` / no `all`, `ptr`, terms after `all`, missing / duplicate records, include loops, `mx` with > 10 records |
 | DMARC | [`dmarc.py`](src/deliverability_preflight/dmarc.py) | record parsing, discovery (own domain, then parents), effective policy (`sp` for subdomains), `p=none` / partial `pct` / no `rua`, non-`mailto` report URIs, external report destinations without the `_report._dmarc` authorisation record |
 | Alignment | `dmarc.check_alignment` | whether Return-Path and DKIM `d=` align with From under relaxed / strict `aspf` / `adkim`; warns when only SPF aligns |
+| DKIM key | [`dkim.py`](src/deliverability_preflight/dkim.py) | the key record at `<selector>._domainkey.<domain>`: missing / duplicate / malformed records, revoked keys (empty `p=`), RSA key length (< 1024 error, < 2048 warning), `h=` without `sha256`, `s=` excluding email, `t=y` testing mode, Ed25519 key length |
 | One-click unsubscribe | [`unsubscribe.py`](src/deliverability_preflight/unsubscribe.py) | RFC 8058: exactly one HTTPS URI in `List-Unsubscribe` (angle brackets, `mailto:` allowed alongside), `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, and a DKIM-Signature whose `h=` covers both headers (warning if the draft is not signed yet) |
 
 Each finding has a stable `code`, a `severity` (`error` / `warning` / `info`),
@@ -58,6 +59,21 @@ connecting IP: they are counted but not resolved.
   publishes `<policy-domain>._report._dmarc.<dest>` with `v=DMARC1` (§7.1).
 - Relaxed alignment = same organizational domain; strict = identical domain (§3.1).
 
+### DKIM key rules applied (RFC 6376 §3.6, RFC 8301, RFC 8463)
+
+- The key lives at `<selector>._domainkey.<d>` (§3.6.2.1); pass the selectors
+  your ESP signs with (`check_dkim_selectors`) — DNS cannot list them.
+- `v=`, if present, must be the first tag and equal `DKIM1`; `p=` is
+  required, and an empty `p=` means the key is revoked (§3.6.1).
+- RSA keys: verifiers must not accept keys under 1024 bits, signers should use
+  2048 (RFC 8301 §3.2). The length is read from the DER key
+  (SubjectPublicKeyInfo or bare RSAPublicKey) without a crypto library; both
+  thresholds are parameters.
+- `h=` that does not list `sha256` leaves only `rsa-sha1`, which must not be
+  used (RFC 8301 §3.1). `s=` must include `email` or `*`; `t=y` is flagged.
+- `k=ed25519` keys must be 32 bytes (RFC 8463); an info finding reminds you to
+  keep an RSA selector signing too.
+
 ## Not yet / not verified
 
 - No live DNS adapter ships yet; the `Resolver` protocol is one method
@@ -69,6 +85,8 @@ connecting IP: they are counted but not resolved.
 - DMARCbis (reported published in 2026 as the RFC 7489 successor) has not been
   checked against its text yet; the parser keeps unknown tags (e.g. `np`, `psd`,
   `t`) and parses `np` when present, but no DMARCbis-specific rule is applied.
+- The DKIM check reads the published key only: it does not verify a
+  signature or check that the private key matches.
 - The unsubscribe check reads headers only: it does not verify the DKIM
   signature or call the unsubscribe URL.
 - Content lint, complaint-rate

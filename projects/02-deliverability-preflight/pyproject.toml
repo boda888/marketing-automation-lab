@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "deliverability-preflight"
 version = "0.0.1"
-description = "Offline-testable SPF / DMARC / RFC 8058 preflight checks for outbound email"
+description = "Offline-testable SPF / DKIM / DMARC / RFC 8058 preflight checks for outbound email"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2.6"]
 
