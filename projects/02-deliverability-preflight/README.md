@@ -14,6 +14,9 @@ injectable DNS resolver, so the whole suite runs offline.
 | DKIM key | [`dkim.py`](src/deliverability_preflight/dkim.py) | the key record at `<selector>._domainkey.<domain>`: missing / duplicate / malformed records, revoked keys (empty `p=`), RSA key length (< 1024 error, < 2048 warning), `h=` without `sha256`, `s=` excluding email, `t=y` testing mode, Ed25519 key length |
 | One-click unsubscribe | [`unsubscribe.py`](src/deliverability_preflight/unsubscribe.py) | RFC 8058: exactly one HTTPS URI in `List-Unsubscribe` (angle brackets, `mailto:` allowed alongside), `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, and a DKIM-Signature whose `h=` covers both headers (warning if the draft is not signed yet) |
 
+| Complaint rate | [`complaints.py`](src/deliverability_preflight/complaints.py) | spam-complaint rate per provider vs. a 0.1% target and 0.3% hard limit → `ok` / `watch` / `stop`, complaints left before the limit, small-sample handling (1 complaint on 50 sends does not pause a domain; 5 on 200 does) |
+| All of the above | [`preflight.py`](src/deliverability_preflight/preflight.py) | `preflight()` runs SPF on the Return-Path domain, DMARC on From, every DKIM selector, alignment (using the record's `adkim`/`aspf`, and only DKIM keys that check out), optional draft headers and complaint stats → one report with verdict `pass` / `review` / `block` |
+
 Each finding has a stable `code`, a `severity` (`error` / `warning` / `info`),
 a human `message` and the `ref` (RFC section) it is based on.
 
@@ -29,6 +32,19 @@ dns = FakeResolver(
 )
 report = check_spf("acme.example", dns)
 report.status, report.lookups  # ('valid', 2)
+```
+
+```python
+from deliverability_preflight import ComplaintStats, preflight
+
+report = preflight(
+    "acme.example",
+    dns,
+    dkim_selectors=["s1"],
+    return_path_domain="bounce.acme.example",
+    complaint_stats=[ComplaintStats(provider="gmail", delivered=5000, complaints=2)],
+)
+report.verdict  # 'pass' | 'review' | 'block'; report.findings lists every reason
 ```
 
 ### SPF rules applied (RFC 7208)
@@ -89,8 +105,10 @@ connecting IP: they are counted but not resolved.
   signature or check that the private key matches.
 - The unsubscribe check reads headers only: it does not verify the DKIM
   signature or call the unsubscribe URL.
-- Content lint, complaint-rate
-  guardrail, FastAPI and n8n node are on the [roadmap](../../ROADMAP.md).
+- The 0.1% / 0.3% complaint thresholds follow Gmail's and Yahoo's bulk-sender
+  guidance as widely reported; the provider pages could not be opened from
+  the run environment to re-verify them, so both are parameters.
+- Content lint, FastAPI and the n8n node are on the [roadmap](../../ROADMAP.md).
 
 ## Run
 

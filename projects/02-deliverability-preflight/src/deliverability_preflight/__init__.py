@@ -1,5 +1,10 @@
 """Offline-testable deliverability preflight checks."""
 
+from .complaints import (
+    ComplaintReport,
+    ComplaintStats,
+    check_complaint_rate,
+)
 from .dkim import (
     DkimKeyError,
     DkimKeyRecord,
@@ -20,6 +25,7 @@ from .dmarc import (
 )
 from .dns import DNSTempError, FakeResolver, Resolver
 from .findings import Finding, worst
+from .preflight import PreflightReport, preflight
 from .spf import SpfReport, SpfSyntaxError, check_spf, parse_spf
 from .unsubscribe import (
     UnsubscribeReport,
@@ -29,6 +35,11 @@ from .unsubscribe import (
 )
 
 __all__ = [
+    "ComplaintReport",
+    "ComplaintStats",
+    "check_complaint_rate",
+    "PreflightReport",
+    "preflight",
     "DkimKeyError",
     "DkimKeyRecord",
     "DkimReport",
