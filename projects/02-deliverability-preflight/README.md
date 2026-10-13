@@ -47,6 +47,28 @@ report = preflight(
 report.verdict  # 'pass' | 'review' | 'block'; report.findings lists every reason
 ```
 
+### Sending-capacity and warmup planner
+
+```python
+from deliverability_preflight import Mailbox, plan_capacity
+
+plan = plan_capacity(
+    [
+        Mailbox(address="sam@send1.acme.example"),
+        Mailbox(address="lee@send2.acme.example", age_days=30),
+    ],
+    target_per_day=60,
+)
+plan.steady_state_capacity, plan.day_target_reached, plan.additional_mailboxes_needed
+```
+
+Linear ramp per mailbox (default 5 -> 30 sends/day over 21 days), a per-domain
+cap and a mailboxes-per-domain warning; `paused=True` (e.g. complaint status
+`stop`) zeroes the plan. The defaults come from vendor-affiliated blog guidance
+(search summaries, 2026-10-13), **not** an official provider limit or the
+sequencer docs, which could not be opened; set `CapacityConfig` from your own
+docs. Not yet wired into `preflight()` or the HTTP API.
+
 ### SPF rules applied (RFC 7208)
 
 - Terms that query DNS — `include`, `a`, `mx`, `ptr`, `exists` and the
@@ -108,7 +130,7 @@ connecting IP: they are counted but not resolved.
 - The 0.1% / 0.3% complaint thresholds follow Gmail's and Yahoo's bulk-sender
   guidance as widely reported; the provider pages could not be opened from
   the run environment to re-verify them, so both are parameters.
-- Content lint and the warmup planner are on the [roadmap](../../ROADMAP.md).
+- Content lint is on the [roadmap](../../ROADMAP.md).
 - The n8n workflow is structure-tested only; it has not been imported into a live n8n instance.
 
 ## Run
