@@ -32,7 +32,7 @@ Open follow-ups:
 - [ ] per-account `as_of` in CSV + events from a JSONL file
 - [ ] config diff endpoint / versioned configs
 
-## 02 · Deliverability preflight → + sending-capacity & warmup planner — in progress (v0.0.3)
+## 02 · Deliverability preflight → + sending-capacity & warmup planner — in progress (v0.0.4)
 Check a sending setup and a message before it goes out, against current
 Gmail / Yahoo / Microsoft bulk-sender requirements.
 - [x] DNS checks: SPF (incl. 10-lookup and void-lookup limits), DMARC policy + `rua`, alignment
@@ -44,7 +44,7 @@ Gmail / Yahoo / Microsoft bulk-sender requirements.
 - [x] `preflight()` aggregator: one report, `pass` / `review` / `block` verdict
 - [x] DNS via injectable resolver (offline tests)
 - [x] FastAPI + n8n "preflight before send" node
-- [ ] sending-capacity & warmup planner: mailboxes × domains × daily caps → safe volume
+- [x] sending-capacity & warmup planner: mailboxes × domains × daily caps → safe volume
       and ramp schedule, using current provider limits (link the vendor docs)
 
 ## 03 · Signal engine
