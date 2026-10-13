@@ -5,8 +5,12 @@ agent should only change it when the owner asked for that.
 
 ## 0. Setup
 1. Clone/pull `main` of `boda888/marketing-automation-lab`. Never force-push. Never rewrite history.
-2. `pip install ruff`, then for each project you touch: `pip install -e ".[dev]"`.
-3. Run the full baseline: `ruff check . && ruff format --check . && python scripts/check_repo.py`
+2. Commit as the repo owner so commits count on their GitHub profile (repo-local config,
+   before the first commit):
+   `git config user.name "boda888" && git config user.email "53265174+boda888@users.noreply.github.com"`.
+   Keep the Claude `Co-Authored-By` trailer the harness asks for; never change past commits.
+3. `pip install ruff`, then for each project you touch: `pip install -e ".[dev]"`.
+4. Run the full baseline: `ruff check . && ruff format --check . && python scripts/check_repo.py`
    and `pytest -q` in every project. If baseline is red, the first job is fixing it.
 
 ## 1. Orient
