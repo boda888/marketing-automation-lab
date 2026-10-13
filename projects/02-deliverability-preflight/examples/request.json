@@ -1,0 +1,14 @@
+{
+  "from_domain": "acme.example",
+  "dkim_selectors": [
+    "s1"
+  ],
+  "return_path_domain": "bounce.acme.example",
+  "complaint_stats": [
+    {
+      "delivered": 5000,
+      "complaints": 2,
+      "provider": "gmail"
+    }
+  ]
+}
