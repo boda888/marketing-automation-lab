@@ -13,8 +13,8 @@
       "id": "02-deliverability-preflight",
       "path": "projects/02-deliverability-preflight",
       "status": "in_progress",
-      "summary": "SPF lookup budget, DMARC parsing/discovery/alignment, RFC 8058 headers, DKIM key records, complaint-rate guardrail and preflight() aggregator done (112 offline tests); FastAPI, n8n workflow, content lint and sending-capacity & warmup planner pending.",
-      "version": "0.0.2"
+      "summary": "SPF budget, DMARC, RFC 8058 headers, DKIM keys, complaint guardrail, preflight() aggregator, FastAPI POST /v1/preflight and n8n workflow done (120 offline tests); content lint and sending-capacity & warmup planner pending.",
+      "version": "0.0.3"
     },
     {
       "id": "03-signal-engine",
@@ -89,16 +89,17 @@
     "02: SPF parser + worst-case lookup/void-lookup budget checker (RFC 7208)",
     "02: DMARC parsing, discovery, rua authorisation and SPF/DKIM alignment (RFC 7489)",
     "02: RFC 8058 one-click unsubscribe header + DKIM h= coverage check",
-    "02: DKIM selector key-record check (RFC 6376 §3.6, RFC 8301 key length/sha256, RFC 8463 Ed25519)",
-    "02: complaint-rate guardrail (0.1% target / 0.3% limit, small-sample handling) + preflight() aggregator with pass/review/block verdict"
+    "02: DKIM selector key-record check (RFC 6376 \u00a73.6, RFC 8301 key length/sha256, RFC 8463 Ed25519)",
+    "02: complaint-rate guardrail (0.1% target / 0.3% limit, small-sample handling) + preflight() aggregator with pass/review/block verdict",
+    "02: FastAPI POST /v1/preflight (fixture-backed demo resolver) + examples on .example domains",
+    "02: n8n 'preflight before send' workflow (Switch on verdict), structure-tested"
   ],
   "next_steps": [
-    "02: FastAPI POST /v1/preflight wrapping preflight() (DNS via injectable resolver; FakeResolver in tests) + synthetic .example fixtures.",
-    "02: n8n 'preflight before send' workflow (HTTP Request -> Switch on verdict), structure-tested by check_repo.py; then README problem->architecture->run->limits and bump to v0.1.0.",
-    "02: optional live DNS adapter (dnspython) behind the Resolver protocol, kept out of default tests; DKIM-Signature parser to derive d=/s= from a draft for preflight().",
-    "02: content lint (links, tracking domains, spammy patterns) with explainable findings.",
-    "02: sending-capacity & warmup planner (mailboxes x domains x daily caps -> ramp) with limits from current vendor docs; then move to 03 signal engine.",
-    "Re-run research from primary sources when egress allows: Google/Yahoo/Microsoft bulk-sender pages, RFC 9989 (DMARCbis); record opened URLs and fix outdated rules."
+    "02: content lint (links, tracking domains, spammy patterns) with explainable findings, wired into preflight() and the API.",
+    "02: sending-capacity & warmup planner (mailboxes x domains x daily caps -> ramp); take limits from vendor docs when reachable.",
+    "02: optional live DNS adapter (dnspython) behind Resolver, kept out of default tests; DKIM-Signature parser to derive d=/s=; then README polish and v0.1.0.",
+    "Start 03 signal engine once 02 reaches v0.1.0.",
+    "Re-verify provider rules and RFC 9989 (DMARCbis) from primary sources when egress allows; record opened URLs."
   ],
   "known_gaps": [
     "01 n8n workflow is structure-tested only; never imported into a live n8n instance.",
@@ -109,13 +110,14 @@
     "01 weights are hand-set; no calibration on real won/lost data yet (project 12).",
     "02: provider bulk-sender thresholds (Gmail/Yahoo/Microsoft, 0.1%/0.3% complaint rate) taken from web-search summaries of third-party pages; primary pages unreachable from the run environment (2026-10-10, 2026-10-12).",
     "02: RFC 6376/8301/8463 rules implemented from knowledge plus a search summary of RFC 8301; RFC text pages were blocked by the egress proxy (HTTP 403).",
-    "02: DKIM check reads published keys only; no signature verification, no private/public key match check."
+    "02: DKIM check reads published keys only; no signature verification, no private/public key match check.",
+    "02: n8n preflight workflow never imported into a live n8n instance; API tested only with TestClient and fixture DNS."
   ],
   "last_run": {
-    "date": "2026-10-12",
+    "date": "2026-10-13",
     "by": "daily agent",
-    "commits": 3,
-    "notes": "02: DKIM key-record check, complaint-rate guardrail, preflight() aggregator. WebFetch/curl to rfc-editor.org, datatracker.ietf.org, support.google.com and RFC mirrors blocked (DNS failure / proxy 403); only web-search summaries were available."
+    "commits": 2,
+    "notes": "02: FastAPI /v1/preflight + n8n workflow. support.google.com unreachable (DNS failure); only a web-search summary was available."
   },
   "run_log": [
     {
@@ -139,6 +141,13 @@
       "summary": "02-deliverability-preflight v0.0.2: DKIM selector key check (key length from DER, revoked, sha1-only, s=, t=y, Ed25519), complaint-rate guardrail, preflight() aggregator with pass/review/block; 112 tests in 02 (01 still 33).",
       "sources": [],
       "research_note": "Opened nothing: WebFetch could not resolve rfc-editor.org / support.google.com, and curl to rfc-editor.org, datatracker.ietf.org, support.google.com, xmox.nl and zytrax.com got proxy 403. Web-search result summaries (not opened) listed https://datatracker.ietf.org/doc/html/rfc8301.html (signers MUST use >=1024-bit RSA, SHOULD 2048; rsa-sha1 MUST NOT be used) and third-party blogs on Gmail's 0.1%/0.3% spam-rate guidance; code matches those summaries and keeps thresholds as parameters."
+    },
+    {
+      "date": "2026-10-13",
+      "commits": 3,
+      "summary": "02 v0.0.3: FastAPI POST /v1/preflight with fixture resolver, n8n preflight-before-send workflow; 120 tests in 02 (01: 33).",
+      "sources": [],
+      "research_note": "WebFetch of support.google.com/a/answer/81126 failed (ENOTFOUND). A web-search result summary (not an opened page) of https://support.google.com/a/answer/14229414 again reported 0.1% impact / 0.3% mitigation-ineligible spam rate and one-click only for marketing mail; consistent with existing code, unverified against the page."
     }
   ]
 }
