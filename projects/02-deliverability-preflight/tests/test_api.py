@@ -64,3 +64,22 @@ def test_bad_fixture_key_rejected(tmp_path):
     p.write_text('{"nonsense": []}')
     with pytest.raises(ValueError):
         load_fixture_resolver(p)
+
+
+def test_n8n_workflow_matches_api_contract():
+    wf = json.loads((EXAMPLES.parent / "n8n" / "preflight-before-send.json").read_text())
+    names = [n["name"] for n in wf["nodes"]]
+    assert len(names) == len(set(names))
+    assert len({n["id"] for n in wf["nodes"]}) == len(names)
+    for src, outputs in wf["connections"].items():
+        assert src in names
+        assert all(link["node"] in names for branch in outputs["main"] for link in branch)
+    http = next(n for n in wf["nodes"] if n["type"] == "n8n-nodes-base.httpRequest")
+    assert http["parameters"]["url"].endswith("/v1/preflight")
+    switch = next(n for n in wf["nodes"] if n["type"] == "n8n-nodes-base.switch")
+    outputs = [r["outputKey"] for r in switch["parameters"]["rules"]["values"]]
+    assert outputs == ["pass", "review", "block"]  # branch order = connection order
+    targets = [b[0]["node"] for b in wf["connections"]["Switch on verdict"]["main"]]
+    assert len(targets) == 3 and len(set(targets)) == 3
+    webhook = next(n for n in wf["nodes"] if n["type"] == "n8n-nodes-base.webhook")
+    assert webhook["parameters"]["responseMode"] == "responseNode"

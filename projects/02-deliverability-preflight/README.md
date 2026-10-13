@@ -108,10 +108,27 @@ connecting IP: they are counted but not resolved.
 - The 0.1% / 0.3% complaint thresholds follow Gmail's and Yahoo's bulk-sender
   guidance as widely reported; the provider pages could not be opened from
   the run environment to re-verify them, so both are parameters.
-- Content lint, FastAPI and the n8n node are on the [roadmap](../../ROADMAP.md).
+- Content lint and the warmup planner are on the [roadmap](../../ROADMAP.md).
+- The n8n workflow is structure-tested only; it has not been imported into a live n8n instance.
 
 ## Run
 
 ```bash
-pip install -e ".[dev]" && pytest -q
+pip install -e ".[dev]" && python -m pytest -q
 ```
+
+### HTTP service (demo DNS from a fixture)
+
+```bash
+PREFLIGHT_DNS_FIXTURE=examples/dns_fixture.json uvicorn deliverability_preflight.api:app --port 8002
+curl -s localhost:8002/v1/preflight -H 'content-type: application/json' -d @examples/request.json
+```
+
+`POST /v1/preflight` takes `from_domain`, `dkim_selectors`, optional
+`dkim_domain`, `return_path_domain`, `headers` (`[name, value]` pairs) and
+`complaint_stats`, and returns the `PreflightReport` (`verdict` is
+`pass` / `review` / `block`). Without `PREFLIGHT_DNS_FIXTURE` the app has an
+empty resolver, so everything reports missing records; there is no live DNS yet.
+
+`n8n/preflight-before-send.json` posts a campaign to the service and switches on
+`verdict` (send / hold for review / block).
