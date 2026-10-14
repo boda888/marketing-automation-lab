@@ -15,7 +15,8 @@ injectable DNS resolver, so the whole suite runs offline.
 | One-click unsubscribe | [`unsubscribe.py`](src/deliverability_preflight/unsubscribe.py) | RFC 8058: exactly one HTTPS URI in `List-Unsubscribe` (angle brackets, `mailto:` allowed alongside), `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, and a DKIM-Signature whose `h=` covers both headers (warning if the draft is not signed yet) |
 
 | Complaint rate | [`complaints.py`](src/deliverability_preflight/complaints.py) | spam-complaint rate per provider vs. a 0.1% target and 0.3% hard limit → `ok` / `watch` / `stop`, complaints left before the limit, small-sample handling (1 complaint on 50 sends does not pause a domain; 5 on 200 does) |
-| All of the above | [`preflight.py`](src/deliverability_preflight/preflight.py) | `preflight()` runs SPF on the Return-Path domain, DMARC on From, every DKIM selector, alignment (using the record's `adkim`/`aspf`, and only DKIM keys that check out), optional draft headers and complaint stats → one report with verdict `pass` / `review` / `block` |
+| Content lint | [`content.py`](src/deliverability_preflight/content.py) | rendered draft (`subject`, `text`, `html`): unrendered merge tags (`{{first_name}}`, `%%X%%`, `*\|X\|*`, `{x}`) → error, links to bare IPs → error, link text naming a different domain than its `href` → error; public shorteners, plain `http`, more than 3 links, click-tracking domain outside the From organization, HTML without a text part, image-heavy / CSS-hidden content, empty or shouting subject, `!!!`/`$$`, spam-trigger phrases → warning; third-party link domains → info |
+| All of the above | [`preflight.py`](src/deliverability_preflight/preflight.py) | `preflight()` runs SPF on the Return-Path domain, DMARC on From, every DKIM selector, alignment (using the record's `adkim`/`aspf`, and only DKIM keys that check out), optional draft headers, draft content and complaint stats → one report with verdict `pass` / `review` / `block` |
 
 Each finding has a stable `code`, a `severity` (`error` / `warning` / `info`),
 a human `message` and the `ref` (RFC section) it is based on.
@@ -108,7 +109,12 @@ connecting IP: they are counted but not resolved.
 - The 0.1% / 0.3% complaint thresholds follow Gmail's and Yahoo's bulk-sender
   guidance as widely reported; the provider pages could not be opened from
   the run environment to re-verify them, so both are parameters.
-- Content lint and the warmup planner are on the [roadmap](../../ROADMAP.md).
+- Content lint rules are heuristics, not published provider rules (providers do
+  not publish their filters); the shortener list, spam-phrase list and link
+  limit are parameters (`lint_content(shorteners=, spam_phrases=, max_links=)`).
+  It lints the draft as given: render merge tags first, it does not follow
+  redirects or check URLs against blocklists.
+- The warmup planner is on the [roadmap](../../ROADMAP.md).
 - The n8n workflow is structure-tested only; it has not been imported into a live n8n instance.
 
 ## Run
@@ -125,8 +131,9 @@ curl -s localhost:8002/v1/preflight -H 'content-type: application/json' -d @exam
 ```
 
 `POST /v1/preflight` takes `from_domain`, `dkim_selectors`, optional
-`dkim_domain`, `return_path_domain`, `headers` (`[name, value]` pairs) and
-`complaint_stats`, and returns the `PreflightReport` (`verdict` is
+`dkim_domain`, `return_path_domain`, `headers` (`[name, value]` pairs),
+`content` (`subject`, `text`, `html` of the rendered draft), `tracking_domain`
+and `complaint_stats`, and returns the `PreflightReport` (`verdict` is
 `pass` / `review` / `block`). Without `PREFLIGHT_DNS_FIXTURE` the app has an
 empty resolver, so everything reports missing records; there is no live DNS yet.
 

@@ -3,7 +3,8 @@
 ``preflight`` checks the domains a campaign will use — SPF on the Return-Path
 domain (SPF authenticates MAIL FROM, not From), DMARC on the From domain, the
 DKIM selectors the ESP signs with, and DMARC alignment of those identifiers —
-plus, when given, a draft's headers (RFC 8058) and recent complaint stats.
+plus, when given, a draft's headers (RFC 8058), its rendered content (links,
+merge tags, formatting) and recent complaint stats.
 
 The verdict is ``block`` if any finding is an error, ``review`` if any is a
 warning, ``pass`` otherwise. Every finding keeps its stable ``code`` so an n8n
@@ -18,6 +19,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from .complaints import ComplaintReport, ComplaintStats, check_complaint_rate
+from .content import ContentReport, MessageContent, lint_content
 from .dkim import DkimReport, check_dkim
 from .dmarc import AlignmentResult, DmarcReport, OrgDomainFn, check_alignment, check_dmarc
 from .dmarc import default_org_domain as _default_org_domain
@@ -40,6 +42,7 @@ class PreflightReport(BaseModel):
     alignment: AlignmentResult
     unsubscribe: UnsubscribeReport | None = None
     complaints: list[ComplaintReport] = []
+    content: ContentReport | None = None
     findings: list[Finding] = []
 
 
@@ -57,9 +60,11 @@ def preflight(
     return_path_domain: str | None = None,
     headers: Iterable[tuple[str, str]] | None = None,
     complaint_stats: Iterable[ComplaintStats] = (),
+    content: MessageContent | None = None,
+    tracking_domain: str | None = None,
     org_domain: OrgDomainFn = _default_org_domain,
 ) -> PreflightReport:
-    """Run SPF, DMARC, DKIM, alignment, one-click and complaint checks.
+    """Run SPF, DMARC, DKIM, alignment, one-click, content and complaint checks.
 
     ``dkim_domain`` (the signature's ``d=``) and ``return_path_domain``
     default to ``from_domain``. Only selectors whose key checks out count as
@@ -102,6 +107,16 @@ def preflight(
         unsubscribe = check_one_click(headers)
         findings.extend(unsubscribe.findings)
 
+    content_report = None
+    if content is not None:
+        content_report = lint_content(
+            content,
+            from_domain=from_domain,
+            tracking_domain=tracking_domain,
+            org_domain=org_domain,
+        )
+        findings.extend(content_report.findings)
+
     complaints = [check_complaint_rate(s) for s in complaint_stats]
     for rep in complaints:
         findings.extend(rep.findings)
@@ -117,5 +132,6 @@ def preflight(
         alignment=alignment,
         unsubscribe=unsubscribe,
         complaints=complaints,
+        content=content_report,
         findings=findings,
     )

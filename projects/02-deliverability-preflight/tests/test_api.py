@@ -83,3 +83,11 @@ def test_n8n_workflow_matches_api_contract():
     assert len(targets) == 3 and len(set(targets)) == 3
     webhook = next(n for n in wf["nodes"] if n["type"] == "n8n-nodes-base.webhook")
     assert webhook["parameters"]["responseMode"] == "responseNode"
+
+
+def test_content_lint_via_api(client):
+    content = {"subject": "Hi {{first_name}}", "text": "Short note https://bit.ly/x"}
+    body = client.post("/v1/preflight", json={**REQUEST, "content": content}).json()
+    assert body["verdict"] == "block"
+    found = {f["code"] for f in body["content"]["findings"]}
+    assert {"CONTENT_UNRENDERED_MERGE_TAG", "CONTENT_LINK_SHORTENER"} <= found

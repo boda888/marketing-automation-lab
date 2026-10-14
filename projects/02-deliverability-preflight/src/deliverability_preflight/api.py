@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 from .complaints import ComplaintStats
+from .content import MessageContent
 from .dns import FakeResolver, Resolver
 from .preflight import PreflightReport, preflight
 
@@ -29,6 +30,8 @@ class PreflightRequest(BaseModel):
     return_path_domain: str | None = None
     headers: list[tuple[str, str]] | None = None
     complaint_stats: list[ComplaintStats] = []
+    content: MessageContent | None = None
+    tracking_domain: str | None = None
 
 
 def load_fixture_resolver(path: str | Path) -> FakeResolver:
@@ -48,7 +51,7 @@ def create_app(resolver: Resolver | None = None) -> FastAPI:
         fixture = os.environ.get("PREFLIGHT_DNS_FIXTURE")
         resolver = load_fixture_resolver(fixture) if fixture else FakeResolver({})
     res = resolver
-    app = FastAPI(title="Deliverability preflight", version="0.0.3")
+    app = FastAPI(title="Deliverability preflight", version="0.0.4")
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
@@ -65,6 +68,8 @@ def create_app(resolver: Resolver | None = None) -> FastAPI:
             return_path_domain=req.return_path_domain,
             headers=req.headers,
             complaint_stats=req.complaint_stats,
+            content=req.content,
+            tracking_domain=req.tracking_domain,
         )
 
     return app

@@ -10,5 +10,10 @@
       "complaints": 2,
       "provider": "gmail"
     }
-  ]
+  ],
+  "content": {
+    "subject": "Ramping the new Lisbon SDRs",
+    "text": "Hi Dana,\n\nSaw that Northwind Example is hiring three SDRs in Lisbon. We help teams like yours ramp new reps faster with call reviews.\n\nWorth a 15-minute chat next week? Details: https://acme.example/sdr-ramp\n\nSam"
+  },
+  "tracking_domain": "clicks.acme.example"
 }

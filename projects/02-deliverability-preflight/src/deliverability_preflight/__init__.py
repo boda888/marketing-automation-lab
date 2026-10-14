@@ -5,6 +5,12 @@ from .complaints import (
     ComplaintStats,
     check_complaint_rate,
 )
+from .content import (
+    ContentReport,
+    Link,
+    MessageContent,
+    lint_content,
+)
 from .dkim import (
     DkimKeyError,
     DkimKeyRecord,
@@ -38,6 +44,10 @@ __all__ = [
     "ComplaintReport",
     "ComplaintStats",
     "check_complaint_rate",
+    "ContentReport",
+    "Link",
+    "MessageContent",
+    "lint_content",
     "PreflightReport",
     "preflight",
     "DkimKeyError",
@@ -68,4 +78,4 @@ __all__ = [
     "parse_spf",
     "worst",
 ]
-__version__ = "0.0.2"
+__version__ = "0.0.4"
