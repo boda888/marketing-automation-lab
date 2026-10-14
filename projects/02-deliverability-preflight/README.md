@@ -16,6 +16,7 @@ injectable DNS resolver, so the whole suite runs offline.
 
 | Complaint rate | [`complaints.py`](src/deliverability_preflight/complaints.py) | spam-complaint rate per provider vs. a 0.1% target and 0.3% hard limit → `ok` / `watch` / `stop`, complaints left before the limit, small-sample handling (1 complaint on 50 sends does not pause a domain; 5 on 200 does) |
 | Content lint | [`content.py`](src/deliverability_preflight/content.py) | rendered draft (`subject`, `text`, `html`): unrendered merge tags (`{{first_name}}`, `%%X%%`, `*\|X\|*`, `{x}`) → error, links to bare IPs → error, link text naming a different domain than its `href` → error; public shorteners, plain `http`, more than 3 links, click-tracking domain outside the From organization, HTML without a text part, image-heavy / CSS-hidden content, empty or shouting subject, `!!!`/`$$`, spam-trigger phrases → warning; third-party link domains → info |
+| Sending capacity | [`capacity.py`](src/deliverability_preflight/capacity.py) | `plan_capacity()`: mailboxes (provider, warmup start, complaint status, optional cap) → today's safe campaign volume per mailbox and per domain, a day-by-day ramp (warmup → ramp start + step/day → cap), the date a target volume is reachable, and how many more mailboxes / domains it needs; flags crowded domains, duplicates, caps at a provider's per-user limit, held (`watch`) and paused (`stop`) mailboxes |
 | All of the above | [`preflight.py`](src/deliverability_preflight/preflight.py) | `preflight()` runs SPF on the Return-Path domain, DMARC on From, every DKIM selector, alignment (using the record's `adkim`/`aspf`, and only DKIM keys that check out), optional draft headers, draft content and complaint stats → one report with verdict `pass` / `review` / `block` |
 
 Each finding has a stable `code`, a `severity` (`error` / `warning` / `info`),
@@ -114,7 +115,13 @@ connecting IP: they are counted but not resolved.
   limit are parameters (`lint_content(shorteners=, spam_phrases=, max_links=)`).
   It lints the draft as given: render merge tags first, it does not follow
   redirects or check URLs against blocklists.
-- The warmup planner is on the [roadmap](../../ROADMAP.md).
+- Capacity-planner defaults (14 warmup days, ramp 5 + 2/day, 30 campaign emails per
+  mailbox per day, 3 mailboxes per domain) are common sequencer guidance as reported
+  in search summaries of vendor help pages, not a standard; provider ceilings
+  (Google Workspace 2,000 messages/user/day, Exchange Online 10,000 recipients/day)
+  are from search summaries of the Google and Microsoft pages, which could not be
+  opened from the run environment. All are `CapacityPolicy` parameters. Warmup mail
+  itself is not counted, and the plan does not read live sequencer or Postmaster data.
 - The n8n workflow is structure-tested only; it has not been imported into a live n8n instance.
 
 ## Run
@@ -136,6 +143,19 @@ curl -s localhost:8002/v1/preflight -H 'content-type: application/json' -d @exam
 and `complaint_stats`, and returns the `PreflightReport` (`verdict` is
 `pass` / `review` / `block`). Without `PREFLIGHT_DNS_FIXTURE` the app has an
 empty resolver, so everything reports missing records; there is no live DNS yet.
+
+`POST /v1/capacity` takes `mailboxes` (`address`, `provider` = `google` /
+`microsoft` / `smtp`, `warmup_started`, optional `complaint_status` and `daily_cap`),
+`target_daily`, optional `on` (default today), `days` (ramp horizon, default 30)
+and `policy` (`CapacityPolicy` overrides), and returns the `CapacityPlan`:
+
+```bash
+curl -s localhost:8002/v1/capacity -H 'content-type: application/json' -d @examples/capacity_request.json
+```
+
+In that example five mailboxes on two domains give 75/day on 2026-10-20 and 125/day
+once every mailbox has ramped (one is held at 5/day for complaints), so a 150/day
+target needs one more mailbox: `CAPACITY_SHORTFALL`.
 
 `n8n/preflight-before-send.json` posts a campaign to the service and switches on
 `verdict` (send / hold for review / block).

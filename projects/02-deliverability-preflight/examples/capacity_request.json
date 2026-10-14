@@ -1,0 +1,13 @@
+{
+  "on": "2026-10-20",
+  "target_daily": 150,
+  "days": 21,
+  "mailboxes": [
+    {"address": "sam@acme-outreach.example", "provider": "google", "warmup_started": "2026-09-01"},
+    {"address": "kim@acme-outreach.example", "provider": "google", "warmup_started": "2026-09-01"},
+    {"address": "lee@acme-outreach.example", "provider": "google", "warmup_started": "2026-10-01"},
+    {"address": "ana@tryacme.example", "provider": "microsoft", "warmup_started": "2026-10-10"},
+    {"address": "joe@tryacme.example", "provider": "microsoft", "warmup_started": "2026-10-10",
+     "complaint_status": "watch"}
+  ]
+}

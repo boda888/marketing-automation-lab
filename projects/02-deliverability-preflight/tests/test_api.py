@@ -91,3 +91,28 @@ def test_content_lint_via_api(client):
     assert body["verdict"] == "block"
     found = {f["code"] for f in body["content"]["findings"]}
     assert {"CONTENT_UNRENDERED_MERGE_TAG", "CONTENT_LINK_SHORTENER"} <= found
+
+
+CAPACITY = json.loads((EXAMPLES / "capacity_request.json").read_text())
+
+
+def test_capacity_example_plan(client):
+    r = client.post("/v1/capacity", json=CAPACITY)
+    assert r.status_code == 200
+    body = r.json()
+    # sam + kim steady (30 each), lee ramping (day 5 -> 15), tryacme boxes still warming
+    assert body["capacity_today"] == 75
+    assert body["by_domain"] == {"acme-outreach.example": 75, "tryacme.example": 0}
+    # steady: 3 x 30 + ana 30 + joe held at 5 = 125 < 150
+    assert body["steady_state_capacity"] == 125
+    assert body["additional_mailboxes"] == 1 and body["additional_domains"] == 0
+    found = {f["code"] for f in body["findings"]}
+    assert {"CAPACITY_SHORTFALL", "CAPACITY_MAILBOX_WARMING"} <= found
+    assert len(body["schedule"]) == 21
+
+
+def test_capacity_rejects_bad_policy_and_mailbox(client):
+    bad_policy = {**CAPACITY, "policy": {"ramp_start": 50, "campaign_cap": 30}}
+    assert client.post("/v1/capacity", json=bad_policy).status_code == 422
+    bad_box = {**CAPACITY, "mailboxes": [{"address": "nobody", "warmup_started": "2026-09-01"}]}
+    assert client.post("/v1/capacity", json=bad_box).status_code == 422
