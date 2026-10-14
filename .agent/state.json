@@ -13,8 +13,8 @@
       "id": "02-deliverability-preflight",
       "path": "projects/02-deliverability-preflight",
       "status": "in_progress",
-      "summary": "SPF budget, DMARC, RFC 8058 headers, DKIM keys, complaint guardrail, preflight() aggregator, FastAPI POST /v1/preflight and n8n workflow done (120 offline tests); content lint and sending-capacity & warmup planner pending.",
-      "version": "0.0.3"
+      "summary": "SPF budget, DMARC, RFC 8058 headers, DKIM keys, content lint, complaint guardrail, preflight() aggregator, FastAPI POST /v1/preflight and n8n workflow done (143 offline tests); sending-capacity & warmup planner pending.",
+      "version": "0.0.4"
     },
     {
       "id": "03-signal-engine",
@@ -89,15 +89,16 @@
     "02: SPF parser + worst-case lookup/void-lookup budget checker (RFC 7208)",
     "02: DMARC parsing, discovery, rua authorisation and SPF/DKIM alignment (RFC 7489)",
     "02: RFC 8058 one-click unsubscribe header + DKIM h= coverage check",
-    "02: DKIM selector key-record check (RFC 6376 \u00a73.6, RFC 8301 key length/sha256, RFC 8463 Ed25519)",
+    "02: DKIM selector key-record check (RFC 6376 §3.6, RFC 8301 key length/sha256, RFC 8463 Ed25519)",
     "02: complaint-rate guardrail (0.1% target / 0.3% limit, small-sample handling) + preflight() aggregator with pass/review/block verdict",
     "02: FastAPI POST /v1/preflight (fixture-backed demo resolver) + examples on .example domains",
-    "02: n8n 'preflight before send' workflow (Switch on verdict), structure-tested"
+    "02: n8n 'preflight before send' workflow (Switch on verdict), structure-tested",
+    "02: content lint (unrendered merge tags, IP/shortener/http links, link-text vs href mismatch, unbranded tracking domain, HTML-only, image-heavy/hidden content, subject/phrase heuristics) wired into preflight() and the API"
   ],
   "next_steps": [
-    "02: content lint (links, tracking domains, spammy patterns) with explainable findings, wired into preflight() and the API.",
     "02: sending-capacity & warmup planner (mailboxes x domains x daily caps -> ramp); take limits from vendor docs when reachable.",
     "02: optional live DNS adapter (dnspython) behind Resolver, kept out of default tests; DKIM-Signature parser to derive d=/s=; then README polish and v0.1.0.",
+    "02: optional Public Suffix List-aware org_domain (affects alignment and content-lint third-party/tracking checks).",
     "Start 03 signal engine once 02 reaches v0.1.0.",
     "Re-verify provider rules and RFC 9989 (DMARCbis) from primary sources when egress allows; record opened URLs."
   ],
@@ -111,13 +112,14 @@
     "02: provider bulk-sender thresholds (Gmail/Yahoo/Microsoft, 0.1%/0.3% complaint rate) taken from web-search summaries of third-party pages; primary pages unreachable from the run environment (2026-10-10, 2026-10-12).",
     "02: RFC 6376/8301/8463 rules implemented from knowledge plus a search summary of RFC 8301; RFC text pages were blocked by the egress proxy (HTTP 403).",
     "02: DKIM check reads published keys only; no signature verification, no private/public key match check.",
-    "02: n8n preflight workflow never imported into a live n8n instance; API tested only with TestClient and fixture DNS."
+    "02: n8n preflight workflow never imported into a live n8n instance; API tested only with TestClient and fixture DNS.",
+    "02: content-lint rules (shorteners, spam phrases, 3-link limit, image/text ratio) are heuristics from knowledge plus a vendor-blog search summary; no provider publishes its filters and no provider page could be opened (2026-10-14)."
   ],
   "last_run": {
-    "date": "2026-10-13",
+    "date": "2026-10-14",
     "by": "daily agent",
     "commits": 2,
-    "notes": "02: FastAPI /v1/preflight + n8n workflow. support.google.com unreachable (DNS failure); only a web-search summary was available."
+    "notes": "02: content lint + preflight/API wiring. Egress again could not resolve support.google.com, senders.yahooinc.com, help.zoho.com (ENOTFOUND)."
   },
   "run_log": [
     {
@@ -148,6 +150,13 @@
       "summary": "02 v0.0.3: FastAPI POST /v1/preflight with fixture resolver, n8n preflight-before-send workflow; 120 tests in 02 (01: 33).",
       "sources": [],
       "research_note": "WebFetch of support.google.com/a/answer/81126 failed (ENOTFOUND). A web-search result summary (not an opened page) of https://support.google.com/a/answer/14229414 again reported 0.1% impact / 0.3% mitigation-ineligible spam rate and one-click only for marketing mail; consistent with existing code, unverified against the page."
+    },
+    {
+      "date": "2026-10-14",
+      "commits": 2,
+      "summary": "02 v0.0.4: content lint (merge tags, link checks, tracking domain, structure, wording) in preflight() and POST /v1/preflight; 143 tests in 02 (01: 33).",
+      "sources": [],
+      "research_note": "Opened nothing: WebFetch of support.google.com/mail/answer/81126, senders.yahooinc.com/best-practices and help.zoho.com Gmail suspicious-links article failed (ENOTFOUND); curl got no connection. A web-search summary (not opened pages) of vendor blogs (suped.com, moosend.com, mailreach.co) said public shorteners are a liability and branded/aligned tracking domains are preferred; code treats these as warnings with parameters."
     }
   ]
 }

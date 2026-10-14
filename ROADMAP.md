@@ -32,14 +32,14 @@ Open follow-ups:
 - [ ] per-account `as_of` in CSV + events from a JSONL file
 - [ ] config diff endpoint / versioned configs
 
-## 02 · Deliverability preflight → + sending-capacity & warmup planner — in progress (v0.0.3)
+## 02 · Deliverability preflight → + sending-capacity & warmup planner — in progress (v0.0.4)
 Check a sending setup and a message before it goes out, against current
 Gmail / Yahoo / Microsoft bulk-sender requirements.
 - [x] DNS checks: SPF (incl. 10-lookup and void-lookup limits), DMARC policy + `rua`, alignment
 - [x] DNS checks: DKIM selector key (`<s>._domainkey`): revoked, RSA length, sha256, Ed25519
 - [ ] DMARCbis (RFC 9989) review against the RFC text
 - [x] message checks: `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058), From/Return-Path alignment
-- [ ] content lint (links, tracking domains, spammy patterns) with explainable findings
+- [x] content lint (links, tracking domains, spammy patterns) with explainable findings
 - [x] complaint-rate guardrail (0.1% target / 0.3% hard) from provided stats
 - [x] `preflight()` aggregator: one report, `pass` / `review` / `block` verdict
 - [x] DNS via injectable resolver (offline tests)
