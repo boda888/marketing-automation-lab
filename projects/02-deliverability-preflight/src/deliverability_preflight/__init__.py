@@ -1,5 +1,12 @@
 """Offline-testable deliverability preflight checks."""
 
+from .capacity import (
+    CapacityPlan,
+    CapacityPolicy,
+    Mailbox,
+    mailbox_capacity,
+    plan_capacity,
+)
 from .complaints import (
     ComplaintReport,
     ComplaintStats,
@@ -41,6 +48,11 @@ from .unsubscribe import (
 )
 
 __all__ = [
+    "CapacityPlan",
+    "CapacityPolicy",
+    "Mailbox",
+    "mailbox_capacity",
+    "plan_capacity",
     "ComplaintReport",
     "ComplaintStats",
     "check_complaint_rate",
