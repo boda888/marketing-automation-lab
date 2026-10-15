@@ -13,8 +13,8 @@
       "id": "02-deliverability-preflight",
       "path": "projects/02-deliverability-preflight",
       "status": "in_progress",
-      "summary": "SPF budget, DMARC, RFC 8058 headers, DKIM keys, content lint, complaint guardrail, preflight() aggregator, sending-capacity & warmup planner, FastAPI POST /v1/preflight + /v1/capacity and n8n workflow done (157 offline tests); live DNS adapter, PSL and README polish left before v0.1.0.",
-      "version": "0.0.5"
+      "summary": "SPF budget, DMARC, RFC 8058 headers, DKIM keys, DKIM-Signature header check (selectors from headers), content lint, complaint guardrail, preflight() aggregator, sending-capacity & warmup planner, FastAPI POST /v1/preflight + /v1/capacity and n8n workflow done (190 offline tests); live DNS adapter, PSL and README polish left before v0.1.0.",
+      "version": "0.0.6"
     },
     {
       "id": "03-signal-engine",
@@ -94,10 +94,11 @@
     "02: FastAPI POST /v1/preflight (fixture-backed demo resolver) + examples on .example domains",
     "02: n8n 'preflight before send' workflow (Switch on verdict), structure-tested",
     "02: content lint (unrendered merge tags, IP/shortener/http links, link-text vs href mismatch, unbranded tracking domain, HTML-only, image-heavy/hidden content, subject/phrase heuristics) wired into preflight() and the API",
-    "02: sending-capacity & warmup planner (plan_capacity: warmup -> ramp -> cap per mailbox, complaint hold/pause, per-domain totals, target date, extra mailboxes/domains, provider-ceiling check) + POST /v1/capacity"
+    "02: sending-capacity & warmup planner (plan_capacity: warmup -> ramp -> cap per mailbox, complaint hold/pause, per-domain totals, target date, extra mailboxes/domains, provider-ceiling check) + POST /v1/capacity",
+    "02: DKIM-Signature header check (required tags, v=1, rsa-sha1/unknown a=, From in h=, i= within d=, c=, t=/x= expiry, l= warning); preflight() checks each signature's own d=/s= key and excludes broken signatures from alignment"
   ],
   "next_steps": [
-    "02: optional live DNS adapter (dnspython) behind Resolver, kept out of default tests; DKIM-Signature parser to derive d=/s=; then README polish and v0.1.0.",
+    "02: optional live DNS adapter (dnspython) behind Resolver, kept out of default tests; then README polish and v0.1.0.",
     "02: optional Public Suffix List-aware org_domain (affects alignment and content-lint third-party/tracking checks).",
     "02: n8n workflow step (or extend preflight-before-send) that calls POST /v1/capacity before scheduling a campaign and caps the batch at capacity_today.",
     "Start 03 signal engine once 02 reaches v0.1.0.",
@@ -111,17 +112,17 @@
     "Run environment: bare `pytest` on PATH is an isolated uv tool without project deps; use `python -m pytest`.",
     "01 weights are hand-set; no calibration on real won/lost data yet (project 12).",
     "02: provider bulk-sender thresholds (Gmail/Yahoo/Microsoft, 0.1%/0.3% complaint rate) taken from web-search summaries of third-party pages; primary pages unreachable from the run environment (2026-10-10, 2026-10-12).",
-    "02: RFC 6376/8301/8463 rules implemented from knowledge plus a search summary of RFC 8301; RFC text pages were blocked by the egress proxy (HTTP 403).",
+    "02: RFC 6376/8301/8463 rules (DKIM key records and, since 2026-10-15, DKIM-Signature tags) implemented from knowledge plus search summaries; RFC pages and the IANA DKIM registry were blocked or unresolvable from the run environment (403 / ENOTFOUND).",
     "02: DKIM check reads published keys only; no signature verification, no private/public key match check.",
     "02: n8n preflight workflow never imported into a live n8n instance; API tested only with TestClient and fixture DNS.",
     "02: content-lint rules (shorteners, spam phrases, 3-link limit, image/text ratio) are heuristics from knowledge plus a vendor-blog search summary; no provider publishes its filters and no provider page could be opened (2026-10-14).",
     "02: capacity-planner defaults (14-day warmup, ramp 5 + 2/day, 30/mailbox/day, 3 mailboxes/domain) and provider ceilings (Google Workspace 2,000 msgs/user/day, Exchange Online 10,000 recipients/day; a reported 2,000 external-recipient Exchange limit was not modelled because its date conflicts between sources) come from web-search summaries only; knowledge.workspace.google.com, learn.microsoft.com and prospeo.io gave ENOTFOUND (2026-10-14)."
   ],
   "last_run": {
-    "date": "2026-10-14",
+    "date": "2026-10-15",
     "by": "daily agent",
-    "commits": 3,
-    "notes": "02 v0.0.5: sending-capacity & warmup planner + POST /v1/capacity. Commit budget drawn: 4, used 3. Egress could not resolve knowledge.workspace.google.com, learn.microsoft.com, prospeo.io, help.instantly.ai."
+    "commits": 2,
+    "notes": "02 v0.0.6: DKIM-Signature header check and selectors derived from headers in preflight(). Commit budget drawn: 2, used 2. Egress could not resolve rfc-editor.org, datatracker.ietf.org, iana.org, docs.kumomta.com."
   },
   "run_log": [
     {
@@ -166,6 +167,13 @@
       "summary": "02 v0.0.5: sending-capacity & warmup planner (capacity.py) and POST /v1/capacity with a .example request; 157 tests in 02 (01: 33).",
       "sources": [],
       "research_note": "Opened nothing: WebFetch of knowledge.workspace.google.com (Gmail sending limits), learn.microsoft.com (Exchange Online limits) and prospeo.io failed (ENOTFOUND); curl to those and help.instantly.ai got no connection. Web-search summaries (not opened pages) reported Google Workspace 2,000 messages/user/day over a rolling 24h, Exchange Online 10,000 recipients/day, and third-party guides citing ~30 campaign emails/mailbox/day for Instantly with a slow ramp adding 2/day; all are CapacityPolicy parameters."
+    },
+    {
+      "date": "2026-10-15",
+      "commits": 2,
+      "summary": "02 v0.0.6: dkim_signature.py (check_dkim_signature, parse_dkim_signature) wired into preflight() and POST /v1/preflight; 190 tests in 02 (01: 33).",
+      "sources": [],
+      "research_note": "Opened nothing: WebFetch of www.rfc-editor.org/rfc/rfc6376.html, datatracker.ietf.org/doc/html/rfc6376, www.iana.org/assignments/dkim-parameters and docs.kumomta.com failed (ENOTFOUND). A web-search summary (not opened pages) of the IANA DKIM parameters registry and vendor pages listed v a b bh d h s as required DKIM-Signature tags and sha1 as historic; the rest (From MUST be signed, i= within d=, x= > t=, l= risk) is from knowledge of RFC 6376."
     }
   ]
 }

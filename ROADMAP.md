@@ -36,7 +36,7 @@ Open follow-ups:
 Check a sending setup and a message before it goes out, against current
 Gmail / Yahoo / Microsoft bulk-sender requirements.
 - [x] DNS checks: SPF (incl. 10-lookup and void-lookup limits), DMARC policy + `rua`, alignment
-- [x] DNS checks: DKIM selector key (`<s>._domainkey`): revoked, RSA length, sha256, Ed25519
+- [x] DNS checks: DKIM selector key (`<s>._domainkey`): revoked, RSA length, sha256, Ed25519; DKIM-Signature header (required tags, From signed, `i=`/`d=`, expiry, `l=`) with `d=`/`s=` taken from it
 - [ ] DMARCbis (RFC 9989) review against the RFC text
 - [x] message checks: `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058), From/Return-Path alignment
 - [x] content lint (links, tracking domains, spammy patterns) with explainable findings
