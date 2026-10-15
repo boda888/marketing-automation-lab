@@ -12,6 +12,7 @@ injectable DNS resolver, so the whole suite runs offline.
 | DMARC | [`dmarc.py`](src/deliverability_preflight/dmarc.py) | record parsing, discovery (own domain, then parents), effective policy (`sp` for subdomains), `p=none` / partial `pct` / no `rua`, non-`mailto` report URIs, external report destinations without the `_report._dmarc` authorisation record |
 | Alignment | `dmarc.check_alignment` | whether Return-Path and DKIM `d=` align with From under relaxed / strict `aspf` / `adkim`; warns when only SPF aligns |
 | DKIM key | [`dkim.py`](src/deliverability_preflight/dkim.py) | the key record at `<selector>._domainkey.<domain>`: missing / duplicate / malformed records, revoked keys (empty `p=`), RSA key length (< 1024 error, < 2048 warning), `h=` without `sha256`, `s=` excluding email, `t=y` testing mode, Ed25519 key length |
+| DKIM-Signature | [`dkim_signature.py`](src/deliverability_preflight/dkim_signature.py) | each `DKIM-Signature` header of a test message: missing required tags (`v a b bh d h s`), `v` ≠ 1, `rsa-sha1` or an unknown `a=`, From not in `h=`, `i=` outside `d=`, bad `c=`, `x=` not after `t=` or already past → error; `l=` body-length limit → warning. Its `d=` / `s=` tell `preflight()` which key to check |
 | One-click unsubscribe | [`unsubscribe.py`](src/deliverability_preflight/unsubscribe.py) | RFC 8058: exactly one HTTPS URI in `List-Unsubscribe` (angle brackets, `mailto:` allowed alongside), `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, and a DKIM-Signature whose `h=` covers both headers (warning if the draft is not signed yet) |
 
 | Complaint rate | [`complaints.py`](src/deliverability_preflight/complaints.py) | spam-complaint rate per provider vs. a 0.1% target and 0.3% hard limit → `ok` / `watch` / `stop`, complaints left before the limit, small-sample handling (1 complaint on 50 sends does not pause a domain; 5 on 200 does) |
@@ -92,6 +93,21 @@ connecting IP: they are counted but not resolved.
 - `k=ed25519` keys must be 32 bytes (RFC 8463); an info finding reminds you to
   keep an RSA selector signing too.
 
+### DKIM-Signature rules applied (RFC 6376 §3.5, §5.4, §6.1.1, §8.2; RFC 8301; RFC 8463)
+
+- Required tags are `v a b bh d h s` (§6.1.1); `v=` must be `1`; tags may
+  appear once (§3.2); folding whitespace inside values is dropped.
+- `a=` must be `rsa-sha256` or `ed25519-sha256`; `rsa-sha1` must not be used
+  (RFC 8301 §3.1).
+- `h=` must include `from` (§5.4); `i=` must be in `d=` or a subdomain of it
+  (§3.5); `x=` must be later than `t=` (§3.5) and, at check time, not past;
+  `c=` is `simple` or `relaxed` for header and body (§3.4).
+- `l=` is a warning: content appended after the signed length still verifies (§8.2).
+- In `preflight(headers=...)` every signature's own `d=` / `s=` key is
+  checked, so `dkim_selectors` can be left empty when headers are given;
+  `dkim_domain` defaults to the first signature's `d=`. A signature with
+  errors does not make its `d=` count for DMARC alignment.
+
 ## Not yet / not verified
 
 - No live DNS adapter ships yet; the `Resolver` protocol is one method
@@ -103,6 +119,9 @@ connecting IP: they are counted but not resolved.
 - DMARCbis (reported published in 2026 as the RFC 7489 successor) has not been
   checked against its text yet; the parser keeps unknown tags (e.g. `np`, `psd`,
   `t`) and parses `np` when present, but no DMARCbis-specific rule is applied.
+- DKIM-Signature rules are implemented from knowledge of RFC 6376 / 8301 /
+  8463; the RFC pages and the IANA DKIM registry could not be opened from the
+  run environment (2026-10-15) to re-check them.
 - The DKIM check reads the published key only: it does not verify a
   signature or check that the private key matches.
 - The unsubscribe check reads headers only: it does not verify the DKIM

@@ -116,3 +116,25 @@ def test_capacity_rejects_bad_policy_and_mailbox(client):
     assert client.post("/v1/capacity", json=bad_policy).status_code == 422
     bad_box = {**CAPACITY, "mailboxes": [{"address": "nobody", "warmup_started": "2026-09-01"}]}
     assert client.post("/v1/capacity", json=bad_box).status_code == 422
+
+
+def test_selector_taken_from_dkim_signature_header(client):
+    signature = (
+        "v=1; a=rsa-sha256; c=relaxed/relaxed; d=acme.example; s=s1; "
+        "h=from:to:subject:list-unsubscribe:list-unsubscribe-post; bh=x; b=y"
+    )
+    req = {
+        **REQUEST,
+        "dkim_selectors": [],
+        "headers": [
+            ["From", "Sam <sam@acme.example>"],
+            ["List-Unsubscribe", "<https://acme.example/u/abc>"],
+            ["List-Unsubscribe-Post", "List-Unsubscribe=One-Click"],
+            ["DKIM-Signature", signature],
+        ],
+    }
+    body = client.post("/v1/preflight", json=req).json()
+    assert body["verdict"] == "pass", body["findings"]
+    assert body["dkim"][0]["selector"] == "s1"
+    assert body["dkim_signatures"][0]["status"] == "ok"
+    assert body["alignment"]["dkim_aligned"] is True

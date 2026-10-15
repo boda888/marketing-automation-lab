@@ -27,6 +27,14 @@ from .dkim import (
     parse_dkim_key,
     rsa_key_bits,
 )
+from .dkim_signature import (
+    DkimSignature,
+    DkimSignatureError,
+    DkimSignatureReport,
+    check_dkim_signature,
+    dkim_signatures,
+    parse_dkim_signature,
+)
 from .dmarc import (
     DmarcRecord,
     DmarcReport,
@@ -69,6 +77,12 @@ __all__ = [
     "check_dkim_selectors",
     "parse_dkim_key",
     "rsa_key_bits",
+    "DkimSignature",
+    "DkimSignatureError",
+    "DkimSignatureReport",
+    "check_dkim_signature",
+    "dkim_signatures",
+    "parse_dkim_signature",
     "DmarcRecord",
     "DmarcReport",
     "DmarcSyntaxError",
@@ -90,4 +104,4 @@ __all__ = [
     "parse_spf",
     "worst",
 ]
-__version__ = "0.0.5"
+__version__ = "0.0.6"

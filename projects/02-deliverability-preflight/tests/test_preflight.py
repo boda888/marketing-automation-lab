@@ -11,7 +11,7 @@ HEADERS = [
     (
         "DKIM-Signature",
         "v=1; a=rsa-sha256; d=acme.example; s=s1; "
-        "h=from:list-unsubscribe:list-unsubscribe-post; b=x",
+        "h=from:list-unsubscribe:list-unsubscribe-post; bh=x; b=y",
     ),
 ]
 
@@ -104,3 +104,65 @@ def test_report_is_json_serialisable():
     rep = preflight("acme.example", good_dns(), dkim_selectors=["s1"])
     data = rep.model_dump(mode="json")
     assert data["verdict"] == "pass" and data["dkim"][0]["key_bits"] == 2048
+
+
+def esp_signature(**over):
+    tags = {
+        "v": "1",
+        "a": "rsa-sha256",
+        "d": "acme.example",
+        "s": "esp1",
+        "h": "from:list-unsubscribe:list-unsubscribe-post",
+        "bh": "x",
+        "b": "y",
+    }
+    tags.update(over)
+    return ("DKIM-Signature", "; ".join(f"{k}={v}" for k, v in tags.items() if v is not None))
+
+
+def esp_dns():
+    return good_dns({("esp1._domainkey.acme.example", "TXT"): [f"v=DKIM1; p={KEY}"]})
+
+
+def test_selector_comes_from_dkim_signature_header():
+    headers = [*HEADERS[:3], esp_signature()]
+    rep = preflight(
+        "acme.example", esp_dns(), headers=headers, return_path_domain="bounce.acme.example"
+    )
+    assert rep.verdict == "pass", rep.findings
+    assert [(r.domain, r.selector, r.status) for r in rep.dkim] == [
+        ("acme.example", "esp1", "valid")
+    ]
+    assert rep.dkim_signatures[0].status == "ok"
+    assert rep.alignment.dkim_aligned
+
+
+def test_signature_selector_without_key_blocks():
+    headers = [*HEADERS[:3], esp_signature(s="gone")]
+    rep = preflight("acme.example", esp_dns(), headers=headers)
+    assert rep.verdict == "block"
+    assert "DKIM_KEY_MISSING" in codes(rep)
+    assert not rep.alignment.dkim_aligned
+
+
+def test_explicit_and_signed_selector_are_checked_once():
+    rep = preflight("acme.example", good_dns(), dkim_selectors=["S1"], headers=HEADERS)
+    assert [(r.domain, r.selector) for r in rep.dkim] == [("acme.example", "s1")]
+
+
+def test_esp_domain_signature_sets_dkim_domain_and_does_not_align():
+    dns = good_dns({("esp1._domainkey.esp.example", "TXT"): [f"v=DKIM1; p={KEY}"]})
+    headers = [*HEADERS[:3], esp_signature(d="esp.example")]
+    rep = preflight("acme.example", dns, headers=headers)
+    assert rep.dkim_domain == "esp.example"
+    assert rep.dkim[0].status == "valid"
+    assert not rep.alignment.dkim_aligned
+
+
+def test_broken_signature_does_not_count_for_alignment():
+    headers = [*HEADERS[:3], esp_signature(a="rsa-sha1")]
+    rep = preflight("acme.example", esp_dns(), headers=headers)
+    assert "DKIM_SIG_SHA1" in codes(rep)
+    assert rep.dkim[0].status == "valid"
+    assert not rep.alignment.dkim_aligned
+    assert rep.verdict == "block"

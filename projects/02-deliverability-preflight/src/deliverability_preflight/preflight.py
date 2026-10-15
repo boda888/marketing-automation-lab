@@ -3,8 +3,9 @@
 ``preflight`` checks the domains a campaign will use — SPF on the Return-Path
 domain (SPF authenticates MAIL FROM, not From), DMARC on the From domain, the
 DKIM selectors the ESP signs with, and DMARC alignment of those identifiers —
-plus, when given, a draft's headers (RFC 8058), its rendered content (links,
-merge tags, formatting) and recent complaint stats.
+plus, when given, a draft's headers (RFC 8058 and every DKIM-Signature, whose
+``d=`` / ``s=`` key is then checked too), its rendered content (links, merge
+tags, formatting) and recent complaint stats.
 
 The verdict is ``block`` if any finding is an error, ``review`` if any is a
 warning, ``pass`` otherwise. Every finding keeps its stable ``code`` so an n8n
@@ -14,6 +15,7 @@ IF/Switch node can route on it.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel
@@ -21,6 +23,7 @@ from pydantic import BaseModel
 from .complaints import ComplaintReport, ComplaintStats, check_complaint_rate
 from .content import ContentReport, MessageContent, lint_content
 from .dkim import DkimReport, check_dkim
+from .dkim_signature import DkimSignatureReport, check_dkim_signature, dkim_signatures
 from .dmarc import AlignmentResult, DmarcReport, OrgDomainFn, check_alignment, check_dmarc
 from .dmarc import default_org_domain as _default_org_domain
 from .dns import Resolver, normalize_name
@@ -39,6 +42,7 @@ class PreflightReport(BaseModel):
     spf: SpfReport
     dmarc: DmarcReport
     dkim: list[DkimReport]
+    dkim_signatures: list[DkimSignatureReport] = []
     alignment: AlignmentResult
     unsubscribe: UnsubscribeReport | None = None
     complaints: list[ComplaintReport] = []
@@ -55,7 +59,7 @@ def preflight(
     from_domain: str,
     resolver: Resolver,
     *,
-    dkim_selectors: Iterable[str],
+    dkim_selectors: Iterable[str] = (),
     dkim_domain: str | None = None,
     return_path_domain: str | None = None,
     headers: Iterable[tuple[str, str]] | None = None,
@@ -63,39 +67,60 @@ def preflight(
     content: MessageContent | None = None,
     tracking_domain: str | None = None,
     org_domain: OrgDomainFn = _default_org_domain,
+    now: datetime | None = None,
 ) -> PreflightReport:
     """Run SPF, DMARC, DKIM, alignment, one-click, content and complaint checks.
 
-    ``dkim_domain`` (the signature's ``d=``) and ``return_path_domain``
-    default to ``from_domain``. Only selectors whose key checks out count as
-    a usable DKIM identifier for alignment.
+    ``dkim_selectors`` are checked on ``dkim_domain``. When ``headers`` carry
+    DKIM-Signature headers, each one is checked and the key at its own
+    ``d=`` / ``s=`` is checked as well, so a test message's headers are enough.
+    ``dkim_domain`` defaults to the first signature's ``d=``, else
+    ``from_domain``; ``return_path_domain`` defaults to ``from_domain``.
+    For alignment, a DKIM domain counts only when its key checks out and, for
+    a domain taken from a signature, that signature has no errors.
     """
     from_domain = normalize_name(from_domain)
     rp = normalize_name(return_path_domain or from_domain)
-    d = normalize_name(dkim_domain or from_domain)
-    selectors = list(dkim_selectors)
+    headers = list(headers) if headers is not None else None
+    selectors = [normalize_name(s) for s in dkim_selectors]
+
+    signatures = [check_dkim_signature(v, now=now) for v in dkim_signatures(headers or [])]
+    signed_refs = [s.key_ref for s in signatures if s.key_ref]
+    d = normalize_name(dkim_domain or (signed_refs[0][0] if signed_refs else from_domain))
+
+    refs: list[tuple[str, str]] = []
+    for ref in [(d, s) for s in selectors] + signed_refs:
+        if ref not in refs:
+            refs.append(ref)
 
     spf = check_spf(rp, resolver)
     dmarc = check_dmarc(from_domain, resolver, org_domain=org_domain)
-    dkim = [check_dkim(d, s, resolver) for s in selectors]
+    dkim = [check_dkim(dom, sel, resolver) for dom, sel in refs]
     findings: list[Finding] = [*spf.findings, *dmarc.findings]
+    for sig in signatures:
+        findings.extend(sig.findings)
     for rep in dkim:
         findings.extend(rep.findings)
-    if not selectors:
+    if not refs:
         findings.append(
             Finding(
                 code="DKIM_NO_SELECTORS",
                 severity="error",
-                message="no DKIM selectors given; DMARC then rests on SPF alone",
+                message="no DKIM selectors given and no DKIM-Signature in the headers; "
+                "DMARC then rests on SPF alone",
                 ref="RFC 7489 §3.1",
             )
         )
 
+    good_keys = {(r.domain, r.selector) for r in dkim if r.status == "valid"}
+    explicit = {(d, s) for s in selectors}
+    usable = {ref for ref in explicit if ref in good_keys}
+    usable |= {s.key_ref for s in signatures if s.status == "ok" and s.key_ref in good_keys}
     rec = dmarc.record
     alignment = check_alignment(
         from_domain,
         spf_domain=rp if spf.status == "valid" else None,
-        dkim_domains=[d] if any(r.status == "valid" for r in dkim) else [],
+        dkim_domains=sorted({dom for dom, _ in usable}),
         adkim=rec.adkim if rec else "r",
         aspf=rec.aspf if rec else "r",
         org_domain=org_domain,
@@ -129,6 +154,7 @@ def preflight(
         spf=spf,
         dmarc=dmarc,
         dkim=dkim,
+        dkim_signatures=signatures,
         alignment=alignment,
         unsubscribe=unsubscribe,
         complaints=complaints,
