@@ -52,6 +52,7 @@ Pain: list-based outreach with 2–4% replies.
 - [ ] signal sources: hiring (job posts), funding, new office/expansion, tech change, site visits
 - [ ] evidence-backed signal events: every event carries source URL + observed-at timestamp
 - [ ] priority rules + mapping into engagement events for 01
+- [ ] dedupe the same event seen in several sources; `Unknown` / `Not found in sample` kept apart from "no signal"; tiers (Tier 1–3 / Hold) with a short reason instead of an opaque score
 
 ## 04 · Waterfall enrichment + email verification + CRM dedupe
 Pain: 40–60% match rates, bounces, duplicates.
@@ -59,6 +60,7 @@ Pain: 40–60% match rates, bounces, duplicates.
 - [ ] cost budget per record, cache, stop-when-complete; consumes `needs_enrichment` / `missing_fields` from 01
 - [ ] verification: syntax, MX, disposable, role-based, catch-all heuristics; risk score, no SMTP probing by default
 - [ ] dedupe / match against existing CRM records
+- [ ] status ladder found → checked (provider + date) → verified; validate provider inputs (no `"Unknown"` placeholders) and report coverage/cost with an explicit denominator
 
 ## 05 · AI research + first-line personalisation
 Pain: one bad model response ships to the whole list.
@@ -66,15 +68,17 @@ Pain: one bad model response ships to the whole list.
 - [ ] citation guard: every claim cites a signal/enrichment fact with source URL; no evidence → no line
 - [ ] provider abstraction (Anthropic / OpenAI) + deterministic fake LLM for tests
 - [ ] eval set and scorer (groundedness, length, banned phrases)
+- [ ] prompt ↔ JSON-schema consistency check; campaign geography passed explicitly, never inferred from HQ or contact location
 
 ## 06 · Sequencer sync
 Pain: leads pushed twice, unsubscribed people re-contacted.
 - [ ] Instantly / Smartlead / HeyReach adapters (shapes from current vendor docs), custom variables
 - [ ] suppression list, idempotent pushes, rate limits, mocked HTTP tests
+- [ ] resolve campaign by explicit name (missing/duplicate → loud error); campaign-level dedup separate from global suppression; update rows by person key, never by company
 
 ## 07 · Reply intent classification & routing
 Pain: replies triaged by hand, hot leads go cold.
-- [ ] classes: interested, objection, referral, OOO + return date, unsubscribe, bounce
+- [ ] classes: interested, objection, referral, OOO + return date, unsubscribe, bounce, wrong person, no meaningful reply; sequencer's own label is context only
 - [ ] routing + suppression actions, eval set
 
 ## 08 · CRM sync
@@ -85,6 +89,7 @@ Pain: CRM no longer matches reality.
 ## 09 · n8n reliability kit
 Pain: branches that fail silently.
 - [ ] error workflow, retries/backoff, idempotency keys, dead-letter-queue service, alerts
+- [ ] one item per lead through fan-out lookups; duplicate / not-ready = skip + log, not Stop and Error; only fully-ready rows trigger hand-off
 
 ## 10 · Reporting that reconciles
 Pain: dashboard numbers nobody trusts.

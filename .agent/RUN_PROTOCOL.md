@@ -15,6 +15,8 @@ agent should only change it when the owner asked for that.
 
 ## 1. Orient — know what already exists (no duplicates)
 - Read .agent/FOCUS.md; every commit must serve a project in it and follow its rules.
+- Read .agent/PRACTICE.md (anonymised lessons from the owner's client work): prefer steps that
+  remove a failure mode listed there. Never add client names, people or numbers from it.
 - Read `ROADMAP.md`, `.agent/state.json` (`current_project`, `next_steps`, `done`, `known_gaps`, the last 5 `run_log` entries) and the README of the current project.
 - `git fetch origin main && git log --oneline -20 origin/main`: several runs happen per day,
   so another run may already have done today's step.

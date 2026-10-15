@@ -17,6 +17,10 @@ actually pay to have built, and must show engineering they can't get from a no-c
   n8n + Supabase + Instantly + HeyReach, AI lead qualification with instant reply, CRM
   automation with A/B testing, cold-email infrastructure and deliverability.
 
+## Owner's real work
+[`PRACTICE.md`](PRACTICE.md) distils the owner's Clay / n8n client projects into failure
+modes and patterns (anonymised). Projects should make those failures impossible in code.
+
 ## Rules for choosing what to build
 1. **Real pain first.** Each project starts from a concrete failure mode ("follow-ups get
    missed", "one bad LLM output ships to 400 people", "CRM no longer matches reality",
