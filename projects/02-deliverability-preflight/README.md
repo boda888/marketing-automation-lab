@@ -11,6 +11,7 @@ injectable DNS resolver, so the whole suite runs offline.
 | SPF | [`spf.py`](src/deliverability_preflight/spf.py) | parsed record, DNS-lookup count (limit 10), void-lookup count (limit 2), include/redirect tree, `+all` / `?all` / no `all`, `ptr`, terms after `all`, missing / duplicate records, include loops, `mx` with > 10 records |
 | DMARC | [`dmarc.py`](src/deliverability_preflight/dmarc.py) | record parsing, DMARCbis DNS Tree Walk discovery (own domain, then parents up to the TLD, ≤ 8 queries, `psd=y`/`psd=n`), Organizational Domain by tree walk (`TreeWalkOrgDomain`), public-suffix-only policy, effective policy (`sp` for subdomains), `p=none` / partial `pct` / no `rua`, non-`mailto` report URIs, external report destinations without the `_report._dmarc` authorisation record |
 | Alignment | `dmarc.check_alignment` | whether Return-Path and DKIM `d=` align with From under relaxed / strict `aspf` / `adkim`; warns when only SPF aligns |
+| Organizational domain | [`psl.py`](src/deliverability_preflight/psl.py) | `PublicSuffixList.from_file(path)` reads the official `public_suffix_list.dat` (wildcards, `!` exceptions, implicit `*`, IDN rules matched as A-labels, optional ICANN-only); `.org_domain` plugs into every `org_domain=` so `a.co.uk` and `b.co.uk` are different organizations for alignment and content lint |
 | DKIM key | [`dkim.py`](src/deliverability_preflight/dkim.py) | the key record at `<selector>._domainkey.<domain>`: missing / duplicate / malformed records, revoked keys (empty `p=`), RSA key length (< 1024 error, < 2048 warning), `h=` without `sha256`, `s=` excluding email, `t=y` testing mode, Ed25519 key length |
 | DKIM-Signature | [`dkim_signature.py`](src/deliverability_preflight/dkim_signature.py) | each `DKIM-Signature` header of a test message: missing required tags (`v a b bh d h s`), `v` ≠ 1, `rsa-sha1` or an unknown `a=`, From not in `h=`, `i=` outside `d=`, bad `c=`, `x=` not after `t=` or already past → error; `l=` body-length limit → warning. Its `d=` / `s=` tell `preflight()` which key to check |
 | One-click unsubscribe | [`unsubscribe.py`](src/deliverability_preflight/unsubscribe.py) | RFC 8058: exactly one HTTPS URI in `List-Unsubscribe` (angle brackets, `mailto:` allowed alongside), `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, and a DKIM-Signature whose `h=` covers both headers (warning if the draft is not signed yet) |
@@ -128,10 +129,13 @@ connecting IP: they are counted but not resolved.
   (`lookup(name, rtype) -> list[str]`). Nothing here has been run against
   real DNS.
 - The default `org_domain` for alignment and content lint is still a naive
-  "last two labels" rule (no Public Suffix List bundled); pass
-  `org_domain=TreeWalkOrgDomain(resolver)` or a PSL-aware function for
-  suffixes such as `co.uk`. Real public suffixes rarely publish `psd=y`, so a
-  tree walk alone can still merge two companies under one suffix.
+  "last two labels" rule: the Public Suffix List is not bundled (it changes
+  often and its maintainers ask users to fetch it from
+  https://publicsuffix.org/list/public_suffix_list.dat). Download it and pass
+  `org_domain=PublicSuffixList.from_file(path).org_domain`, or
+  `TreeWalkOrgDomain(resolver)`; real public suffixes rarely publish `psd=y`,
+  so a tree walk alone can still merge two companies under one suffix. The
+  FastAPI service does not load a PSL yet.
 - DMARCbis: discovery and Organizational Domain follow draft-ietf-dmarc-dmarcbis-41
   (April 2025, read from the IETF DMARC WG repository). Whether the published
   RFC (reported as RFC 9989) changed that text was not checked: rfc-editor.org

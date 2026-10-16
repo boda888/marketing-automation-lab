@@ -51,6 +51,7 @@ from .dmarc import (
 from .dns import DNSTempError, FakeResolver, Resolver
 from .findings import Finding, worst
 from .preflight import PreflightReport, preflight
+from .psl import PublicSuffixList
 from .spf import SpfReport, SpfSyntaxError, check_spf, parse_spf
 from .unsubscribe import (
     UnsubscribeReport,
@@ -73,6 +74,7 @@ __all__ = [
     "MessageContent",
     "lint_content",
     "PreflightReport",
+    "PublicSuffixList",
     "preflight",
     "DkimKeyError",
     "DkimKeyRecord",
