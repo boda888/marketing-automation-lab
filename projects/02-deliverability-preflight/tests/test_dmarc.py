@@ -34,7 +34,6 @@ def test_parse_defaults_and_unknown_tags():
     [
         "p=reject; v=DMARC1",
         "v=DMARC2; p=reject",
-        "v=DMARC1; p=block",
         "v=DMARC1; p=none; adkim=x",
         "v=DMARC1; p=none; pct=150",
         "v=DMARC1; p=none; pct=abc",
@@ -102,12 +101,13 @@ def test_p_none_pct_and_no_rua():
 
 
 def test_missing_p_multiple_and_syntax():
-    no_p = FakeResolver({("_dmarc.a.example", "TXT"): ["v=DMARC1; rua=mailto:x@a.example"]})
+    # DMARCbis §4.10.1: no p and no valid rua -> no DMARC processing
+    no_p = FakeResolver({("_dmarc.a.example", "TXT"): ["v=DMARC1; adkim=s"]})
     rep = check_dmarc("a.example", no_p)
     assert rep.status == "invalid" and "DMARC_NO_POLICY" in codes(rep)
     two = FakeResolver({("_dmarc.a.example", "TXT"): ["v=DMARC1; p=none", "v=DMARC1; p=reject"]})
     assert "DMARC_MULTIPLE_RECORDS" in codes(check_dmarc("a.example", two))
-    bad = FakeResolver({("_dmarc.a.example", "TXT"): ["v=DMARC1; p=maybe"]})
+    bad = FakeResolver({("_dmarc.a.example", "TXT"): ["v=DMARC1; adkim=x"]})
     assert "DMARC_SYNTAX" in codes(check_dmarc("a.example", bad))
 
 

@@ -2,8 +2,9 @@
 
 - ``parse_dmarc`` turns a ``v=DMARC1; p=...`` TXT string into a typed record.
 - ``check_dmarc`` finds the record that governs a From domain and explains it:
-  missing / duplicate / invalid records, monitoring-only policies, partial
-  ``pct``, missing ``rua``, and external report destinations that have not
+  missing / duplicate / invalid records, monitoring-only policies, the
+  ``t=y`` testing flag, the historic ``pct`` tag, ``np`` for non-existent
+  subdomains, missing ``rua``, and external report destinations that have not
   authorised the policy domain (§7.1).
 - ``check_alignment`` tells whether the SPF (Return-Path / MAIL FROM) and DKIM
   (``d=``) identifiers align with the From domain under ``aspf`` / ``adkim``.
@@ -11,7 +12,9 @@
 Policy discovery follows the DMARCbis DNS Tree Walk
 (draft-ietf-dmarc-dmarcbis-41 §4.10): the Author Domain first, then its
 parents up to and including the TLD, at most eight queries, stopping at a
-``psd=y`` / ``psd=n`` record. ``tree_walk_org_domain`` and ``TreeWalkOrgDomain``
+``psd=y`` / ``psd=n`` record. A record without a valid ``p`` (or with an
+invalid ``sp`` / ``np``) counts as ``p=none`` when its ``rua`` holds a valid
+URI, and as no DMARC at all otherwise (§4.10.1). ``tree_walk_org_domain`` and ``TreeWalkOrgDomain``
 apply §4.10.2 to find an Organizational Domain from DNS alone.
 
 ``default_org_domain`` (used for alignment unless another function is passed)
@@ -21,6 +24,7 @@ keeps the last two labels, which is wrong for suffixes like ``co.uk``. Pass
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Literal
 
@@ -32,6 +36,7 @@ from .findings import Finding
 Policy = Literal["none", "quarantine", "reject"]
 Mode = Literal["r", "s"]
 Psd = Literal["y", "n", "u"]
+Testing = Literal["y", "n"]
 OrgDomainFn = Callable[[str], str]
 
 _POLICIES = ("none", "quarantine", "reject")
@@ -50,9 +55,17 @@ class DmarcRecord(BaseModel):
     aspf: Mode = "r"
     pct: int = 100
     psd: Psd = "u"
+    t: Testing = "n"
     rua: list[str] = []
     ruf: list[str] = []
     tags: dict[str, str] = {}
+    # policy / testing tags whose value was not valid: tag -> raw value.
+    # DMARCbis §4.8 discards them in favour of defaults instead of the record.
+    invalid_tags: dict[str, str] = {}
+
+
+_STEP_DOWN: dict[str, Policy] = {"reject": "quarantine", "quarantine": "none", "none": "none"}
+_URI = re.compile(r"^[a-z][a-z0-9+.-]*:\S+$", re.IGNORECASE)
 
 
 def is_dmarc_record(txt: str) -> bool:
@@ -66,7 +79,12 @@ def _uris(value: str) -> list[str]:
 
 
 def parse_dmarc(raw: str) -> DmarcRecord:
-    """Parse a DMARC TXT string. Raises ``DmarcSyntaxError`` if unusable."""
+    """Parse a DMARC TXT string. Raises ``DmarcSyntaxError`` if unusable.
+
+    Invalid ``p`` / ``sp`` / ``np`` / ``t`` values do not make the record
+    unusable: they are left at their defaults and listed in ``invalid_tags``,
+    so ``check_dmarc`` can apply the DMARCbis §4.10.1 fallback.
+    """
     tags: dict[str, str] = {}
     order: list[str] = []
     for part in raw.split(";"):
@@ -87,9 +105,15 @@ def parse_dmarc(raw: str) -> DmarcRecord:
     rec = DmarcRecord(raw=raw, tags=tags)
     for key in ("p", "sp", "np"):
         if key in tags:
-            if tags[key].lower() not in _POLICIES:
-                raise DmarcSyntaxError(f"{key}={tags[key]!r} is not none/quarantine/reject")
-            setattr(rec, key, tags[key].lower())
+            if tags[key].lower() in _POLICIES:
+                setattr(rec, key, tags[key].lower())
+            else:
+                rec.invalid_tags[key] = tags[key]
+    if "t" in tags:
+        if tags["t"].lower() in ("y", "n"):
+            rec.t = tags["t"].lower()
+        else:
+            rec.invalid_tags["t"] = tags["t"]
     for key in ("adkim", "aspf"):
         if key in tags:
             if tags[key].lower() not in ("r", "s"):
@@ -108,6 +132,15 @@ def parse_dmarc(raw: str) -> DmarcRecord:
     return rec
 
 
+def valid_report_uris(uris: list[str]) -> list[str]:
+    """URIs that are syntactically usable (``scheme:rest``; mailto needs an @)."""
+    return [
+        u
+        for u in uris
+        if _URI.match(u) and (not u.lower().startswith("mailto:") or "@" in u.split(":", 1)[1])
+    ]
+
+
 def default_org_domain(domain: str) -> str:
     """Last two labels. Not PSL-aware — see module docstring."""
     labels = normalize_name(domain).split(".")
@@ -124,6 +157,8 @@ class DmarcReport(BaseModel):
     organizational_domain: str | None = None
     record: DmarcRecord | None = None
     effective_policy: Policy | None = None
+    # policy the record asks for before t=y testing mode steps it down
+    requested_policy: Policy | None = None
     findings: list[Finding] = []
 
 
@@ -238,6 +273,7 @@ def check_dmarc(
     resolver: Resolver,
     *,
     org_domain: OrgDomainFn = default_org_domain,
+    author_domain_exists: bool | None = None,
 ) -> DmarcReport:
     """Find and explain the DMARC policy that governs mail From ``domain``.
 
@@ -247,6 +283,11 @@ def check_dmarc(
     suffix domain's (§4.10.1). A name with several DMARC records is reported
     and skipped, as receivers discard them. ``org_domain`` is used only to
     decide whether report destinations are external.
+
+    ``author_domain_exists`` picks ``sp`` (True) or ``np`` (False) for a
+    subdomain that inherits a parent's record (§4.10.1). The ``Resolver``
+    cannot tell NXDOMAIN from "no TXT", so the default ``None`` assumes the
+    domain exists and reports what ``np`` would change if it does not.
     """
     domain = normalize_name(domain)
     report = DmarcReport(domain=domain, status="none")
@@ -302,20 +343,63 @@ def check_dmarc(
 
     rec = report.record
     inherited = report.policy_domain != domain
-    if rec.p is None:
+    broken = [k for k in ("p", "sp", "np") if k in rec.invalid_tags]
+    fallback = False
+    if rec.p is None or broken:
+        what = ", ".join(f"{k}={rec.invalid_tags[k]!r}" for k in broken) or "no p= tag"
+        if valid_report_uris(rec.rua):
+            fallback = True
+            findings.append(
+                _f(
+                    "DMARC_POLICY_FALLBACK_NONE",
+                    "warning",
+                    f"{what}: receivers act as if the record said p=none (it has a valid rua), "
+                    "so failing mail is not quarantined or rejected",
+                    "DMARCbis §4.10.1",
+                )
+            )
+        else:
+            findings.append(
+                _f(
+                    "DMARC_NO_POLICY" if rec.p is None and not broken else "DMARC_INVALID_POLICY",
+                    "error",
+                    f"{what} and no valid rua=: receivers apply no DMARC processing",
+                    "DMARCbis §4.10.1",
+                )
+            )
+            report.status = "invalid"
+            return report
+    if "t" in rec.invalid_tags:
         findings.append(
             _f(
-                "DMARC_NO_POLICY",
-                "error",
-                "record has no p= tag; receivers may ignore it or treat it as p=none",
-                "RFC 7489 §6.3, §6.6.3",
+                "DMARC_INVALID_TAG",
+                "warning",
+                f"t={rec.invalid_tags['t']!r} is not 'y' or 'n'; receivers use the default t=n",
+                "DMARCbis §4.7, §4.8",
             )
         )
-        report.status = "invalid"
-        return report
 
     report.status = "valid"
-    report.effective_policy = (rec.sp or rec.p) if inherited else rec.p
+    if fallback:
+        requested: Policy = "none"
+    elif not inherited:
+        requested = rec.p
+    elif author_domain_exists is False:
+        requested = rec.np or rec.sp or rec.p
+    else:
+        requested = rec.sp or rec.p
+        if author_domain_exists is None and rec.np and rec.np != requested:
+            findings.append(
+                _f(
+                    "DMARC_NP_IF_NXDOMAIN",
+                    "info",
+                    f"if {domain} does not exist in DNS (NXDOMAIN), receivers apply "
+                    f"np={rec.np} instead of {requested}",
+                    "DMARCbis §4.7, §4.10.1",
+                )
+            )
+    report.requested_policy = requested
+    report.effective_policy = _STEP_DOWN[requested] if rec.t == "y" else requested
     if inherited:
         findings.append(
             _f(
@@ -336,7 +420,17 @@ def check_dmarc(
                     "DMARCbis §4.10.1",
                 )
             )
-    if report.effective_policy == "none":
+    if rec.t == "y" and requested != "none":
+        findings.append(
+            _f(
+                "DMARC_TESTING_MODE",
+                "warning",
+                f"t=y (testing): receivers apply {report.effective_policy} instead of {requested} "
+                "to failing mail; remove t=y once reports are clean",
+                "DMARCbis §4.7",
+            )
+        )
+    if report.effective_policy == "none" and not fallback:
         findings.append(
             _f(
                 "DMARC_POLICY_NONE",
@@ -345,13 +439,14 @@ def check_dmarc(
                 "RFC 7489 §6.3",
             )
         )
-    elif rec.pct < 100:
+    if rec.pct < 100 and report.effective_policy != "none":
         findings.append(
             _f(
                 "DMARC_PCT_PARTIAL",
                 "warning",
-                f"pct={rec.pct}: the policy applies to only part of failing mail",
-                "RFC 7489 §6.3",
+                f"pct={rec.pct}: RFC 7489 receivers apply the policy to only part of failing "
+                "mail, DMARCbis receivers ignore pct (historic); use t=y for testing instead",
+                "RFC 7489 §6.3; DMARCbis Appendix A.6",
             )
         )
     if not rec.rua:

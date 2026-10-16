@@ -32,12 +32,12 @@ Open follow-ups:
 - [ ] per-account `as_of` in CSV + events from a JSONL file
 - [ ] config diff endpoint / versioned configs
 
-## 02 · Deliverability preflight → + sending-capacity & warmup planner — in progress (v0.0.7)
+## 02 · Deliverability preflight → + sending-capacity & warmup planner — in progress (v0.0.8)
 Check a sending setup and a message before it goes out, against current
 Gmail / Yahoo / Microsoft bulk-sender requirements.
 - [x] DNS checks: SPF (incl. 10-lookup and void-lookup limits), DMARC policy + `rua`, alignment (org domain via Public Suffix List file or DMARCbis tree walk, opt-in)
 - [x] DNS checks: DKIM selector key (`<s>._domainkey`): revoked, RSA length, sha256, Ed25519; DKIM-Signature header (required tags, From signed, `i=`/`d=`, expiry, `l=`) with `d=`/`s=` taken from it
-- [ ] DMARCbis (RFC 9989) review against the RFC text — DNS Tree Walk discovery, `psd` and tree-walk org domain done from draft-41; `pct`→`t`, `np`, invalid-`p` fallback and the published RFC text still open
+- [ ] DMARCbis (RFC 9989) review against the RFC text — DNS Tree Walk discovery, `psd`, tree-walk org domain, `t` testing flag (`pct` historic), `np` and invalid-`p` → `p=none` fallback done from draft-41; check against the published RFC text still open
 - [x] message checks: `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058), From/Return-Path alignment
 - [x] content lint (links, tracking domains, spammy patterns) with explainable findings
 - [x] complaint-rate guardrail (0.1% target / 0.3% hard) from provided stats

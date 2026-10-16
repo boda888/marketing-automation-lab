@@ -70,8 +70,21 @@ connecting IP: they are counted but not resolved.
 
 ### DMARC rules applied (RFC 7489, DMARCbis draft -41 discovery)
 
-- The record must start with `v=DMARC1`; `p` must be `none`, `quarantine` or
-  `reject`; duplicate tags, bad `adkim`/`aspf`/`pct` values make it unusable.
+- The record must start with `v=DMARC1`; duplicate tags and bad
+  `adkim`/`aspf`/`pct`/`psd` values make it unusable.
+- A missing or invalid `p`, or an invalid `sp`/`np`, does not discard the
+  record (DMARCbis §4.10.1): with at least one valid `rua` URI receivers act as
+  if it said `p=none` (`DMARC_POLICY_FALLBACK_NONE`, warning); without one
+  they apply no DMARC at all (`DMARC_NO_POLICY` / `DMARC_INVALID_POLICY`, error).
+- `t=y` (testing, §4.7) steps the applied policy down one level (`reject` →
+  `quarantine`, `quarantine` → `none`); `effective_policy` is the stepped-down
+  value, `requested_policy` the one in the record (`DMARC_TESTING_MODE`).
+- `pct` is historic in DMARCbis (Appendix A.6): `pct<100` is still reported,
+  since RFC 7489 receivers apply it while DMARCbis receivers ignore it.
+- A subdomain that inherits a parent's record gets `sp` (else `p`); if it does
+  not exist in DNS it gets `np` (else `sp`, else `p`). The resolver cannot tell
+  NXDOMAIN from "no TXT", so pass `author_domain_exists=False` to apply `np`;
+  by default the report adds `DMARC_NP_IF_NXDOMAIN` when `np` would differ.
 - More than one DMARC record at the same name: receivers ignore them all (§6.6.3);
   the tree walk skips that name and goes on to the parents.
 - Discovery is the DMARCbis DNS Tree Walk (draft-ietf-dmarc-dmarcbis-41 §4.10):
@@ -139,9 +152,8 @@ connecting IP: they are counted but not resolved.
 - DMARCbis: discovery and Organizational Domain follow draft-ietf-dmarc-dmarcbis-41
   (April 2025, read from the IETF DMARC WG repository). Whether the published
   RFC (reported as RFC 9989) changed that text was not checked: rfc-editor.org
-  and datatracker.ietf.org were unreachable. Other DMARCbis changes (`pct`
-  removed in favour of `t`, `np` for non-existent subdomains, invalid `p` with
-  a valid `rua` treated as `p=none`) are not applied yet.
+  and datatracker.ietf.org were unreachable. The `t`, `pct`, `np` and
+  invalid-`p` rules come from the same draft (§4.7, §4.10.1, Appendix A.6).
 - DKIM-Signature rules are implemented from knowledge of RFC 6376 / 8301 /
   8463; the RFC pages and the IANA DKIM registry could not be opened from the
   run environment (2026-10-15) to re-check them.
