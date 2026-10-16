@@ -13,8 +13,8 @@
       "id": "02-deliverability-preflight",
       "path": "projects/02-deliverability-preflight",
       "status": "in_progress",
-      "summary": "SPF budget, DMARC, RFC 8058 headers, DKIM keys, DKIM-Signature header check (selectors from headers), content lint, complaint guardrail, preflight() aggregator, sending-capacity & warmup planner, FastAPI POST /v1/preflight + /v1/capacity and n8n workflow done (190 offline tests); live DNS adapter, PSL and README polish left before v0.1.0.",
-      "version": "0.0.6"
+      "summary": "SPF budget, DMARC (DMARCbis DNS Tree Walk discovery, psd tag, tree-walk and PSL org domains), RFC 8058 headers, DKIM keys, DKIM-Signature header check, content lint, complaint guardrail, preflight() aggregator, sending-capacity & warmup planner, FastAPI POST /v1/preflight + /v1/capacity and n8n workflow done (227 offline tests); live DNS adapter and README polish left before v0.1.0.",
+      "version": "0.0.7"
     },
     {
       "id": "03-signal-engine",
@@ -95,20 +95,21 @@
     "02: n8n 'preflight before send' workflow (Switch on verdict), structure-tested",
     "02: content lint (unrendered merge tags, IP/shortener/http links, link-text vs href mismatch, unbranded tracking domain, HTML-only, image-heavy/hidden content, subject/phrase heuristics) wired into preflight() and the API",
     "02: sending-capacity & warmup planner (plan_capacity: warmup -> ramp -> cap per mailbox, complaint hold/pause, per-domain totals, target date, extra mailboxes/domains, provider-ceiling check) + POST /v1/capacity",
-    "02: DKIM-Signature header check (required tags, v=1, rsa-sha1/unknown a=, From in h=, i= within d=, c=, t=/x= expiry, l= warning); preflight() checks each signature's own d=/s= key and excludes broken signatures from alignment"
+    "02: DKIM-Signature header check (required tags, v=1, rsa-sha1/unknown a=, From in h=, i= within d=, c=, t=/x= expiry, l= warning); preflight() checks each signature's own d=/s= key and excludes broken signatures from alignment",
+    "02: DMARCbis DNS Tree Walk (draft-ietf-dmarc-dmarcbis-41 §4.10): discovery up to the TLD, max 8 queries, psd=y/n stop, policy from author -> org domain -> PSD, duplicate records skipped; tree_walk_org_domain / TreeWalkOrgDomain for alignment; DMARC_PSD_POLICY_ONLY",
+    "02: PublicSuffixList (official .dat format: wildcards, exceptions, implicit *, ICANN/PRIVATE sections, IDN A-labels) with .org_domain for alignment and content lint"
   ],
   "next_steps": [
     "02: optional live DNS adapter (dnspython) behind Resolver, kept out of default tests; then README polish and v0.1.0.",
-    "02: optional Public Suffix List-aware org_domain (affects alignment and content-lint third-party/tracking checks).",
+    "02: remaining DMARCbis rules from draft -41: pct is historic (t=y testing flag instead), np for non-existent subdomains, invalid p with a valid rua treated as p=none.",
+    "02: let the FastAPI service and preflight() choose the org-domain strategy (PSL file path via env/setting, or tree walk) instead of last-two-labels.",
     "02: n8n workflow step (or extend preflight-before-send) that calls POST /v1/capacity before scheduling a campaign and caps the batch at capacity_today.",
     "Start 03 signal engine once 02 reaches v0.1.0.",
-    "Re-verify provider rules, sending limits and RFC 9989 (DMARCbis) from primary sources when egress allows; record opened URLs."
+    "Re-check DMARCbis against the published RFC text (reported RFC 9989) and provider sending rules when rfc-editor.org / provider pages are reachable."
   ],
   "known_gaps": [
     "01 n8n workflow is structure-tested only; never imported into a live n8n instance.",
     "02: no live DNS adapter; all checks verified only against FakeResolver.",
-    "02: organizational domain is naive last-two-labels (no PSL); DMARC discovery walks parents rather than PSL/tree-walk spec.",
-    "02: DMARCbis (reported as RFC 9989, May 2026) seen only in a web-search summary, not verified against the RFC text.",
     "Run environment: bare `pytest` on PATH is an isolated uv tool without project deps; use `python -m pytest`.",
     "01 weights are hand-set; no calibration on real won/lost data yet (project 12).",
     "02: provider bulk-sender thresholds (Gmail/Yahoo/Microsoft, 0.1%/0.3% complaint rate) taken from web-search summaries of third-party pages; primary pages unreachable from the run environment (2026-10-10, 2026-10-12).",
@@ -116,13 +117,16 @@
     "02: DKIM check reads published keys only; no signature verification, no private/public key match check.",
     "02: n8n preflight workflow never imported into a live n8n instance; API tested only with TestClient and fixture DNS.",
     "02: content-lint rules (shorteners, spam phrases, 3-link limit, image/text ratio) are heuristics from knowledge plus a vendor-blog search summary; no provider publishes its filters and no provider page could be opened (2026-10-14).",
-    "02: capacity-planner defaults (14-day warmup, ramp 5 + 2/day, 30/mailbox/day, 3 mailboxes/domain) and provider ceilings (Google Workspace 2,000 msgs/user/day, Exchange Online 10,000 recipients/day; a reported 2,000 external-recipient Exchange limit was not modelled because its date conflicts between sources) come from web-search summaries only; knowledge.workspace.google.com, learn.microsoft.com and prospeo.io gave ENOTFOUND (2026-10-14)."
+    "02: capacity-planner defaults (14-day warmup, ramp 5 + 2/day, 30/mailbox/day, 3 mailboxes/domain) and provider ceilings (Google Workspace 2,000 msgs/user/day, Exchange Online 10,000 recipients/day; a reported 2,000 external-recipient Exchange limit was not modelled because its date conflicts between sources) come from web-search summaries only; knowledge.workspace.google.com, learn.microsoft.com and prospeo.io gave ENOTFOUND (2026-10-14).",
+    "02: default org_domain is still last-two-labels; PSL (PublicSuffixList) and tree walk (TreeWalkOrgDomain) are opt-in, the API uses neither, and no PSL is bundled.",
+    "02: DMARCbis rules implemented from draft-ietf-dmarc-dmarcbis-41 (April 2025, IETF DMARC WG GitHub repo); whether the published RFC (reported RFC 9989) changed the tree walk is unverified (rfc-editor.org, datatracker.ietf.org: proxy 403 on 2026-10-16). pct/t, np and invalid-p fallback from the draft not applied yet.",
+    "02: PSL matching rules (wildcard, exception, implicit '*') implemented from knowledge of publicsuffix.org/list; that page was unreachable (ENOTFOUND), only the .dat file itself was opened via its GitHub mirror."
   ],
   "last_run": {
-    "date": "2026-10-15",
+    "date": "2026-10-16",
     "by": "daily agent",
-    "commits": 2,
-    "notes": "02 v0.0.6: DKIM-Signature header check and selectors derived from headers in preflight(). Commit budget drawn: 2, used 2. Egress could not resolve rfc-editor.org, datatracker.ietf.org, iana.org, docs.kumomta.com."
+    "commits": 3,
+    "notes": "02 v0.0.7: DMARCbis DNS Tree Walk discovery + org domain, PublicSuffixList org_domain. Commit budget drawn: 3, used 3. rfc-editor.org, datatracker.ietf.org and publicsuffix.org blocked (403/ENOTFOUND); raw.githubusercontent.com reachable."
   },
   "run_log": [
     {
@@ -174,6 +178,17 @@
       "summary": "02 v0.0.6: dkim_signature.py (check_dkim_signature, parse_dkim_signature) wired into preflight() and POST /v1/preflight; 190 tests in 02 (01: 33).",
       "sources": [],
       "research_note": "Opened nothing: WebFetch of www.rfc-editor.org/rfc/rfc6376.html, datatracker.ietf.org/doc/html/rfc6376, www.iana.org/assignments/dkim-parameters and docs.kumomta.com failed (ENOTFOUND). A web-search summary (not opened pages) of the IANA DKIM parameters registry and vendor pages listed v a b bh d h s as required DKIM-Signature tags and sha1 as historic; the rest (From MUST be signed, i= within d=, x= > t=, l= risk) is from knowledge of RFC 6376."
+    },
+    {
+      "date": "2026-10-16",
+      "commits": 3,
+      "summary": "02 v0.0.7: DMARCbis DNS Tree Walk (policy discovery up to the TLD, psd tag, org domain per §4.10.2, TreeWalkOrgDomain) and PublicSuffixList org_domain; 227 tests in 02 (01: 33).",
+      "sources": [
+        "https://raw.githubusercontent.com/ietf-wg-dmarc/draft-ietf-dmarc-dmarcbis/main/draft-ietf-dmarc-dmarcbis-41.txt",
+        "https://raw.githubusercontent.com/ietf-wg-dmarc/draft-ietf-dmarc-dmarcbis/main/README.md",
+        "https://raw.githubusercontent.com/publicsuffix/list/main/public_suffix_list.dat"
+      ],
+      "research_note": "Opened the DMARCbis WG draft -41 text (§4.7 psd tag, §4.10 tree walk, Appendix B.4 examples; tests mirror them) and the PSL .dat (GitHub mirror; its header asks consumers to pull only from publicsuffix.org). rfc-editor.org/rfc/rfc9989, datatracker.ietf.org and publicsuffix.org were blocked (proxy 403 / ENOTFOUND), so the published RFC text is unverified."
     }
   ]
 }
