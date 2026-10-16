@@ -61,7 +61,7 @@ def create_app(resolver: Resolver | None = None) -> FastAPI:
         fixture = os.environ.get("PREFLIGHT_DNS_FIXTURE")
         resolver = load_fixture_resolver(fixture) if fixture else FakeResolver({})
     res = resolver
-    app = FastAPI(title="Deliverability preflight", version="0.0.6")
+    app = FastAPI(title="Deliverability preflight", version="0.0.7")
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

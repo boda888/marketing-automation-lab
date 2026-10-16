@@ -32,7 +32,7 @@ Open follow-ups:
 - [ ] per-account `as_of` in CSV + events from a JSONL file
 - [ ] config diff endpoint / versioned configs
 
-## 02 · Deliverability preflight → + sending-capacity & warmup planner — in progress (v0.0.6)
+## 02 · Deliverability preflight → + sending-capacity & warmup planner — in progress (v0.0.7)
 Check a sending setup and a message before it goes out, against current
 Gmail / Yahoo / Microsoft bulk-sender requirements.
 - [x] DNS checks: SPF (incl. 10-lookup and void-lookup limits), DMARC policy + `rua`, alignment

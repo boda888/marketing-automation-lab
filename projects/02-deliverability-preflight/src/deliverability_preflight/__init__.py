@@ -39,10 +39,14 @@ from .dmarc import (
     DmarcRecord,
     DmarcReport,
     DmarcSyntaxError,
+    TreeWalkOrgDomain,
     aligned,
     check_alignment,
     check_dmarc,
     parse_dmarc,
+    select_org_domain,
+    tree_walk_org_domain,
+    tree_walk_targets,
 )
 from .dns import DNSTempError, FakeResolver, Resolver
 from .findings import Finding, worst
@@ -86,10 +90,14 @@ __all__ = [
     "DmarcRecord",
     "DmarcReport",
     "DmarcSyntaxError",
+    "TreeWalkOrgDomain",
     "aligned",
     "check_alignment",
     "check_dmarc",
     "parse_dmarc",
+    "select_org_domain",
+    "tree_walk_org_domain",
+    "tree_walk_targets",
     "DNSTempError",
     "FakeResolver",
     "Finding",
@@ -104,4 +112,4 @@ __all__ = [
     "parse_spf",
     "worst",
 ]
-__version__ = "0.0.6"
+__version__ = "0.0.7"

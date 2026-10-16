@@ -73,7 +73,14 @@ def test_subdomain_inherits_sp_from_parent():
     assert rep.policy_domain == "acme.example"
     assert rep.effective_policy == "quarantine"
     assert "DMARC_INHERITED" in codes(rep)
-    assert ("_dmarc.example", "TXT") not in r.queries  # never queries the TLD
+    assert rep.organizational_domain == "acme.example"
+    # DMARCbis tree walk: author domain, then every parent up to the TLD
+    assert r.queries == [
+        ("_dmarc.news.mail.acme.example", "TXT"),
+        ("_dmarc.mail.acme.example", "TXT"),
+        ("_dmarc.acme.example", "TXT"),
+        ("_dmarc.example", "TXT"),
+    ]
 
 
 def test_p_none_pct_and_no_rua():

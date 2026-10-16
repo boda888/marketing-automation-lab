@@ -9,7 +9,7 @@ injectable DNS resolver, so the whole suite runs offline.
 | Check | Module | What it reports |
 |---|---|---|
 | SPF | [`spf.py`](src/deliverability_preflight/spf.py) | parsed record, DNS-lookup count (limit 10), void-lookup count (limit 2), include/redirect tree, `+all` / `?all` / no `all`, `ptr`, terms after `all`, missing / duplicate records, include loops, `mx` with > 10 records |
-| DMARC | [`dmarc.py`](src/deliverability_preflight/dmarc.py) | record parsing, discovery (own domain, then parents), effective policy (`sp` for subdomains), `p=none` / partial `pct` / no `rua`, non-`mailto` report URIs, external report destinations without the `_report._dmarc` authorisation record |
+| DMARC | [`dmarc.py`](src/deliverability_preflight/dmarc.py) | record parsing, DMARCbis DNS Tree Walk discovery (own domain, then parents up to the TLD, ≤ 8 queries, `psd=y`/`psd=n`), Organizational Domain by tree walk (`TreeWalkOrgDomain`), public-suffix-only policy, effective policy (`sp` for subdomains), `p=none` / partial `pct` / no `rua`, non-`mailto` report URIs, external report destinations without the `_report._dmarc` authorisation record |
 | Alignment | `dmarc.check_alignment` | whether Return-Path and DKIM `d=` align with From under relaxed / strict `aspf` / `adkim`; warns when only SPF aligns |
 | DKIM key | [`dkim.py`](src/deliverability_preflight/dkim.py) | the key record at `<selector>._domainkey.<domain>`: missing / duplicate / malformed records, revoked keys (empty `p=`), RSA key length (< 1024 error, < 2048 warning), `h=` without `sha256`, `s=` excluding email, `t=y` testing mode, Ed25519 key length |
 | DKIM-Signature | [`dkim_signature.py`](src/deliverability_preflight/dkim_signature.py) | each `DKIM-Signature` header of a test message: missing required tags (`v a b bh d h s`), `v` ≠ 1, `rsa-sha1` or an unknown `a=`, From not in `h=`, `i=` outside `d=`, bad `c=`, `x=` not after `t=` or already past → error; `l=` body-length limit → warning. Its `d=` / `s=` tell `preflight()` which key to check |
@@ -67,13 +67,27 @@ checker keeps counting past 10 — up to a safety cap of 50 — so a report show
 how far over budget a policy is. Terms with macros (`%{i}`…) depend on the
 connecting IP: they are counted but not resolved.
 
-### DMARC rules applied (RFC 7489)
+### DMARC rules applied (RFC 7489, DMARCbis draft -41 discovery)
 
 - The record must start with `v=DMARC1`; `p` must be `none`, `quarantine` or
   `reject`; duplicate tags, bad `adkim`/`aspf`/`pct` values make it unusable.
-- More than one DMARC record at the same name: receivers ignore them all (§6.6.3).
-- A domain without its own record uses its parent's, with `sp` (if set) as
-  the effective policy.
+- More than one DMARC record at the same name: receivers ignore them all (§6.6.3);
+  the tree walk skips that name and goes on to the parents.
+- Discovery is the DMARCbis DNS Tree Walk (draft-ietf-dmarc-dmarcbis-41 §4.10):
+  `_dmarc.<author>`, then each parent up to the TLD; a name with 8+ labels jumps
+  to its last 7, so at most 8 queries. A `psd=y` / `psd=n` record stops the walk.
+- The record applied is the Author Domain's, else the Organizational Domain's,
+  else the public suffix domain's (§4.10.1), with `sp` (if set) as the effective
+  policy for subdomains. The Organizational Domain is the hit with the fewest
+  labels, or the `psd=n` name, or the name one label below a `psd=y` record
+  (§4.10.2). Note this is not "nearest parent": with records at
+  `mail.acme.example` and `acme.example`, `news.mail.acme.example` gets
+  `acme.example`'s policy. A policy that only comes from a `psd=y` record is a
+  warning (`DMARC_PSD_POLICY_ONLY`).
+- `TreeWalkOrgDomain(resolver)` is an `org_domain=` function for alignment and
+  content checks that uses the same walk (cached per domain; on a DNS failure
+  the domain counts as its own Organizational Domain, so relaxed alignment
+  degrades to strict rather than to a false pass).
 - Reports to a different organizational domain are only sent when that domain
   publishes `<policy-domain>._report._dmarc.<dest>` with `v=DMARC1` (§7.1).
 - Relaxed alignment = same organizational domain; strict = identical domain (§3.1).
@@ -113,12 +127,17 @@ connecting IP: they are counted but not resolved.
 - No live DNS adapter ships yet; the `Resolver` protocol is one method
   (`lookup(name, rtype) -> list[str]`). Nothing here has been run against
   real DNS.
-- Organizational domains use a naive "last two labels" rule; there is no
-  Public Suffix List bundled. Pass `org_domain=` with a PSL-aware function for
-  suffixes such as `co.uk`. Discovery walks every parent instead of using the PSL.
-- DMARCbis (reported published in 2026 as the RFC 7489 successor) has not been
-  checked against its text yet; the parser keeps unknown tags (e.g. `np`, `psd`,
-  `t`) and parses `np` when present, but no DMARCbis-specific rule is applied.
+- The default `org_domain` for alignment and content lint is still a naive
+  "last two labels" rule (no Public Suffix List bundled); pass
+  `org_domain=TreeWalkOrgDomain(resolver)` or a PSL-aware function for
+  suffixes such as `co.uk`. Real public suffixes rarely publish `psd=y`, so a
+  tree walk alone can still merge two companies under one suffix.
+- DMARCbis: discovery and Organizational Domain follow draft-ietf-dmarc-dmarcbis-41
+  (April 2025, read from the IETF DMARC WG repository). Whether the published
+  RFC (reported as RFC 9989) changed that text was not checked: rfc-editor.org
+  and datatracker.ietf.org were unreachable. Other DMARCbis changes (`pct`
+  removed in favour of `t`, `np` for non-existent subdomains, invalid `p` with
+  a valid `rua` treated as `p=none`) are not applied yet.
 - DKIM-Signature rules are implemented from knowledge of RFC 6376 / 8301 /
   8463; the RFC pages and the IANA DKIM registry could not be opened from the
   run environment (2026-10-15) to re-check them.

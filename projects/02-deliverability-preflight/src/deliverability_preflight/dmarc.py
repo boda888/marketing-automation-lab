@@ -8,10 +8,15 @@
 - ``check_alignment`` tells whether the SPF (Return-Path / MAIL FROM) and DKIM
   (``d=``) identifiers align with the From domain under ``aspf`` / ``adkim``.
 
-Organizational domains: RFC 7489 derives them from the Public Suffix List.
-This module does not ship the PSL; the default ``org_domain`` keeps the last
-two labels, which is wrong for suffixes like ``co.uk``. Pass a PSL-aware
-function where that matters.
+Policy discovery follows the DMARCbis DNS Tree Walk
+(draft-ietf-dmarc-dmarcbis-41 §4.10): the Author Domain first, then its
+parents up to and including the TLD, at most eight queries, stopping at a
+``psd=y`` / ``psd=n`` record. ``tree_walk_org_domain`` and ``TreeWalkOrgDomain``
+apply §4.10.2 to find an Organizational Domain from DNS alone.
+
+``default_org_domain`` (used for alignment unless another function is passed)
+keeps the last two labels, which is wrong for suffixes like ``co.uk``. Pass
+``TreeWalkOrgDomain(resolver)`` or a PSL-aware function where that matters.
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from .findings import Finding
 
 Policy = Literal["none", "quarantine", "reject"]
 Mode = Literal["r", "s"]
+Psd = Literal["y", "n", "u"]
 OrgDomainFn = Callable[[str], str]
 
 _POLICIES = ("none", "quarantine", "reject")
@@ -43,6 +49,7 @@ class DmarcRecord(BaseModel):
     adkim: Mode = "r"
     aspf: Mode = "r"
     pct: int = 100
+    psd: Psd = "u"
     rua: list[str] = []
     ruf: list[str] = []
     tags: dict[str, str] = {}
@@ -92,6 +99,10 @@ def parse_dmarc(raw: str) -> DmarcRecord:
         if not tags["pct"].isdigit() or not 0 <= int(tags["pct"]) <= 100:
             raise DmarcSyntaxError(f"pct={tags['pct']!r} must be an integer 0-100")
         rec.pct = int(tags["pct"])
+    if "psd" in tags:
+        if tags["psd"].lower() not in ("y", "n", "u"):
+            raise DmarcSyntaxError(f"psd={tags['psd']!r} must be 'y', 'n' or 'u'")
+        rec.psd = tags["psd"].lower()
     rec.rua = _uris(tags.get("rua", ""))
     rec.ruf = _uris(tags.get("ruf", ""))
     return rec
@@ -110,6 +121,7 @@ class DmarcReport(BaseModel):
     domain: str
     status: DmarcStatus
     policy_domain: str | None = None
+    organizational_domain: str | None = None
     record: DmarcRecord | None = None
     effective_policy: Policy | None = None
     findings: list[Finding] = []
@@ -119,10 +131,106 @@ def _f(code: str, severity: str, message: str, ref: str = "RFC 7489") -> Finding
     return Finding(code=code, severity=severity, message=message, ref=ref)
 
 
-def _candidates(domain: str) -> list[str]:
-    """``domain`` then each parent, never the bare TLD."""
-    labels = domain.split(".")
-    return [".".join(labels[i:]) for i in range(max(len(labels) - 1, 1))]
+MAX_WALK_QUERIES = 8  # DMARCbis §4.10: Author Domains of 8+ labels jump to 7
+
+
+def tree_walk_targets(domain: str) -> list[str]:
+    """Names a DMARCbis DNS Tree Walk queries, starting at ``domain`` itself.
+
+    Below eight labels each step drops the left-most label; a name with eight
+    or more labels jumps straight to its last seven, so a walk never takes
+    more than eight queries. The TLD is the last target.
+    """
+    labels = normalize_name(domain).split(".")
+    targets = [".".join(labels)]
+    rest = labels[-7:] if len(labels) >= MAX_WALK_QUERIES else labels[1:]
+    while rest:
+        targets.append(".".join(rest))
+        rest = rest[1:]
+    return targets
+
+
+class WalkHit(BaseModel):
+    domain: str
+    record: DmarcRecord
+
+
+class _Walk(BaseModel):
+    hits: list[WalkHit] = []
+    multiple: list[str] = []  # targets with more than one DMARC record (discarded)
+    invalid: dict[str, str] = {}  # target -> syntax error; the walk stops there
+
+
+def _walk(targets: list[str], resolver: Resolver) -> _Walk:
+    """Query each target; raises ``DNSTempError`` (the answer is unknown)."""
+    walk = _Walk()
+    for target in targets:
+        records = [t for t in resolver.lookup(f"_dmarc.{target}", "TXT") if is_dmarc_record(t)]
+        if len(records) > 1:
+            walk.multiple.append(target)
+            continue
+        if not records:
+            continue
+        try:
+            rec = parse_dmarc(records[0])
+        except DmarcSyntaxError as exc:
+            walk.invalid[target] = str(exc)
+            break
+        walk.hits.append(WalkHit(domain=target, record=rec))
+        if rec.psd in ("y", "n"):
+            break
+    return walk
+
+
+def select_org_domain(start: str, hits: list[WalkHit]) -> str:
+    """Organizational Domain from a walk's hits, longest name first (§4.10.2).
+
+    ``psd=n`` marks the Organizational Domain itself; ``psd=y`` on a record
+    other than the start marks a public suffix, so the name one label below
+    it is the Organizational Domain; otherwise the hit with the fewest labels
+    wins. No hits: ``start`` is its own Organizational Domain.
+    """
+    start = normalize_name(start)
+    labels = start.split(".")
+    for hit in hits:
+        if hit.record.psd == "n":
+            return hit.domain
+        if hit.record.psd == "y" and hit.domain != start:
+            return ".".join(labels[-(hit.domain.count(".") + 2) :])
+    return hits[-1].domain if hits else start
+
+
+def tree_walk_org_domain(domain: str, resolver: Resolver) -> str:
+    """Organizational Domain of ``domain`` by DNS Tree Walk.
+
+    Raises ``DNSTempError`` when a query fails: the answer is unknown.
+    """
+    domain = normalize_name(domain)
+    return select_org_domain(domain, _walk(tree_walk_targets(domain), resolver).hits)
+
+
+class TreeWalkOrgDomain:
+    """``OrgDomainFn`` backed by DNS Tree Walks, cached per domain.
+
+    On a DNS failure the domain is treated as its own Organizational Domain
+    (so relaxed alignment degrades to strict, never to a false pass) and the
+    domain is listed in ``errors``.
+    """
+
+    def __init__(self, resolver: Resolver) -> None:
+        self._resolver = resolver
+        self._cache: dict[str, str] = {}
+        self.errors: list[str] = []
+
+    def __call__(self, domain: str) -> str:
+        domain = normalize_name(domain)
+        if domain not in self._cache:
+            try:
+                self._cache[domain] = tree_walk_org_domain(domain, self._resolver)
+            except DNSTempError:
+                self.errors.append(domain)
+                return domain
+        return self._cache[domain]
 
 
 def check_dmarc(
@@ -133,46 +241,47 @@ def check_dmarc(
 ) -> DmarcReport:
     """Find and explain the DMARC policy that governs mail From ``domain``.
 
-    Discovery queries ``_dmarc.<domain>`` and then each parent domain. RFC 7489
-    jumps straight to the organizational domain; for the usual
-    ``sub.brand.example`` shapes both give the same answer.
+    Discovery is the DMARCbis DNS Tree Walk: ``_dmarc.<domain>`` first; when
+    it has no usable record, the parents up to the TLD. The record applied is
+    the Author Domain's, else the Organizational Domain's, else the public
+    suffix domain's (§4.10.1). A name with several DMARC records is reported
+    and skipped, as receivers discard them. ``org_domain`` is used only to
+    decide whether report destinations are external.
     """
     domain = normalize_name(domain)
     report = DmarcReport(domain=domain, status="none")
     findings = report.findings
 
-    for candidate in _candidates(domain):
-        try:
-            txts = resolver.lookup(f"_dmarc.{candidate}", "TXT")
-        except DNSTempError as exc:
-            findings.append(_f("DMARC_DNS_TEMPERROR", "error", str(exc)))
-            report.status = "temperror"
-            return report
-        records = [t for t in txts if is_dmarc_record(t)]
-        if not records:
-            continue
-        report.policy_domain = candidate
-        if len(records) > 1:
-            findings.append(
-                _f(
-                    "DMARC_MULTIPLE_RECORDS",
-                    "error",
-                    f"_dmarc.{candidate} has {len(records)} DMARC records; receivers ignore all",
-                    "RFC 7489 §6.6.3",
-                )
+    try:
+        walk = _walk(tree_walk_targets(domain)[:1], resolver)
+        if not walk.hits and not walk.invalid:
+            parents = _walk(tree_walk_targets(domain)[1:], resolver)
+            walk.hits, walk.invalid = parents.hits, parents.invalid
+            walk.multiple += parents.multiple
+    except DNSTempError as exc:
+        findings.append(_f("DMARC_DNS_TEMPERROR", "error", str(exc)))
+        report.status = "temperror"
+        return report
+
+    for target in walk.multiple:
+        findings.append(
+            _f(
+                "DMARC_MULTIPLE_RECORDS",
+                "error",
+                f"_dmarc.{target} has more than one DMARC record; receivers discard them all",
+                "RFC 7489 §6.6.3; DMARCbis §4.10",
             )
+        )
+    if walk.invalid:
+        target, error = next(iter(walk.invalid.items()))
+        report.policy_domain = target
+        findings.append(_f("DMARC_SYNTAX", "error", f"_dmarc.{target}: {error}", "RFC 7489 §6.3"))
+        report.status = "invalid"
+        return report
+    if not walk.hits:
+        if walk.multiple:
             report.status = "invalid"
             return report
-        try:
-            report.record = parse_dmarc(records[0])
-        except DmarcSyntaxError as exc:
-            findings.append(
-                _f("DMARC_SYNTAX", "error", f"_dmarc.{candidate}: {exc}", "RFC 7489 §6.3")
-            )
-            report.status = "invalid"
-            return report
-        break
-    else:
         findings.append(
             _f(
                 "DMARC_MISSING",
@@ -183,6 +292,13 @@ def check_dmarc(
             )
         )
         return report
+
+    org = select_org_domain(domain, walk.hits)
+    by_domain = {h.domain: h for h in walk.hits}
+    policy = by_domain.get(domain) or by_domain.get(org) or walk.hits[-1]
+    report.organizational_domain = org
+    report.policy_domain = policy.domain
+    report.record = policy.record
 
     rec = report.record
     inherited = report.policy_domain != domain
@@ -207,9 +323,19 @@ def check_dmarc(
                 "info",
                 f"{domain} uses the record of {report.policy_domain} "
                 f"(effective policy {report.effective_policy})",
-                "RFC 7489 §6.6.3",
+                "RFC 7489 §6.6.3; DMARCbis §4.10.1",
             )
         )
+        if rec.psd == "y":
+            findings.append(
+                _f(
+                    "DMARC_PSD_POLICY_ONLY",
+                    "warning",
+                    f"only the public suffix operator's record at {report.policy_domain} "
+                    f"covers {domain}; publish a record at {org} to control policy and reports",
+                    "DMARCbis §4.10.1",
+                )
+            )
     if report.effective_policy == "none":
         findings.append(
             _f(
