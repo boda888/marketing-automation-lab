@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "current_project": "02-deliverability-preflight",
+  "current_project": "03-signal-engine",
   "projects": [
     {
       "id": "01-icp-scoring",
@@ -12,9 +12,9 @@
     {
       "id": "02-deliverability-preflight",
       "path": "projects/02-deliverability-preflight",
-      "status": "in_progress",
-      "summary": "SPF budget, DMARC (DMARCbis DNS Tree Walk discovery, psd tag, tree-walk and PSL org domains, t testing flag, np, invalid-p -> p=none fallback), RFC 8058 headers, DKIM keys, DKIM-Signature header check, content lint, complaint guardrail, preflight() aggregator, sending-capacity & warmup planner, FastAPI POST /v1/preflight + /v1/capacity and n8n workflow done optional live DNS adapter DnsPythonResolver with NXDOMAIN-aware np (262 offline tests); API org-domain strategy and README polish left before v0.1.0.",
-      "version": "0.0.9"
+      "status": "done",
+      "summary": "SPF budget, DMARC (DMARCbis tree walk, psd, t, np, p=none fallback), alignment with selectable org-domain rule (last-two / PSL / tree walk; PREFLIGHT_ORG_DOMAIN), DKIM keys + DKIM-Signature headers, RFC 8058, content lint, complaint guardrail -> preflight() verdict; capacity & warmup planner and assign_batch (today's batch per mailbox); FastAPI /v1/preflight, /v1/capacity, /v1/schedule; two n8n workflows; offline FakeResolver + optional live DnsPythonResolver; 279 tests.",
+      "version": "0.1.0"
     },
     {
       "id": "03-signal-engine",
@@ -99,15 +99,17 @@
     "02: DMARCbis DNS Tree Walk (draft-ietf-dmarc-dmarcbis-41 §4.10): discovery up to the TLD, max 8 queries, psd=y/n stop, policy from author -> org domain -> PSD, duplicate records skipped; tree_walk_org_domain / TreeWalkOrgDomain for alignment; DMARC_PSD_POLICY_ONLY",
     "02: PublicSuffixList (official .dat format: wildcards, exceptions, implicit *, ICANN/PRIVATE sections, IDN A-labels) with .org_domain for alignment and content lint",
     "02: DMARCbis policy rules (draft-41 §4.7, §4.10.1, App. A.6): t=y steps policy down one level (requested_policy vs effective_policy), pct reported as historic, np for non-existent subdomains (author_domain_exists, DMARC_NP_IF_NXDOMAIN), invalid/missing p or invalid sp/np -> p=none with a valid rua, else no DMARC",
-    "02: live DNS adapter DnsPythonResolver (dnspython, [live] extra): absolute queries, lifetime, TXT strings joined, NXDOMAIN/NoAnswer -> [], failures -> DNSTempError; resolver domain_exists() lets check_dmarc apply np itself (probed only when np changes the policy); FakeResolver(nxdomain=); author_domain_exists on preflight() and POST /v1/preflight; PREFLIGHT_DNS=live"
+    "02: live DNS adapter DnsPythonResolver (dnspython, [live] extra): absolute queries, lifetime, TXT strings joined, NXDOMAIN/NoAnswer -> [], failures -> DNSTempError; resolver domain_exists() lets check_dmarc apply np itself (probed only when np changes the policy); FakeResolver(nxdomain=); author_domain_exists on preflight() and POST /v1/preflight; PREFLIGHT_DNS=live",
+    "02: API org-domain strategy PREFLIGHT_ORG_DOMAIN = last-two | psl (PREFLIGHT_PSL_FILE) | tree-walk (fresh TreeWalkOrgDomain per request); misconfiguration fails at startup; org_domain_strategy in reports and /healthz; ORG_DOMAIN_TEMPERROR warning when a tree-walk lookup fails",
+    "02: assign_batch (cap leads at capacity_today, round-robin over mailboxes with capacity, deferred in input order, duplicate id/e-mail skipped with a finding) + POST /v1/schedule + n8n capacity-before-schedule workflow (HTTP retryOnFail 3x)",
+    "02-deliverability-preflight v0.1.0 (README: pain -> architecture -> run -> limits; version strings tested to agree)"
   ],
   "next_steps": [
-    "02: let the FastAPI service and preflight() choose the org-domain strategy (PSL file path via env/setting, or tree walk) instead of last-two-labels.",
-    "02: n8n workflow step (or extend preflight-before-send) that calls POST /v1/capacity before scheduling a campaign and caps the batch at capacity_today.",
-    "02: optional opt-in live-DNS smoke test (env-gated, outside the default suite) once the run environment's DNS returns real answers.",
-    "02: README polish and v0.1.0.",
-    "Start 03 signal engine once 02 reaches v0.1.0.",
-    "Re-check DMARCbis against the published RFC text (reported RFC 9989) and provider sending rules when rfc-editor.org / provider pages are reachable."
+    "03: scaffold projects/03-signal-engine (pyproject, README opening with the pain, tests) with a SignalEvent model: type (hiring/funding/expansion/leadership/tech_change/site_visit), source_url, observed_at + date precision, evidence text; Unknown / Not found in sample as first-class states.",
+    "03: dedupe the same event seen in several sources (source + id/date) before scoring; fixture with one funding round from two sources.",
+    "03: deterministic priority rules (recency windows e.g. funding <=12 / 13-24 months, headcount growth thresholds) -> Tier 1-3 / Hold with a <=30-word best signal and <=45-word reason; arithmetic in code, not in an LLM.",
+    "03: map signal events into 01's engagement events and a FastAPI endpoint + n8n workflow.",
+    "02 follow-ups: opt-in env-gated live-DNS smoke test; re-check DMARCbis against the published RFC text (reported RFC 9989) when rfc-editor.org is reachable."
   ],
   "known_gaps": [
     "01 n8n workflow is structure-tested only; never imported into a live n8n instance.",
@@ -117,18 +119,19 @@
     "02: provider bulk-sender thresholds (Gmail/Yahoo/Microsoft, 0.1%/0.3% complaint rate) taken from web-search summaries of third-party pages; primary pages unreachable from the run environment (2026-10-10, 2026-10-12).",
     "02: RFC 6376/8301/8463 rules (DKIM key records and, since 2026-10-15, DKIM-Signature tags) implemented from knowledge plus search summaries; RFC pages and the IANA DKIM registry were blocked or unresolvable from the run environment (403 / ENOTFOUND).",
     "02: DKIM check reads published keys only; no signature verification, no private/public key match check.",
-    "02: n8n preflight workflow never imported into a live n8n instance; API tested only with TestClient and fixture DNS.",
+    "02: n8n workflows (preflight-before-send, capacity-before-schedule) never imported into a live n8n instance; node parameters checked against the n8n source on GitHub, not docs.n8n.io (unreachable 2026-10-18). API tested only with TestClient and fixture DNS.",
     "02: content-lint rules (shorteners, spam phrases, 3-link limit, image/text ratio) are heuristics from knowledge plus a vendor-blog search summary; no provider publishes its filters and no provider page could be opened (2026-10-14).",
     "02: capacity-planner defaults (14-day warmup, ramp 5 + 2/day, 30/mailbox/day, 3 mailboxes/domain) and provider ceilings (Google Workspace 2,000 msgs/user/day, Exchange Online 10,000 recipients/day; a reported 2,000 external-recipient Exchange limit was not modelled because its date conflicts between sources) come from web-search summaries only; knowledge.workspace.google.com, learn.microsoft.com and prospeo.io gave ENOTFOUND (2026-10-14).",
-    "02: default org_domain is still last-two-labels; PSL (PublicSuffixList) and tree walk (TreeWalkOrgDomain) are opt-in, the API uses neither, and no PSL is bundled.",
+    "02: default org_domain (library and API) is still last-two-labels; PSL and tree walk are opt-in (API: PREFLIGHT_ORG_DOMAIN), no PSL is bundled and the service does not refresh a PSL file itself.",
     "02: DMARCbis rules (tree walk, psd, t, np, invalid-p fallback, pct historic) implemented from draft-ietf-dmarc-dmarcbis-41 (April 2025, IETF DMARC WG GitHub repo); whether the published RFC (reported RFC 9989) changed them is unverified (rfc-editor.org, datatracker.ietf.org: proxy 403 on 2026-10-16, twice). np needs a resolver with domain_exists (DnsPythonResolver) or the caller's author_domain_exists; FakeResolver and the fixture API cannot tell NXDOMAIN from no-TXT.",
-    "02: PSL matching rules (wildcard, exception, implicit '*') implemented from knowledge of publicsuffix.org/list; that page was unreachable (ENOTFOUND), only the .dat file itself was opened via its GitHub mirror."
+    "02: PSL matching rules (wildcard, exception, implicit '*') implemented from knowledge of publicsuffix.org/list; that page was unreachable (ENOTFOUND), only the .dat file itself was opened via its GitHub mirror.",
+    "02: assign_batch spreads leads evenly over mailboxes but ignores per-domain balance, sending windows/time zones and leads already in flight in a sequencer; dedupe is by id and exact e-mail only."
   ],
   "last_run": {
     "date": "2026-10-18",
     "by": "daily agent",
-    "commits": 2,
-    "notes": "02 v0.0.9: live dnspython adapter + NXDOMAIN-aware np. Commit budget drawn: 2, used 2. dnspython.readthedocs.io ENOTFOUND; pypi.org and raw.githubusercontent.com reachable."
+    "commits": 4,
+    "notes": "02 v0.1.0: API org-domain strategy, today's batch + /v1/schedule + n8n workflow, README restructure. Commit budget drawn: 4, used 4. rfc-editor.org and docs.n8n.io ENOTFOUND; raw.githubusercontent.com reachable."
   },
   "run_log": [
     {
@@ -209,6 +212,17 @@
         "https://raw.githubusercontent.com/rthalley/dnspython/main/dns/rdtypes/txtbase.py"
       ],
       "research_note": "dnspython.readthedocs.io was unreachable (ENOTFOUND), so the Resolver.resolve signature and its raised exceptions (LifetimeTimeout, NXDOMAIN, YXDOMAIN, NoAnswer, NoNameservers) were read from the dnspython source on GitHub; PyPI JSON gave the current version 2.9.0 (requires Python >=3.11). TXT string joining (RFC 7208 §3.3, RFC 6376 §3.6.2.2) is from knowledge; RFC pages not opened. A live probe from the run environment returned [] for _dmarc.gmail.com, so no live DNS result is claimed."
+    },
+    {
+      "date": "2026-10-18",
+      "commits": 4,
+      "summary": "02 v0.1.0: PREFLIGHT_ORG_DOMAIN (last-two / psl / tree-walk) with ORG_DOMAIN_TEMPERROR; assign_batch + POST /v1/schedule + n8n capacity-before-schedule; README pain -> architecture -> run -> limits; 279 tests in 02 (01: 33). current_project -> 03.",
+      "sources": [
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/HttpRequest/HttpRequest.node.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/workflow/src/interfaces.ts",
+        "https://raw.githubusercontent.com/publicsuffix/list/main/README.md"
+      ],
+      "research_note": "HttpRequest.node.ts: versions 1-4.5 (default 4.5), so the workflow's 4.2 is still a valid version; interfaces.ts INode: retryOnFail, maxTries, waitBetweenTries, onError are node-level fields. PSL README: maintained by volunteers, points users to publicsuffix.org (supports not bundling the list). WebFetch/curl to www.rfc-editor.org/rfc/rfc9989.txt and docs.n8n.io failed (ENOTFOUND), so DMARCbis RFC text is still unverified."
     }
   ]
 }
