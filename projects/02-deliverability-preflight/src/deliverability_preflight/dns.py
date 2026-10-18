@@ -4,8 +4,10 @@ A resolver returns the record strings for ``(name, rtype)``. NXDOMAIN and
 "no records of that type" both return ``[]`` — SPF treats them the same way
 (a *void lookup*, RFC 7208 §4.6.4). Transient failures raise ``DNSTempError``.
 
-No live resolver adapter ships yet; plug one in (e.g. dnspython) by
-implementing ``Resolver.lookup``.
+``live_dns.DnsPythonResolver`` is the live adapter (optional ``[live]``
+extra). A resolver may also offer ``domain_exists(name) -> bool | None``
+(False on NXDOMAIN, None when unknown); ``check_dmarc`` uses it to pick
+``np`` for a non-existent subdomain.
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ class FakeResolver:
 
     ``records`` maps ``(name, rtype)`` to answers; names are case-insensitive.
     ``fail`` lists ``(name, rtype)`` pairs that raise ``DNSTempError``.
+    ``nxdomain`` lists names ``domain_exists`` reports as non-existent; for
+    any other name it returns None (unknown), as the records alone cannot say.
     Every query is recorded in ``queries`` so tests can assert on DNS cost.
     """
 
@@ -38,9 +42,11 @@ class FakeResolver:
         self,
         records: Mapping[tuple[str, str], Iterable[str]],
         fail: Iterable[tuple[str, str]] = (),
+        nxdomain: Iterable[str] = (),
     ) -> None:
         self._records = {(normalize_name(n), t.upper()): list(v) for (n, t), v in records.items()}
         self._fail = {(normalize_name(n), t.upper()) for n, t in fail}
+        self._nxdomain = {normalize_name(n) for n in nxdomain}
         self.queries: list[tuple[str, str]] = []
 
     def lookup(self, name: str, rtype: str) -> list[str]:
@@ -49,3 +55,6 @@ class FakeResolver:
         if key in self._fail:
             raise DNSTempError(f"temporary failure for {key[0]} {key[1]}")
         return list(self._records.get(key, []))
+
+    def domain_exists(self, name: str) -> bool | None:
+        return False if normalize_name(name) in self._nxdomain else None

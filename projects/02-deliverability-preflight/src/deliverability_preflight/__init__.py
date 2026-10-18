@@ -50,6 +50,7 @@ from .dmarc import (
 )
 from .dns import DNSTempError, FakeResolver, Resolver
 from .findings import Finding, worst
+from .live_dns import DnsPythonResolver
 from .preflight import PreflightReport, preflight
 from .psl import PublicSuffixList
 from .spf import SpfReport, SpfSyntaxError, check_spf, parse_spf
@@ -101,6 +102,7 @@ __all__ = [
     "tree_walk_org_domain",
     "tree_walk_targets",
     "DNSTempError",
+    "DnsPythonResolver",
     "FakeResolver",
     "Finding",
     "Resolver",
@@ -114,4 +116,4 @@ __all__ = [
     "parse_spf",
     "worst",
 ]
-__version__ = "0.0.8"
+__version__ = "0.0.9"

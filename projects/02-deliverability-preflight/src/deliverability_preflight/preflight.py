@@ -67,6 +67,7 @@ def preflight(
     content: MessageContent | None = None,
     tracking_domain: str | None = None,
     org_domain: OrgDomainFn = _default_org_domain,
+    author_domain_exists: bool | None = None,
     now: datetime | None = None,
 ) -> PreflightReport:
     """Run SPF, DMARC, DKIM, alignment, one-click, content and complaint checks.
@@ -78,6 +79,7 @@ def preflight(
     ``from_domain``; ``return_path_domain`` defaults to ``from_domain``.
     For alignment, a DKIM domain counts only when its key checks out and, for
     a domain taken from a signature, that signature has no errors.
+    ``author_domain_exists`` is passed to ``check_dmarc`` (``np`` vs ``sp``).
     """
     from_domain = normalize_name(from_domain)
     rp = normalize_name(return_path_domain or from_domain)
@@ -94,7 +96,9 @@ def preflight(
             refs.append(ref)
 
     spf = check_spf(rp, resolver)
-    dmarc = check_dmarc(from_domain, resolver, org_domain=org_domain)
+    dmarc = check_dmarc(
+        from_domain, resolver, org_domain=org_domain, author_domain_exists=author_domain_exists
+    )
     dkim = [check_dkim(dom, sel, resolver) for dom, sel in refs]
     findings: list[Finding] = [*spf.findings, *dmarc.findings]
     for sig in signatures:

@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deliverability-preflight"
-version = "0.0.8"
+version = "0.0.9"
 description = "Offline-testable SPF / DKIM / DMARC / RFC 8058 preflight checks for outbound email"
 requires-python = ">=3.11"
 dependencies = ["fastapi>=0.110", "pydantic>=2.6"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.5", "uvicorn>=0.29"]
+live = ["dnspython>=2.6"]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.5", "uvicorn>=0.29", "dnspython>=2.6"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -138,9 +138,10 @@ connecting IP: they are counted but not resolved.
 
 ## Not yet / not verified
 
-- No live DNS adapter ships yet; the `Resolver` protocol is one method
-  (`lookup(name, rtype) -> list[str]`). Nothing here has been run against
-  real DNS.
+- `DnsPythonResolver` (live DNS, `[live]` extra) is tested against a stub
+  that raises dnspython's own exceptions, not against real DNS: the run
+  environment's DNS returned empty answers even for well-known DMARC records,
+  so no live result is claimed. Every check still runs offline by default.
 - The default `org_domain` for alignment and content lint is still a naive
   "last two labels" rule: the Public Suffix List is not bundled (it changes
   often and its maintainers ask users to fetch it from
@@ -184,6 +185,27 @@ connecting IP: they are counted but not resolved.
 pip install -e ".[dev]" && python -m pytest -q
 ```
 
+### Live DNS
+
+```bash
+pip install -e ".[live]"
+```
+
+```python
+from deliverability_preflight import DnsPythonResolver, preflight
+
+report = preflight("acme.example", DnsPythonResolver(lifetime=5), dkim_selectors=["s1"])
+```
+
+`DnsPythonResolver` queries names as absolute (no search list), joins a TXT
+record's 255-byte strings into one (RFC 7208 §3.3, RFC 6376 §3.6.2.2), turns
+NXDOMAIN / no answer into `[]` and timeouts / no working nameserver into
+`DNSTempError` (a `*_DNS_TEMPERROR` finding, never a silent pass). It also
+answers `domain_exists(name)`, so for a subdomain that inherits a record with
+`np=` `check_dmarc` asks once whether the name exists and applies `np` or `sp`
+itself instead of reporting `DMARC_NP_IF_NXDOMAIN`. `FakeResolver(...,
+nxdomain=[...])` does the same in tests.
+
 ### HTTP service (demo DNS from a fixture)
 
 ```bash
@@ -194,9 +216,12 @@ curl -s localhost:8002/v1/preflight -H 'content-type: application/json' -d @exam
 `POST /v1/preflight` takes `from_domain`, `dkim_selectors`, optional
 `dkim_domain`, `return_path_domain`, `headers` (`[name, value]` pairs),
 `content` (`subject`, `text`, `html` of the rendered draft), `tracking_domain`
-and `complaint_stats`, and returns the `PreflightReport` (`verdict` is
-`pass` / `review` / `block`). Without `PREFLIGHT_DNS_FIXTURE` the app has an
-empty resolver, so everything reports missing records; there is no live DNS yet.
+`complaint_stats` and `author_domain_exists` (overrides the NXDOMAIN probe),
+and returns the `PreflightReport` (`verdict` is `pass` / `review` / `block`).
+`PREFLIGHT_DNS=live` (with the `[live]` extra; `PREFLIGHT_DNS_LIFETIME`
+seconds per query, default 5) answers from real DNS. Otherwise, without
+`PREFLIGHT_DNS_FIXTURE` the app has an empty resolver, so everything reports
+missing records.
 
 `POST /v1/capacity` takes `mailboxes` (`address`, `provider` = `google` /
 `microsoft` / `smtp`, `warmup_started`, optional `complaint_status` and `daily_cap`),

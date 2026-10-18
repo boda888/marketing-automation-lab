@@ -1,11 +1,13 @@
 """FastAPI service wrapping ``preflight()``.
 
-Run (demo, answers DNS from a JSON fixture — no live DNS adapter ships yet):
+Run (demo, answers DNS from a JSON fixture):
 
     PREFLIGHT_DNS_FIXTURE=examples/dns_fixture.json \
         uvicorn deliverability_preflight.api:app --port 8002
 
 The fixture maps ``"<name> <TYPE>"`` to a list of record strings.
+``PREFLIGHT_DNS=live`` queries real DNS instead (needs the ``[live]`` extra);
+``PREFLIGHT_DNS_LIFETIME`` caps each query in seconds (default 5).
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ class PreflightRequest(BaseModel):
     complaint_stats: list[ComplaintStats] = []
     content: MessageContent | None = None
     tracking_domain: str | None = None
+    author_domain_exists: bool | None = None
 
 
 class CapacityRequest(BaseModel):
@@ -56,12 +59,24 @@ def load_fixture_resolver(path: str | Path) -> FakeResolver:
     return FakeResolver(records)
 
 
+def resolver_from_env() -> Resolver:
+    """``PREFLIGHT_DNS=live`` → real DNS; else the fixture, else an empty resolver."""
+    mode = os.environ.get("PREFLIGHT_DNS", "fixture").strip().lower()
+    if mode == "live":
+        from .live_dns import DnsPythonResolver
+
+        return DnsPythonResolver(lifetime=float(os.environ.get("PREFLIGHT_DNS_LIFETIME", "5")))
+    if mode != "fixture":
+        raise ValueError(f"PREFLIGHT_DNS={mode!r}; expected 'live' or 'fixture'")
+    fixture = os.environ.get("PREFLIGHT_DNS_FIXTURE")
+    return load_fixture_resolver(fixture) if fixture else FakeResolver({})
+
+
 def create_app(resolver: Resolver | None = None) -> FastAPI:
     if resolver is None:
-        fixture = os.environ.get("PREFLIGHT_DNS_FIXTURE")
-        resolver = load_fixture_resolver(fixture) if fixture else FakeResolver({})
+        resolver = resolver_from_env()
     res = resolver
-    app = FastAPI(title="Deliverability preflight", version="0.0.8")
+    app = FastAPI(title="Deliverability preflight", version="0.0.9")
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
@@ -80,6 +95,7 @@ def create_app(resolver: Resolver | None = None) -> FastAPI:
             complaint_stats=req.complaint_stats,
             content=req.content,
             tracking_domain=req.tracking_domain,
+            author_domain_exists=req.author_domain_exists,
         )
 
     @app.post("/v1/capacity", response_model=CapacityPlan)

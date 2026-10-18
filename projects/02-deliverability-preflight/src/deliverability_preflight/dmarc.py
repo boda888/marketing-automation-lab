@@ -286,8 +286,10 @@ def check_dmarc(
 
     ``author_domain_exists`` picks ``sp`` (True) or ``np`` (False) for a
     subdomain that inherits a parent's record (§4.10.1). The ``Resolver``
-    cannot tell NXDOMAIN from "no TXT", so the default ``None`` assumes the
-    domain exists and reports what ``np`` would change if it does not.
+    protocol cannot tell NXDOMAIN from "no TXT"; with the default ``None``
+    the resolver's optional ``domain_exists`` is asked (only when ``np``
+    would change the policy), and if it cannot say either, the domain is
+    assumed to exist and the report says what ``np`` would change.
     """
     domain = normalize_name(domain)
     report = DmarcReport(domain=domain, status="none")
@@ -380,6 +382,10 @@ def check_dmarc(
         )
 
     report.status = "valid"
+    np_matters = inherited and not fallback and rec.np and rec.np != (rec.sp or rec.p)
+    probe = getattr(resolver, "domain_exists", None)
+    if author_domain_exists is None and np_matters and probe is not None:
+        author_domain_exists = probe(domain)
     if fallback:
         requested: Policy = "none"
     elif not inherited:
