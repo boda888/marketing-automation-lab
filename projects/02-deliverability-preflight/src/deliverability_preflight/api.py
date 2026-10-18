@@ -8,12 +8,19 @@ Run (demo, answers DNS from a JSON fixture):
 The fixture maps ``"<name> <TYPE>"`` to a list of record strings.
 ``PREFLIGHT_DNS=live`` queries real DNS instead (needs the ``[live]`` extra);
 ``PREFLIGHT_DNS_LIFETIME`` caps each query in seconds (default 5).
+
+``PREFLIGHT_ORG_DOMAIN`` picks how Organizational Domains are derived for
+alignment and content lint: ``last-two`` (default, naive), ``psl`` (needs
+``PREFLIGHT_PSL_FILE``, a local copy of ``public_suffix_list.dat``) or
+``tree-walk`` (DMARCbis DNS Tree Walk, a fresh cache per request). The name
+used is echoed in every report as ``org_domain_strategy``.
 """
 
 from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
@@ -23,8 +30,14 @@ from pydantic import BaseModel, Field
 from .capacity import CapacityPlan, CapacityPolicy, Mailbox, plan_capacity
 from .complaints import ComplaintStats
 from .content import MessageContent
+from .dmarc import OrgDomainFn, TreeWalkOrgDomain, default_org_domain
 from .dns import FakeResolver, Resolver
 from .preflight import PreflightReport, preflight
+from .psl import PublicSuffixList
+
+# builds the org_domain function for one request from the app's resolver
+OrgDomainFactory = Callable[[Resolver], OrgDomainFn]
+ORG_DOMAIN_STRATEGIES = ("last-two", "psl", "tree-walk")
 
 
 class PreflightRequest(BaseModel):
@@ -72,20 +85,49 @@ def resolver_from_env() -> Resolver:
     return load_fixture_resolver(fixture) if fixture else FakeResolver({})
 
 
-def create_app(resolver: Resolver | None = None) -> FastAPI:
+def org_domain_from_env() -> tuple[str, OrgDomainFactory]:
+    """Strategy name and factory from ``PREFLIGHT_ORG_DOMAIN`` / ``PREFLIGHT_PSL_FILE``.
+
+    A misconfiguration raises at startup instead of quietly falling back to
+    ``last-two``, which would merge unrelated companies under one suffix.
+    """
+    name = os.environ.get("PREFLIGHT_ORG_DOMAIN", "last-two").strip().lower()
+    if name == "last-two":
+        return name, lambda _res: default_org_domain
+    if name == "psl":
+        path = os.environ.get("PREFLIGHT_PSL_FILE")
+        if not path:
+            raise ValueError("PREFLIGHT_ORG_DOMAIN=psl needs PREFLIGHT_PSL_FILE")
+        psl = PublicSuffixList.from_file(path)
+        if not psl.rules:
+            raise ValueError(f"PREFLIGHT_PSL_FILE={path!r} has no rules")
+        return name, lambda _res: psl.org_domain
+    if name == "tree-walk":
+        # new instance per request: its cache must not outlive DNS changes
+        return name, TreeWalkOrgDomain
+    raise ValueError(f"PREFLIGHT_ORG_DOMAIN={name!r}; expected one of {ORG_DOMAIN_STRATEGIES}")
+
+
+def create_app(
+    resolver: Resolver | None = None,
+    org_domain: tuple[str, OrgDomainFactory] | None = None,
+) -> FastAPI:
     if resolver is None:
         resolver = resolver_from_env()
+    if org_domain is None:
+        org_domain = org_domain_from_env()
     res = resolver
+    strategy, make_org_domain = org_domain
     app = FastAPI(title="Deliverability preflight", version="0.0.9")
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
-        return {"status": "ok"}
+        return {"status": "ok", "org_domain_strategy": strategy}
 
     @app.post("/v1/preflight", response_model=PreflightReport)
     def run_preflight(req: PreflightRequest) -> PreflightReport:
         # DNS temp failures surface as findings (e.g. DMARC_DNS_TEMPERROR), never a silent pass
-        return preflight(
+        report = preflight(
             req.from_domain,
             res,
             dkim_selectors=req.dkim_selectors,
@@ -96,7 +138,9 @@ def create_app(resolver: Resolver | None = None) -> FastAPI:
             content=req.content,
             tracking_domain=req.tracking_domain,
             author_domain_exists=req.author_domain_exists,
+            org_domain=make_org_domain(res),
         )
+        return report.model_copy(update={"org_domain_strategy": strategy})
 
     @app.post("/v1/capacity", response_model=CapacityPlan)
     def run_capacity(req: CapacityRequest) -> CapacityPlan:

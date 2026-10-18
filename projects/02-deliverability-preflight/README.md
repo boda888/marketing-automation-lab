@@ -149,7 +149,7 @@ connecting IP: they are counted but not resolved.
   `org_domain=PublicSuffixList.from_file(path).org_domain`, or
   `TreeWalkOrgDomain(resolver)`; real public suffixes rarely publish `psd=y`,
   so a tree walk alone can still merge two companies under one suffix. The
-  FastAPI service does not load a PSL yet.
+  FastAPI service picks one with `PREFLIGHT_ORG_DOMAIN` (see below).
 - DMARCbis: discovery and Organizational Domain follow draft-ietf-dmarc-dmarcbis-41
   (April 2025, read from the IETF DMARC WG repository). Whether the published
   RFC (reported as RFC 9989) changed that text was not checked: rfc-editor.org
@@ -222,6 +222,19 @@ and returns the `PreflightReport` (`verdict` is `pass` / `review` / `block`).
 seconds per query, default 5) answers from real DNS. Otherwise, without
 `PREFLIGHT_DNS_FIXTURE` the app has an empty resolver, so everything reports
 missing records.
+
+`PREFLIGHT_ORG_DOMAIN` sets how the service finds Organizational Domains for
+alignment and content lint, and every report echoes it as `org_domain_strategy`
+(so does `GET /healthz`):
+
+| Value | Rule | Notes |
+|---|---|---|
+| `last-two` (default) | last two labels | wrong under multi-label suffixes (`a.co.uk` and `b.co.uk` align) |
+| `psl` | Public Suffix List, file in `PREFLIGHT_PSL_FILE` | download `public_suffix_list.dat` from publicsuffix.org and refresh it regularly; not bundled |
+| `tree-walk` | DMARCbis DNS Tree Walk | new cache per request; a DNS failure adds `ORG_DOMAIN_TEMPERROR` (relaxed alignment checked as strict) |
+
+An unknown value, `psl` without a file, or a file with no rules stops the app
+at startup instead of falling back to `last-two`.
 
 `POST /v1/capacity` takes `mailboxes` (`address`, `provider` = `google` /
 `microsoft` / `smtp`, `warmup_started`, optional `complaint_status` and `daily_cap`),

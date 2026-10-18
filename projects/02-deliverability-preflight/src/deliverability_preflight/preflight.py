@@ -48,6 +48,8 @@ class PreflightReport(BaseModel):
     complaints: list[ComplaintReport] = []
     content: ContentReport | None = None
     findings: list[Finding] = []
+    # set by the API: which org-domain rule alignment and content lint used
+    org_domain_strategy: str | None = None
 
 
 def _verdict(findings: list[Finding]) -> Verdict:
@@ -80,6 +82,8 @@ def preflight(
     For alignment, a DKIM domain counts only when its key checks out and, for
     a domain taken from a signature, that signature has no errors.
     ``author_domain_exists`` is passed to ``check_dmarc`` (``np`` vs ``sp``).
+    An ``org_domain`` with an ``errors`` list (``TreeWalkOrgDomain``) adds an
+    ``ORG_DOMAIN_TEMPERROR`` warning when any of its lookups failed.
     """
     from_domain = normalize_name(from_domain)
     rp = normalize_name(return_path_domain or from_domain)
@@ -149,6 +153,20 @@ def preflight(
     complaints = [check_complaint_rate(s) for s in complaint_stats]
     for rep in complaints:
         findings.extend(rep.findings)
+
+    # TreeWalkOrgDomain lists names whose walk hit a DNS failure; they were
+    # treated as their own org domain, so relaxed alignment ran as strict
+    walk_errors = sorted(set(getattr(org_domain, "errors", None) or []))
+    if walk_errors:
+        findings.append(
+            Finding(
+                code="ORG_DOMAIN_TEMPERROR",
+                severity="warning",
+                message="DNS failure while finding the organizational domain of "
+                f"{', '.join(walk_errors)}; relaxed alignment was checked as strict",
+                ref="DMARCbis §4.10.2",
+            )
+        )
 
     return PreflightReport(
         from_domain=from_domain,
