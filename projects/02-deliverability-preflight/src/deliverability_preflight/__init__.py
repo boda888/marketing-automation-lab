@@ -121,4 +121,4 @@ __all__ = [
     "parse_spf",
     "worst",
 ]
-__version__ = "0.0.9"
+__version__ = "0.1.0"

@@ -130,7 +130,7 @@ def create_app(
         org_domain = org_domain_from_env()
     res = resolver
     strategy, make_org_domain = org_domain
-    app = FastAPI(title="Deliverability preflight", version="0.0.9")
+    app = FastAPI(title="Deliverability preflight", version="0.1.0")
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

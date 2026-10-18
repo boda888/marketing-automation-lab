@@ -27,7 +27,7 @@ This is an **AI-assisted lab by [Lunaris Tech](https://lunaris.tech)**.
 | # | Project | Status | What it does |
 |---|---|---|---|
 | 01 | [icp-scoring](projects/01-icp-scoring) | ✅ v0.1 | Explainable ICP fit + time-decayed engagement → tier + next action. FastAPI, CSV CLI, n8n workflow. |
-| 02 | [deliverability-preflight](projects/02-deliverability-preflight) | 🚧 v0.0.9 | SPF lookup budget, DMARC policy (DMARCbis tree walk, t/np/p=none fallback) + alignment, DKIM key records + DKIM-Signature header check, RFC 8058 one-click unsubscribe, content lint, complaint-rate guardrail, `preflight()` verdict, sending-capacity & warmup planner; FastAPI (`/v1/preflight`, `/v1/capacity`) + n8n workflow; offline DNS fake + optional live dnspython adapter. |
+| 02 | [deliverability-preflight](projects/02-deliverability-preflight) | ✅ v0.1 | SPF lookup budget, DMARC (DMARCbis tree walk, t/np/p=none fallback) + alignment with a selectable org-domain rule (last-two / PSL / tree walk), DKIM keys + DKIM-Signature headers, RFC 8058 one-click unsubscribe, content lint, complaint guardrail → one `pass`/`review`/`block` verdict; sending-capacity & warmup planner and today's batch per mailbox. FastAPI (`/v1/preflight`, `/v1/capacity`, `/v1/schedule`) + two n8n workflows; offline DNS fake + optional live dnspython adapter. |
 | 03–13 | see [ROADMAP.md](ROADMAP.md) | planned | signal engine, enrichment + verification, AI personalisation, sequencer sync, reply routing, CRM sync, n8n reliability, reporting, end-to-end, calibration, GTM MCP server |
 
 ## Conventions

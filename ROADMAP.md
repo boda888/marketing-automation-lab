@@ -32,10 +32,10 @@ Open follow-ups:
 - [ ] per-account `as_of` in CSV + events from a JSONL file
 - [ ] config diff endpoint / versioned configs
 
-## 02 · Deliverability preflight → + sending-capacity & warmup planner — in progress (v0.0.9)
+## 02 · Deliverability preflight → + sending-capacity & warmup planner — ✅ v0.1 (2026-10-18)
 Check a sending setup and a message before it goes out, against current
 Gmail / Yahoo / Microsoft bulk-sender requirements.
-- [x] DNS checks: SPF (incl. 10-lookup and void-lookup limits), DMARC policy + `rua`, alignment (org domain via Public Suffix List file or DMARCbis tree walk, opt-in)
+- [x] DNS checks: SPF (incl. 10-lookup and void-lookup limits), DMARC policy + `rua`, alignment (org domain via Public Suffix List file or DMARCbis tree walk; API: `PREFLIGHT_ORG_DOMAIN`)
 - [x] DNS checks: DKIM selector key (`<s>._domainkey`): revoked, RSA length, sha256, Ed25519; DKIM-Signature header (required tags, From signed, `i=`/`d=`, expiry, `l=`) with `d=`/`s=` taken from it
 - [ ] DMARCbis (RFC 9989) review against the RFC text — DNS Tree Walk discovery, `psd`, tree-walk org domain, `t` testing flag (`pct` historic), `np` and invalid-`p` → `p=none` fallback done from draft-41; check against the published RFC text still open
 - [x] message checks: `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058), From/Return-Path alignment
@@ -46,6 +46,10 @@ Gmail / Yahoo / Microsoft bulk-sender requirements.
 - [x] FastAPI + n8n "preflight before send" node
 - [x] sending-capacity & warmup planner: mailboxes × domains × daily caps → safe volume
       and ramp schedule, using current provider limits (link the vendor docs)
+- [x] today's batch: leads capped at capacity and assigned per mailbox (`POST /v1/schedule`) + n8n "capacity before schedule"
+Open follow-ups:
+- [ ] import both n8n workflows into a real n8n instance (with 01's)
+- [ ] opt-in live-DNS smoke test (env-gated)
 
 ## 03 · Signal engine
 Pain: list-based outreach with 2–4% replies.

@@ -138,3 +138,13 @@ def test_selector_taken_from_dkim_signature_header(client):
     assert body["dkim"][0]["selector"] == "s1"
     assert body["dkim_signatures"][0]["status"] == "ok"
     assert body["alignment"]["dkim_aligned"] is True
+
+
+def test_versions_agree(client):
+    import tomllib
+
+    import deliverability_preflight
+
+    project = tomllib.loads((EXAMPLES.parent / "pyproject.toml").read_text())["project"]
+    assert project["version"] == deliverability_preflight.__version__
+    assert client.get("/openapi.json").json()["info"]["version"] == project["version"]

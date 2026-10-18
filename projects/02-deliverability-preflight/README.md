@@ -1,10 +1,43 @@
-# 02 · Deliverability preflight — work in progress (v0.0.x)
+# 02 · Deliverability preflight — check the setup and the batch before anything sends
 
-Check a sending setup — and later each message — *before* it goes out, with
-explainable findings instead of a pass/fail light. Every check takes an
-injectable DNS resolver, so the whole suite runs offline.
+**The pain:** deliverability drops quietly at volume. An SPF include pushes the
+record past 10 lookups, DMARC sits at `p=none` with nobody reading reports, a
+new ESP signs with a `d=` that does not align, a draft ships with
+`{{first_name}}` unrendered, a fresh mailbox is asked for 200 emails on day one —
+and the first sign is a reply rate that halves weeks later. Postmaster
+dashboards show the damage after it happened; this service answers *before*
+the send, with findings a human or an n8n branch can act on.
 
-## What exists now
+v0.1.0: SPF / DMARC (DMARCbis) / DKIM / alignment / RFC 8058 / content /
+complaint checks rolled into one `pass` / `review` / `block` verdict, a
+sending-capacity and warmup planner, and today's batch (which mailbox sends
+which lead). Every check takes an injectable DNS resolver, so the whole suite
+runs offline; live DNS is an opt-in adapter.
+
+## Architecture
+
+```
+campaign (n8n / CRM / sequencer)
+   │  from/return-path domains, selectors, test headers, rendered draft, complaint stats
+   ▼
+POST /v1/preflight ── preflight() ──┬─ SPF (Return-Path)      ─┐
+                                    ├─ DMARC tree walk (From)  │  Resolver
+                                    ├─ DKIM keys + signatures  ├─ FakeResolver (fixture, tests)
+                                    ├─ alignment ◄─ org domain │  DnsPythonResolver (live, opt-in)
+                                    │   (last-two / PSL / tree walk)
+                                    ├─ RFC 8058 headers, content lint
+                                    └─ complaint guardrail ──► verdict pass / review / block
+   │  mailboxes (warmup start, complaint status) + lead list
+   ▼
+POST /v1/schedule ── plan_capacity() ─► assign_batch() ─► assignments / deferred / duplicates
+   ▼
+n8n: preflight-before-send (Switch on verdict) · capacity-before-schedule (IF anything to send)
+```
+
+Findings carry a stable `code`, a `severity` and the RFC or rule they come
+from; the verdict is only ever derived from them, so every `block` has a reason.
+
+## What it checks
 
 | Check | Module | What it reports |
 |---|---|---|
@@ -15,7 +48,6 @@ injectable DNS resolver, so the whole suite runs offline.
 | DKIM key | [`dkim.py`](src/deliverability_preflight/dkim.py) | the key record at `<selector>._domainkey.<domain>`: missing / duplicate / malformed records, revoked keys (empty `p=`), RSA key length (< 1024 error, < 2048 warning), `h=` without `sha256`, `s=` excluding email, `t=y` testing mode, Ed25519 key length |
 | DKIM-Signature | [`dkim_signature.py`](src/deliverability_preflight/dkim_signature.py) | each `DKIM-Signature` header of a test message: missing required tags (`v a b bh d h s`), `v` ≠ 1, `rsa-sha1` or an unknown `a=`, From not in `h=`, `i=` outside `d=`, bad `c=`, `x=` not after `t=` or already past → error; `l=` body-length limit → warning. Its `d=` / `s=` tell `preflight()` which key to check |
 | One-click unsubscribe | [`unsubscribe.py`](src/deliverability_preflight/unsubscribe.py) | RFC 8058: exactly one HTTPS URI in `List-Unsubscribe` (angle brackets, `mailto:` allowed alongside), `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, and a DKIM-Signature whose `h=` covers both headers (warning if the draft is not signed yet) |
-
 | Complaint rate | [`complaints.py`](src/deliverability_preflight/complaints.py) | spam-complaint rate per provider vs. a 0.1% target and 0.3% hard limit → `ok` / `watch` / `stop`, complaints left before the limit, small-sample handling (1 complaint on 50 sends does not pause a domain; 5 on 200 does) |
 | Content lint | [`content.py`](src/deliverability_preflight/content.py) | rendered draft (`subject`, `text`, `html`): unrendered merge tags (`{{first_name}}`, `%%X%%`, `*\|X\|*`, `{x}`) → error, links to bare IPs → error, link text naming a different domain than its `href` → error; public shorteners, plain `http`, more than 3 links, click-tracking domain outside the From organization, HTML without a text part, image-heavy / CSS-hidden content, empty or shouting subject, `!!!`/`$$`, spam-trigger phrases → warning; third-party link domains → info |
 | Sending capacity | [`capacity.py`](src/deliverability_preflight/capacity.py) | `plan_capacity()`: mailboxes (provider, warmup start, complaint status, optional cap) → today's safe campaign volume per mailbox and per domain, a day-by-day ramp (warmup → ramp start + step/day → cap), the date a target volume is reachable, and how many more mailboxes / domains it needs; flags crowded domains, duplicates, caps at a provider's per-user limit, held (`watch`) and paused (`stop`) mailboxes |
@@ -137,49 +169,6 @@ connecting IP: they are counted but not resolved.
   `dkim_domain` defaults to the first signature's `d=`. A signature with
   errors does not make its `d=` count for DMARC alignment.
 
-## Not yet / not verified
-
-- `DnsPythonResolver` (live DNS, `[live]` extra) is tested against a stub
-  that raises dnspython's own exceptions, not against real DNS: the run
-  environment's DNS returned empty answers even for well-known DMARC records,
-  so no live result is claimed. Every check still runs offline by default.
-- The default `org_domain` for alignment and content lint is still a naive
-  "last two labels" rule: the Public Suffix List is not bundled (it changes
-  often and its maintainers ask users to fetch it from
-  https://publicsuffix.org/list/public_suffix_list.dat). Download it and pass
-  `org_domain=PublicSuffixList.from_file(path).org_domain`, or
-  `TreeWalkOrgDomain(resolver)`; real public suffixes rarely publish `psd=y`,
-  so a tree walk alone can still merge two companies under one suffix. The
-  FastAPI service picks one with `PREFLIGHT_ORG_DOMAIN` (see below).
-- DMARCbis: discovery and Organizational Domain follow draft-ietf-dmarc-dmarcbis-41
-  (April 2025, read from the IETF DMARC WG repository). Whether the published
-  RFC (reported as RFC 9989) changed that text was not checked: rfc-editor.org
-  and datatracker.ietf.org were unreachable. The `t`, `pct`, `np` and
-  invalid-`p` rules come from the same draft (§4.7, §4.10.1, Appendix A.6).
-- DKIM-Signature rules are implemented from knowledge of RFC 6376 / 8301 /
-  8463; the RFC pages and the IANA DKIM registry could not be opened from the
-  run environment (2026-10-15) to re-check them.
-- The DKIM check reads the published key only: it does not verify a
-  signature or check that the private key matches.
-- The unsubscribe check reads headers only: it does not verify the DKIM
-  signature or call the unsubscribe URL.
-- The 0.1% / 0.3% complaint thresholds follow Gmail's and Yahoo's bulk-sender
-  guidance as widely reported; the provider pages could not be opened from
-  the run environment to re-verify them, so both are parameters.
-- Content lint rules are heuristics, not published provider rules (providers do
-  not publish their filters); the shortener list, spam-phrase list and link
-  limit are parameters (`lint_content(shorteners=, spam_phrases=, max_links=)`).
-  It lints the draft as given: render merge tags first, it does not follow
-  redirects or check URLs against blocklists.
-- Capacity-planner defaults (14 warmup days, ramp 5 + 2/day, 30 campaign emails per
-  mailbox per day, 3 mailboxes per domain) are common sequencer guidance as reported
-  in search summaries of vendor help pages, not a standard; provider ceilings
-  (Google Workspace 2,000 messages/user/day, Exchange Online 10,000 recipients/day)
-  are from search summaries of the Google and Microsoft pages, which could not be
-  opened from the run environment. All are `CapacityPolicy` parameters. Warmup mail
-  itself is not counted, and the plan does not read live sequencer or Postmaster data.
-- The n8n workflow is structure-tested only; it has not been imported into a live n8n instance.
-
 ## Run
 
 ```bash
@@ -266,3 +255,46 @@ curl -s localhost:8002/v1/schedule -H 'content-type: application/json' -d @examp
 posts a campaign's mailboxes and leads to `/v1/schedule` (HTTP node retries 3×,
 2 s apart) and answers `schedule` with the assignments, or `hold` with the
 non-info findings when no mailbox can send today.
+
+## Limits (not yet / not verified)
+
+- `DnsPythonResolver` (live DNS, `[live]` extra) is tested against a stub
+  that raises dnspython's own exceptions, not against real DNS: the run
+  environment's DNS returned empty answers even for well-known DMARC records,
+  so no live result is claimed. Every check still runs offline by default.
+- The default `org_domain` for alignment and content lint is still a naive
+  "last two labels" rule: the Public Suffix List is not bundled (it changes
+  often and its maintainers ask users to fetch it from
+  https://publicsuffix.org/list/public_suffix_list.dat). Download it and pass
+  `org_domain=PublicSuffixList.from_file(path).org_domain`, or
+  `TreeWalkOrgDomain(resolver)`; real public suffixes rarely publish `psd=y`,
+  so a tree walk alone can still merge two companies under one suffix. The
+  FastAPI service picks one with `PREFLIGHT_ORG_DOMAIN` (see below).
+- DMARCbis: discovery and Organizational Domain follow draft-ietf-dmarc-dmarcbis-41
+  (April 2025, read from the IETF DMARC WG repository). Whether the published
+  RFC (reported as RFC 9989) changed that text was not checked: rfc-editor.org
+  and datatracker.ietf.org were unreachable. The `t`, `pct`, `np` and
+  invalid-`p` rules come from the same draft (§4.7, §4.10.1, Appendix A.6).
+- DKIM-Signature rules are implemented from knowledge of RFC 6376 / 8301 /
+  8463; the RFC pages and the IANA DKIM registry could not be opened from the
+  run environment (2026-10-15) to re-check them.
+- The DKIM check reads the published key only: it does not verify a
+  signature or check that the private key matches.
+- The unsubscribe check reads headers only: it does not verify the DKIM
+  signature or call the unsubscribe URL.
+- The 0.1% / 0.3% complaint thresholds follow Gmail's and Yahoo's bulk-sender
+  guidance as widely reported; the provider pages could not be opened from
+  the run environment to re-verify them, so both are parameters.
+- Content lint rules are heuristics, not published provider rules (providers do
+  not publish their filters); the shortener list, spam-phrase list and link
+  limit are parameters (`lint_content(shorteners=, spam_phrases=, max_links=)`).
+  It lints the draft as given: render merge tags first, it does not follow
+  redirects or check URLs against blocklists.
+- Capacity-planner defaults (14 warmup days, ramp 5 + 2/day, 30 campaign emails per
+  mailbox per day, 3 mailboxes per domain) are common sequencer guidance as reported
+  in search summaries of vendor help pages, not a standard; provider ceilings
+  (Google Workspace 2,000 messages/user/day, Exchange Online 10,000 recipients/day)
+  are from search summaries of the Google and Microsoft pages, which could not be
+  opened from the run environment. All are `CapacityPolicy` parameters. Warmup mail
+  itself is not counted, and the plan does not read live sequencer or Postmaster data.
+- Both n8n workflows are structure-tested only; neither has been imported into a live n8n instance.
