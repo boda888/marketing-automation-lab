@@ -19,6 +19,7 @@ injectable DNS resolver, so the whole suite runs offline.
 | Complaint rate | [`complaints.py`](src/deliverability_preflight/complaints.py) | spam-complaint rate per provider vs. a 0.1% target and 0.3% hard limit → `ok` / `watch` / `stop`, complaints left before the limit, small-sample handling (1 complaint on 50 sends does not pause a domain; 5 on 200 does) |
 | Content lint | [`content.py`](src/deliverability_preflight/content.py) | rendered draft (`subject`, `text`, `html`): unrendered merge tags (`{{first_name}}`, `%%X%%`, `*\|X\|*`, `{x}`) → error, links to bare IPs → error, link text naming a different domain than its `href` → error; public shorteners, plain `http`, more than 3 links, click-tracking domain outside the From organization, HTML without a text part, image-heavy / CSS-hidden content, empty or shouting subject, `!!!`/`$$`, spam-trigger phrases → warning; third-party link domains → info |
 | Sending capacity | [`capacity.py`](src/deliverability_preflight/capacity.py) | `plan_capacity()`: mailboxes (provider, warmup start, complaint status, optional cap) → today's safe campaign volume per mailbox and per domain, a day-by-day ramp (warmup → ramp start + step/day → cap), the date a target volume is reachable, and how many more mailboxes / domains it needs; flags crowded domains, duplicates, caps at a provider's per-user limit, held (`watch`) and paused (`stop`) mailboxes |
+| Today's batch | [`batch.py`](src/deliverability_preflight/batch.py) | `assign_batch(plan, leads)`: caps a lead list at `capacity_today`, assigns leads round-robin to mailboxes with capacity left, defers the rest in input order, skips duplicate ids / e-mails with a finding instead of failing |
 | All of the above | [`preflight.py`](src/deliverability_preflight/preflight.py) | `preflight()` runs SPF on the Return-Path domain, DMARC on From, every DKIM selector, alignment (using the record's `adkim`/`aspf`, and only DKIM keys that check out), optional draft headers, draft content and complaint stats → one report with verdict `pass` / `review` / `block` |
 
 Each finding has a stable `code`, a `severity` (`error` / `warning` / `info`),
@@ -249,5 +250,19 @@ In that example five mailboxes on two domains give 75/day on 2026-10-20 and 125/
 once every mailbox has ramped (one is held at 5/day for complaints), so a 150/day
 target needs one more mailbox: `CAPACITY_SHORTFALL`.
 
+`POST /v1/schedule` takes `mailboxes`, `leads` (`id`, optional `email`),
+optional `on` and `policy`, plans capacity for the unique leads and returns
+today's batch: `assignments` (lead → mailbox, round-robin over mailboxes with
+capacity left), `deferred` lead ids past `capacity_today` (input order),
+`duplicates` (same `id`, or the same e-mail under another id: skipped and
+reported, never fatal), `by_mailbox`, the full `plan` and the findings of both:
+
+```bash
+curl -s localhost:8002/v1/schedule -H 'content-type: application/json' -d @examples/schedule_request.json
+```
+
 `n8n/preflight-before-send.json` posts a campaign to the service and switches on
-`verdict` (send / hold for review / block).
+`verdict` (send / hold for review / block). `n8n/capacity-before-schedule.json`
+posts a campaign's mailboxes and leads to `/v1/schedule` (HTTP node retries 3×,
+2 s apart) and answers `schedule` with the assignments, or `hold` with the
+non-info findings when no mailbox can send today.

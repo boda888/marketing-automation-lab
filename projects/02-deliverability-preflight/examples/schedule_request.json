@@ -1,0 +1,15 @@
+{
+  "on": "2026-10-20",
+  "mailboxes": [
+    {"address": "sam@acme-outreach.example", "provider": "google", "warmup_started": "2026-09-01"},
+    {"address": "lee@acme-outreach.example", "provider": "google", "warmup_started": "2026-10-01"},
+    {"address": "ana@tryacme.example", "provider": "microsoft", "warmup_started": "2026-10-10"}
+  ],
+  "leads": [
+    {"id": "L-001", "email": "dana@northwind.example"},
+    {"id": "L-002", "email": "omar@fabrikam.example"},
+    {"id": "L-003", "email": "lin@contoso.example"},
+    {"id": "L-001", "email": "dana@northwind.example"},
+    {"id": "L-004", "email": "Omar@Fabrikam.example"}
+  ]
+}

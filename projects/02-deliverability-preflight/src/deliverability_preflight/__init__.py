@@ -1,5 +1,6 @@
 """Offline-testable deliverability preflight checks."""
 
+from .batch import Assignment, BatchPlan, Lead, assign_batch
 from .capacity import (
     CapacityPlan,
     CapacityPolicy,
@@ -62,6 +63,10 @@ from .unsubscribe import (
 )
 
 __all__ = [
+    "Assignment",
+    "BatchPlan",
+    "Lead",
+    "assign_batch",
     "CapacityPlan",
     "CapacityPolicy",
     "Mailbox",

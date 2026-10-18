@@ -27,6 +27,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from .batch import BatchPlan, Lead, assign_batch, unique_leads
 from .capacity import CapacityPlan, CapacityPolicy, Mailbox, plan_capacity
 from .complaints import ComplaintStats
 from .content import MessageContent
@@ -58,6 +59,17 @@ class CapacityRequest(BaseModel):
     on: date | None = None
     days: int = Field(default=30, ge=1, le=180)
     policy: CapacityPolicy = CapacityPolicy()
+
+
+class ScheduleRequest(BaseModel):
+    mailboxes: list[Mailbox]
+    leads: list[Lead]
+    on: date | None = None
+    policy: CapacityPolicy = CapacityPolicy()
+
+
+class ScheduleResponse(BatchPlan):
+    plan: CapacityPlan
 
 
 def load_fixture_resolver(path: str | Path) -> FakeResolver:
@@ -154,6 +166,18 @@ def create_app(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/schedule", response_model=ScheduleResponse)
+    def run_schedule(req: ScheduleRequest) -> ScheduleResponse:
+        # target = the unique leads to send, so the plan's shortfall speaks to this list
+        target = len(unique_leads(req.leads)[0])
+        plan = plan_capacity(req.mailboxes, req.on or date.today(), target, policy=req.policy)
+        batch = assign_batch(plan, req.leads)
+        return ScheduleResponse(
+            **batch.model_dump(exclude={"findings"}),
+            plan=plan,
+            findings=[*plan.findings, *batch.findings],
+        )
 
     return app
 
