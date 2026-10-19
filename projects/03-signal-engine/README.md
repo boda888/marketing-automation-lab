@@ -9,8 +9,8 @@ personalisation line cites the company homepage, which proves nothing. The
 fix is to treat each signal as a typed event with its evidence, and to do
 dates, windows and dedupe in code.
 
-**Status: v0.0.2 — event model + cross-source dedupe.** Priority rules, the API
-and the n8n workflow are next (see [ROADMAP](../../ROADMAP.md#03--signal-engine)).
+**Status: v0.0.3 — event model, cross-source dedupe, priority tiers.** The API,
+the n8n workflow and a synthetic dataset are next (see [ROADMAP](../../ROADMAP.md#03--signal-engine)).
 
 ## What exists now
 
@@ -83,6 +83,38 @@ result.duplicates_removed  # 1
 result.signals[0].sightings  # both URLs, both observed_at
 ```
 
+## Priority: Tier 1 / 2 / 3 / Hold / Review, computed in code
+
+`prioritise_events(events, as_of)` dedupes, then tiers each company. Every signal type
+has a strong and a medium age window (defaults below, overridable via `windows=`; they
+are starting points for calibration in project 12, not facts):
+
+| type | strong | medium |
+|---|---|---|
+| funding | ≤ 365 days | 366–730 |
+| hiring | ≤ 60 | 61–180 |
+| expansion | ≤ 180 | 181–365 |
+| leadership | ≤ 120 | 121–365 |
+| tech_change | — (context, never strong) | ≤ 180 |
+| site_visit | ≤ 14 | 15–30 |
+
+A window holds only if the **whole** date interval is inside it: `2025` is 292–656
+days old on 2026-10-19, so it is medium in the worst case and strong in the best case.
+Such a signal is *pending* (as are undated signals, sightings whose dates disagree,
+and `unknown` checks for a type with no found signal; `not_found_in_sample` is settled).
+
+The tier is computed with every pending signal at its worst and at its best band:
+Tier 1 = a strong signal + a qualifying signal of another type, Tier 2 = a strong
+signal, Tier 3 = medium only, Hold = none. If both agree, that is the tier. If not,
+the worst case stands and `upgrade_possible` is set — never send on an unsettled
+signal — and a worst case of Hold becomes **Review**. Each account carries a
+`best_signal` (≤ 30 words) and a `reason` (≤ 45 words) instead of an opaque score:
+
+```text
+Tier 2 | funding: Series A (2026-03-14), 219 days old, strong (<=365d)
+       | Tier 2: 1 strong, 0 medium settled.
+```
+
 ## Run the tests
 
 ```bash
@@ -93,7 +125,8 @@ python -m pytest -q
 
 ## Limits (today)
 
-- No source adapters, no scoring, no API or n8n workflow yet.
+- No source adapters, no API or n8n workflow yet; not yet mapped into 01's engagement events.
+- Window defaults are hand-set; the tier ignores how many sources confirmed a signal.
 - Dedupe without a source id or shared URL needs a `subject` from the caller; it does not
   compare evidence text, so two differently worded sightings with no subject stay two.
   Events with dates that do not overlap (e.g. a round "announced 2026-03-14" vs
