@@ -125,7 +125,14 @@ class SignalEvent(BaseModel):
         default=None, examples=["careers_page", "press_release", "crunchbase"]
     )
     source_event_id: str | None = Field(
-        default=None, description="The source's own id for the event (job id, round id)"
+        default=None,
+        description="The source's own id for the event (job id, round id); unique per source only",
+    )
+    subject: str | None = Field(
+        default=None,
+        max_length=200,
+        description="What the event is about, for cross-source dedupe",
+        examples=["Series A", "Senior Data Engineer", "Lisbon office"],
     )
     occurred_on: EventDate | None = Field(
         default=None, description="When the event happened, with precision; None = not stated"
@@ -170,7 +177,7 @@ class SignalEvent(BaseModel):
             raise ValueError(f"source_url must be an absolute http(s) URL: {v!r}")
         return v
 
-    @field_validator("evidence", "sample", "source_name", "source_event_id")
+    @field_validator("evidence", "sample", "source_name", "source_event_id", "subject")
     @classmethod
     def _blank_is_none(cls, v: str | None) -> str | None:
         # Placeholder strings are not data: blank stays blank (PRACTICE: "Unknown" fed to a
@@ -196,8 +203,10 @@ class SignalEvent(BaseModel):
             if self.sample:
                 raise ValueError("found: sample is only for not_found_in_sample")
         else:
-            if self.evidence or self.occurred_on:
-                raise ValueError(f"{self.status}: evidence/occurred_on only belong to found")
+            if self.evidence or self.occurred_on or self.subject:
+                raise ValueError(
+                    f"{self.status}: evidence/occurred_on/subject only belong to found"
+                )
             if self.status is SignalStatus.NOT_FOUND_IN_SAMPLE and not self.sample:
                 raise ValueError("not_found_in_sample: sample (what was searched) is required")
         return self
