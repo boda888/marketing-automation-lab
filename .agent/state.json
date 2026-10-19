@@ -20,8 +20,8 @@
       "id": "03-signal-engine",
       "path": "projects/03-signal-engine",
       "status": "in_progress",
-      "summary": "SignalEvent model (type, found / not_found_in_sample / unknown, non-homepage source_url + evidence for found, sample for not-found, tz-aware observed_at, EventDate with day/month/year precision and age interval, placeholder strings -> None, .example fixture flag); 37 tests. Next: dedupe, priority rules, API, n8n.",
-      "version": "0.0.1"
+      "summary": "SignalEvent model (found / not_found_in_sample / unknown, non-homepage source_url + evidence, EventDate with day/month/year precision and age interval, optional subject); dedupe() across sources (same_source_id within one source, same_url, same_subject_and_date with overlapping intervals; provenance, date_conflict); prioritise_events() -> Tier 1-3 / Hold / Review from per-type windows applied to whole date intervals (worst/best case, upgrade_possible), best_signal <=30 words, reason <=45 words; 77 tests. Next: headcount growth, mapping into 01, API, n8n.",
+      "version": "0.0.3"
     },
     {
       "id": "04-enrichment-verification",
@@ -104,13 +104,15 @@
     "02: API org-domain strategy PREFLIGHT_ORG_DOMAIN = last-two | psl (PREFLIGHT_PSL_FILE) | tree-walk (fresh TreeWalkOrgDomain per request); misconfiguration fails at startup; org_domain_strategy in reports and /healthz; ORG_DOMAIN_TEMPERROR warning when a tree-walk lookup fails",
     "02: assign_batch (cap leads at capacity_today, round-robin over mailboxes with capacity, deferred in input order, duplicate id/e-mail skipped with a finding) + POST /v1/schedule + n8n capacity-before-schedule workflow (HTTP retryOnFail 3x)",
     "02-deliverability-preflight v0.1.0 (README: pain -> architecture -> run -> limits; version strings tested to agree)",
-    "03: scaffold + SignalEvent model: six signal types; found / not_found_in_sample / unknown as first-class states with per-state field rules (found needs non-homepage http(s) source_url + evidence; not_found_in_sample needs the searched sample); EventDate parses ISO 8601 YYYY / YYYY-MM / YYYY-MM-DD with precision, earliest/latest and age_days interval; occurred_on not after observed_at; placeholder strings ('Unknown', 'N/A', '-') -> None; is_fixture for .example domains"
+    "03: scaffold + SignalEvent model: six signal types; found / not_found_in_sample / unknown as first-class states with per-state field rules (found needs non-homepage http(s) source_url + evidence; not_found_in_sample needs the searched sample); EventDate parses ISO 8601 YYYY / YYYY-MM / YYYY-MM-DD with precision, earliest/latest and age_days interval; occurred_on not after observed_at; placeholder strings ('Unknown', 'N/A', '-') -> None; is_fixture for .example domains",
+    "03: dedupe() of found events per company + type: same source_name + source_event_id (ids never compared across sources), same evidence URL (scheme/www/trailing slash/fragment ignored), or same normalised subject with overlapping occurred_on intervals; two ids of one source never merge (also not through a third sighting); MergedSignal keeps every sighting as provenance, most precise date, date_conflict flag; checks pass through; SignalEvent.subject",
+    "03: prioritise / prioritise_events: per-type strong/medium age windows (DEFAULT_WINDOWS, overridable), whole-interval rule, pending signals (straddling, undated, date conflict, unknown check) evaluated at worst and best band; Tier 1 / 2 / 3 / Hold, worst-case Hold with possible upgrade -> Review; best_signal <=30 words, reason <=45 words"
   ],
   "next_steps": [
-    "03: dedupe the same event seen in several sources (company + type + source_event_id, else occurred_on interval overlap + normalised evidence key) before scoring; fixture with one funding round from two sources, keep all source URLs as provenance.",
-    "03: deterministic priority rules over EventDate.age_days intervals (e.g. funding <=12 / 13-24 months, hiring recency, headcount growth thresholds) -> Tier 1-3 / Hold with a <=30-word best signal and <=45-word reason; a window holds only if the whole interval is inside it, partial overlap -> Review.",
-    "03: headcount-growth signal from raw monthly counts (6/12-month %, missing months kept as Unknown, never 0).",
-    "03: map signal events into 01's engagement events; FastAPI POST /v1/signals/prioritise + n8n workflow; synthetic .example dataset.",
+    "03: headcount-growth signal from raw monthly counts (6/12-month %, e.g. >=20% strong, <=-10% contraction kept as its own state, missing months kept as Unknown, never 0).",
+    "03: map AccountPriority / MergedSignal into 01's engagement events (one event per merged signal, not per sighting) so 01 does not double-count.",
+    "03: FastAPI POST /v1/signals/prioritise (events in -> dedupe + tiers out) + synthetic .example dataset with a duplicate round from two sources and an undated signal.",
+    "03: n8n workflow 'prioritise before research' (Switch on tier; Review -> review queue, never the sequencer), structure-tested; then README v0.1.0.",
     "02 follow-ups: opt-in env-gated live-DNS smoke test; re-check DMARCbis against the published RFC text (reported RFC 9989) when rfc-editor.org is reachable."
   ],
   "known_gaps": [
@@ -128,13 +130,14 @@
     "02: DMARCbis rules (tree walk, psd, t, np, invalid-p fallback, pct historic) implemented from draft-ietf-dmarc-dmarcbis-41 (April 2025, IETF DMARC WG GitHub repo); whether the published RFC (reported RFC 9989) changed them is unverified (rfc-editor.org, datatracker.ietf.org: proxy 403 on 2026-10-16, twice). np needs a resolver with domain_exists (DnsPythonResolver) or the caller's author_domain_exists; FakeResolver and the fixture API cannot tell NXDOMAIN from no-TXT.",
     "02: PSL matching rules (wildcard, exception, implicit '*') implemented from knowledge of publicsuffix.org/list; that page was unreachable (ENOTFOUND), only the .dat file itself was opened via its GitHub mirror.",
     "02: assign_batch spreads leads evenly over mailboxes but ignores per-domain balance, sending windows/time zones and leads already in flight in a sequencer; dedupe is by id and exact e-mail only.",
-    "03: EventDate format taken from schema.org `Date` (ISO 8601, schema.ttl via the schemaorg GitHub repo); schema.org and developers.google.com (JobPosting structured-data guide) gave ENOTFOUND on 2026-10-19. Quarter/week dates are rejected, not parsed. The homepage rule checks only for an empty URL path."
+    "03: EventDate format taken from schema.org `Date` (ISO 8601, schema.ttl via the schemaorg GitHub repo); schema.org and developers.google.com (JobPosting structured-data guide) gave ENOTFOUND on 2026-10-19. Quarter/week dates are rejected, not parsed. The homepage rule checks only for an empty URL path.",
+    "03: dedupe needs a source id, a shared URL or a caller-supplied subject; it does not compare evidence text. Priority window defaults are hand-set (no calibration) and the tier ignores how many sources confirmed a signal. Crunchbase docs (data.crunchbase.com) and unhead.unjs.io were unreachable (ENOTFOUND, 2026-10-19); the 'ids unique per source' rule comes from Lever's Postings API README plus a search summary of schema.org JobPosting.identifier ('unique within the hiring organization')."
   ],
   "last_run": {
     "date": "2026-10-19",
     "by": "daily agent",
-    "commits": 1,
-    "notes": "Commit budget drawn: 1, used 1 (state folded in). Started 03-signal-engine with the SignalEvent model. schema.org, developers.google.com ENOTFOUND; docs.python.org proxy 403; raw.githubusercontent.com reachable."
+    "commits": 3,
+    "notes": "Commit budget drawn: 4, used 3 (2 work + state). 03 v0.0.3: cross-source dedupe and priority tiers. data.crunchbase.com, unhead.unjs.io, developers.greenhouse.io unreachable; raw.githubusercontent.com reachable."
   },
   "run_log": [
     {
@@ -234,6 +237,15 @@
       "sources": [
         "https://raw.githubusercontent.com/schemaorg/schemaorg/main/data/schema.ttl"
       ]
+    },
+    {
+      "date": "2026-10-19",
+      "commits": 3,
+      "summary": "03-signal-engine v0.0.3: dedupe() (source id within a source, evidence URL, subject + overlapping dates; provenance, date_conflict) and prioritise_events() (per-type windows over whole date intervals, worst/best case -> Tier 1-3 / Hold / Review with best signal + reason); 77 tests in 03.",
+      "sources": [
+        "https://raw.githubusercontent.com/lever/postings-api/master/README.md"
+      ],
+      "research_note": "Lever Postings API README: `id` is a 'Unique job posting ID' within a Lever site, so source ids are compared only within one source. A web search summary (unhead.unjs.io, not opened: ENOTFOUND) describes schema.org JobPosting.identifier as unique within the hiring organization; data.crunchbase.com (funding round uuid / announced_on) gave ENOTFOUND, so no Crunchbase field is relied on."
     }
   ]
 }
