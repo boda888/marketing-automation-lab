@@ -51,12 +51,12 @@ Open follow-ups:
 - [ ] import both n8n workflows into a real n8n instance (with 01's)
 - [ ] opt-in live-DNS smoke test (env-gated)
 
-## 03 · Signal engine
+## 03 · Signal engine — in progress (v0.0.1, 2026-10-19)
 Pain: list-based outreach with 2–4% replies.
 - [ ] signal sources: hiring (job posts), funding, new office/expansion, tech change, site visits
-- [ ] evidence-backed signal events: every event carries source URL + observed-at timestamp
+- [x] evidence-backed signal events: every event carries source URL + observed-at timestamp (`SignalEvent`: non-homepage URL + evidence for `found`, `EventDate` with day/month/year precision)
 - [ ] priority rules + mapping into engagement events for 01
-- [ ] dedupe the same event seen in several sources; `Unknown` / `Not found in sample` kept apart from "no signal"; tiers (Tier 1–3 / Hold) with a short reason instead of an opaque score
+- [ ] dedupe the same event seen in several sources; `Unknown` / `Not found in sample` kept apart from "no signal" (done in the model); tiers (Tier 1–3 / Hold) with a short reason instead of an opaque score
 
 ## 04 · Waterfall enrichment + email verification + CRM dedupe
 Pain: 40–60% match rates, bounces, duplicates.

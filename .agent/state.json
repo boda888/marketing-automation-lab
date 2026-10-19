@@ -19,8 +19,9 @@
     {
       "id": "03-signal-engine",
       "path": "projects/03-signal-engine",
-      "status": "planned",
-      "summary": "Hiring/funding/expansion/tech-change/site-visit signals as evidence-backed events with priority rules."
+      "status": "in_progress",
+      "summary": "SignalEvent model (type, found / not_found_in_sample / unknown, non-homepage source_url + evidence for found, sample for not-found, tz-aware observed_at, EventDate with day/month/year precision and age interval, placeholder strings -> None, .example fixture flag); 37 tests. Next: dedupe, priority rules, API, n8n.",
+      "version": "0.0.1"
     },
     {
       "id": "04-enrichment-verification",
@@ -102,13 +103,14 @@
     "02: live DNS adapter DnsPythonResolver (dnspython, [live] extra): absolute queries, lifetime, TXT strings joined, NXDOMAIN/NoAnswer -> [], failures -> DNSTempError; resolver domain_exists() lets check_dmarc apply np itself (probed only when np changes the policy); FakeResolver(nxdomain=); author_domain_exists on preflight() and POST /v1/preflight; PREFLIGHT_DNS=live",
     "02: API org-domain strategy PREFLIGHT_ORG_DOMAIN = last-two | psl (PREFLIGHT_PSL_FILE) | tree-walk (fresh TreeWalkOrgDomain per request); misconfiguration fails at startup; org_domain_strategy in reports and /healthz; ORG_DOMAIN_TEMPERROR warning when a tree-walk lookup fails",
     "02: assign_batch (cap leads at capacity_today, round-robin over mailboxes with capacity, deferred in input order, duplicate id/e-mail skipped with a finding) + POST /v1/schedule + n8n capacity-before-schedule workflow (HTTP retryOnFail 3x)",
-    "02-deliverability-preflight v0.1.0 (README: pain -> architecture -> run -> limits; version strings tested to agree)"
+    "02-deliverability-preflight v0.1.0 (README: pain -> architecture -> run -> limits; version strings tested to agree)",
+    "03: scaffold + SignalEvent model: six signal types; found / not_found_in_sample / unknown as first-class states with per-state field rules (found needs non-homepage http(s) source_url + evidence; not_found_in_sample needs the searched sample); EventDate parses ISO 8601 YYYY / YYYY-MM / YYYY-MM-DD with precision, earliest/latest and age_days interval; occurred_on not after observed_at; placeholder strings ('Unknown', 'N/A', '-') -> None; is_fixture for .example domains"
   ],
   "next_steps": [
-    "03: scaffold projects/03-signal-engine (pyproject, README opening with the pain, tests) with a SignalEvent model: type (hiring/funding/expansion/leadership/tech_change/site_visit), source_url, observed_at + date precision, evidence text; Unknown / Not found in sample as first-class states.",
-    "03: dedupe the same event seen in several sources (source + id/date) before scoring; fixture with one funding round from two sources.",
-    "03: deterministic priority rules (recency windows e.g. funding <=12 / 13-24 months, headcount growth thresholds) -> Tier 1-3 / Hold with a <=30-word best signal and <=45-word reason; arithmetic in code, not in an LLM.",
-    "03: map signal events into 01's engagement events and a FastAPI endpoint + n8n workflow.",
+    "03: dedupe the same event seen in several sources (company + type + source_event_id, else occurred_on interval overlap + normalised evidence key) before scoring; fixture with one funding round from two sources, keep all source URLs as provenance.",
+    "03: deterministic priority rules over EventDate.age_days intervals (e.g. funding <=12 / 13-24 months, hiring recency, headcount growth thresholds) -> Tier 1-3 / Hold with a <=30-word best signal and <=45-word reason; a window holds only if the whole interval is inside it, partial overlap -> Review.",
+    "03: headcount-growth signal from raw monthly counts (6/12-month %, missing months kept as Unknown, never 0).",
+    "03: map signal events into 01's engagement events; FastAPI POST /v1/signals/prioritise + n8n workflow; synthetic .example dataset.",
     "02 follow-ups: opt-in env-gated live-DNS smoke test; re-check DMARCbis against the published RFC text (reported RFC 9989) when rfc-editor.org is reachable."
   ],
   "known_gaps": [
@@ -125,13 +127,14 @@
     "02: default org_domain (library and API) is still last-two-labels; PSL and tree walk are opt-in (API: PREFLIGHT_ORG_DOMAIN), no PSL is bundled and the service does not refresh a PSL file itself.",
     "02: DMARCbis rules (tree walk, psd, t, np, invalid-p fallback, pct historic) implemented from draft-ietf-dmarc-dmarcbis-41 (April 2025, IETF DMARC WG GitHub repo); whether the published RFC (reported RFC 9989) changed them is unverified (rfc-editor.org, datatracker.ietf.org: proxy 403 on 2026-10-16, twice). np needs a resolver with domain_exists (DnsPythonResolver) or the caller's author_domain_exists; FakeResolver and the fixture API cannot tell NXDOMAIN from no-TXT.",
     "02: PSL matching rules (wildcard, exception, implicit '*') implemented from knowledge of publicsuffix.org/list; that page was unreachable (ENOTFOUND), only the .dat file itself was opened via its GitHub mirror.",
-    "02: assign_batch spreads leads evenly over mailboxes but ignores per-domain balance, sending windows/time zones and leads already in flight in a sequencer; dedupe is by id and exact e-mail only."
+    "02: assign_batch spreads leads evenly over mailboxes but ignores per-domain balance, sending windows/time zones and leads already in flight in a sequencer; dedupe is by id and exact e-mail only.",
+    "03: EventDate format taken from schema.org `Date` (ISO 8601, schema.ttl via the schemaorg GitHub repo); schema.org and developers.google.com (JobPosting structured-data guide) gave ENOTFOUND on 2026-10-19. Quarter/week dates are rejected, not parsed. The homepage rule checks only for an empty URL path."
   ],
   "last_run": {
-    "date": "2026-10-18",
+    "date": "2026-10-19",
     "by": "daily agent",
-    "commits": 4,
-    "notes": "02 v0.1.0: API org-domain strategy, today's batch + /v1/schedule + n8n workflow, README restructure. Commit budget drawn: 4, used 4. rfc-editor.org and docs.n8n.io ENOTFOUND; raw.githubusercontent.com reachable."
+    "commits": 1,
+    "notes": "Commit budget drawn: 1, used 1 (state folded in). Started 03-signal-engine with the SignalEvent model. schema.org, developers.google.com ENOTFOUND; docs.python.org proxy 403; raw.githubusercontent.com reachable."
   },
   "run_log": [
     {
@@ -223,6 +226,14 @@
         "https://raw.githubusercontent.com/publicsuffix/list/main/README.md"
       ],
       "research_note": "HttpRequest.node.ts: versions 1-4.5 (default 4.5), so the workflow's 4.2 is still a valid version; interfaces.ts INode: retryOnFail, maxTries, waitBetweenTries, onError are node-level fields. PSL README: maintained by volunteers, points users to publicsuffix.org (supports not bundling the list). WebFetch/curl to www.rfc-editor.org/rfc/rfc9989.txt and docs.n8n.io failed (ENOTFOUND), so DMARCbis RFC text is still unverified."
+    },
+    {
+      "date": "2026-10-19",
+      "commits": 1,
+      "summary": "03-signal-engine v0.0.1: scaffold + SignalEvent / EventDate model with found / not_found_in_sample / unknown rules, evidence URL rules, date precision and age intervals; 37 tests. ROADMAP and root README updated.",
+      "sources": [
+        "https://raw.githubusercontent.com/schemaorg/schemaorg/main/data/schema.ttl"
+      ]
     }
   ]
 }
