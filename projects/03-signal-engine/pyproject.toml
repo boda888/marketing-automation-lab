@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "signal-engine"
-version = "0.0.3"
+version = "0.0.4"
 description = "Evidence-backed buying-signal events (hiring, funding, expansion, ...) with explicit Unknown / Not found states"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2.6"]

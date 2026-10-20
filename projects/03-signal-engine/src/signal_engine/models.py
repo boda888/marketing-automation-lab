@@ -28,6 +28,7 @@ class SignalType(StrEnum):
     LEADERSHIP = "leadership"
     TECH_CHANGE = "tech_change"
     SITE_VISIT = "site_visit"
+    HEADCOUNT_GROWTH = "headcount_growth"
 
 
 class SignalStatus(StrEnum):

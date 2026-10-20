@@ -95,6 +95,8 @@ DEFAULT_WINDOWS: dict[SignalType, Window] = {
     SignalType.LEADERSHIP: Window(strong_days=120, medium_days=365),
     SignalType.TECH_CHANGE: Window(strong_days=None, medium_days=180),
     SignalType.SITE_VISIT: Window(strong_days=14, medium_days=30),
+    # Dated by the latest reported month; growth itself is gated in headcount.py.
+    SignalType.HEADCOUNT_GROWTH: Window(strong_days=90, medium_days=180),
 }
 
 

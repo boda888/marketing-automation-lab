@@ -8,6 +8,14 @@ from signal_engine.dedupe import (
     dedupe,
     normalise_subject,
 )
+from signal_engine.headcount import (
+    Growth,
+    HeadcountSeries,
+    HeadcountState,
+    HeadcountThresholds,
+    HeadcountTrend,
+    assess_headcount,
+)
 from signal_engine.models import (
     DatePrecision,
     EventDate,
@@ -26,7 +34,7 @@ from signal_engine.priority import (
     prioritise_events,
 )
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 __all__ = [
     "DEFAULT_WINDOWS",
@@ -36,6 +44,11 @@ __all__ = [
     "DatePrecision",
     "DedupeResult",
     "EventDate",
+    "Growth",
+    "HeadcountSeries",
+    "HeadcountState",
+    "HeadcountThresholds",
+    "HeadcountTrend",
     "MatchReason",
     "MergedSignal",
     "Provenance",
@@ -45,6 +58,7 @@ __all__ = [
     "Tier",
     "Window",
     "__version__",
+    "assess_headcount",
     "dedupe",
     "normalise_subject",
     "prioritise",
