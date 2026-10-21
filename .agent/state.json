@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "current_project": "03-signal-engine",
+  "current_project": "04-enrichment-verification",
   "projects": [
     {
       "id": "01-icp-scoring",
       "path": "projects/01-icp-scoring",
       "status": "done",
       "version": "0.1.0",
-      "summary": "Explainable ICP fit + time-decayed engagement -> tier/action; FastAPI, CSV CLI, n8n workflow; 33 tests."
+      "summary": "Explainable ICP fit + time-decayed engagement -> tier/action; FastAPI, CSV CLI, n8n workflow; 34 tests; default config weights signal_<type> events from 03."
     },
     {
       "id": "02-deliverability-preflight",
@@ -19,9 +19,9 @@
     {
       "id": "03-signal-engine",
       "path": "projects/03-signal-engine",
-      "status": "in_progress",
-      "summary": "SignalEvent model (found / not_found_in_sample / unknown, non-homepage source_url + evidence, EventDate with day/month/year precision and age interval, optional subject); dedupe() across sources (same_source_id within one source, same_url, same_subject_and_date with overlapping intervals; provenance, date_conflict); prioritise_events() -> Tier 1-3 / Hold / Review from per-type windows applied to whole date intervals (worst/best case, upgrade_possible), best_signal <=30 words, reason <=45 words; assess_headcount() -> 6/12-month growth from raw monthly counts of one source (>=20% strong, <=-10% contraction, missing/None/0 base -> unknown, strong+contraction -> mixed) and a headcount_growth event; 106 tests. Next: mapping into 01, API, n8n.",
-      "version": "0.0.4"
+      "status": "done",
+      "summary": "SignalEvent model (found / not_found_in_sample / unknown, non-homepage source_url + evidence, EventDate with day/month/year precision); dedupe() across sources with provenance; prioritise_events() -> Tier 1-3 / Hold / Review over whole date intervals with best_signal/reason; assess_headcount() 6/12-month growth from raw monthly counts; to_engagement_events() -> one 01 engagement event per merged signal; FastAPI POST /v1/signals/prioritise; n8n 'prioritise before research' (Switch on tier, Review -> human review); synthetic .example dataset; 126 tests.",
+      "version": "0.1.0"
     },
     {
       "id": "04-enrichment-verification",
@@ -107,13 +107,18 @@
     "03: scaffold + SignalEvent model: six signal types; found / not_found_in_sample / unknown as first-class states with per-state field rules (found needs non-homepage http(s) source_url + evidence; not_found_in_sample needs the searched sample); EventDate parses ISO 8601 YYYY / YYYY-MM / YYYY-MM-DD with precision, earliest/latest and age_days interval; occurred_on not after observed_at; placeholder strings ('Unknown', 'N/A', '-') -> None; is_fixture for .example domains",
     "03: dedupe() of found events per company + type: same source_name + source_event_id (ids never compared across sources), same evidence URL (scheme/www/trailing slash/fragment ignored), or same normalised subject with overlapping occurred_on intervals; two ids of one source never merge (also not through a third sighting); MergedSignal keeps every sighting as provenance, most precise date, date_conflict flag; checks pass through; SignalEvent.subject",
     "03: prioritise / prioritise_events: per-type strong/medium age windows (DEFAULT_WINDOWS, overridable), whole-interval rule, pending signals (straddling, undated, date conflict, unknown check) evaluated at worst and best band; Tier 1 / 2 / 3 / Hold, worst-case Hold with possible upgrade -> Review; best_signal <=30 words, reason <=45 words",
-    "03: headcount growth: HeadcountSeries (one source, YYYY-MM -> count, None = not reported, no future months) -> assess_headcount() growth over 6/12 months back from the latest reported month, thresholds compared exactly (Fraction), missing month / None / base 0 -> unknown (never 0, never a neighbouring month), states strong_growth / steady / contraction / unknown / mixed; to_event() -> headcount_growth found / not_found_in_sample / unknown; SignalType.HEADCOUNT_GROWTH with window <=90 / 91-180 days; same month from two sources merges in dedupe"
+    "03: headcount growth: HeadcountSeries (one source, YYYY-MM -> count, None = not reported, no future months) -> assess_headcount() growth over 6/12 months back from the latest reported month, thresholds compared exactly (Fraction), missing month / None / base 0 -> unknown (never 0, never a neighbouring month), states strong_growth / steady / contraction / unknown / mixed; to_event() -> headcount_growth found / not_found_in_sample / unknown; SignalType.HEADCOUNT_GROWTH with window <=90 / 91-180 days; same month from two sources merges in dedupe",
+    "03: to_engagement_events(): one 01-shaped engagement event per MergedSignal (never per sighting), dated at the oldest possible day (oldest sighting on a date conflict), contact_id None so 01's stakeholder bonus is never triggered; checks never become events; undated / unmapped -> skipped with reason; 01 default_icp.json weights signal_<type> events",
+    "03: FastAPI POST /v1/signals/prioritise (headcount series -> checks, one dedupe, tiers per company, tier_counts, dedupe counts, engagement events; 422 on invalid events, 413 over 2,000 events / 500 series) + examples/prioritise_request.json landing one .example account in each tier",
+    "03: n8n workflow 'prioritise before research' (HTTP retry 3x, Respond with tier counts, Split Out accounts, Switch v3.2 one output per tier + extra fallback; Review / unexpected -> human review), contract-tested against the API",
+    "03-signal-engine v0.1.0 (README: pain -> architecture -> API -> n8n -> limits; package / pyproject / OpenAPI versions tested to agree)"
   ],
   "next_steps": [
-    "03: map AccountPriority / MergedSignal into 01's engagement events (one event per merged signal, not per sighting) so 01 does not double-count.",
-    "03: FastAPI POST /v1/signals/prioritise (events + optional headcount series in -> dedupe + tiers out) + synthetic .example dataset with a duplicate round from two sources, an undated signal and a headcount series with a missing month.",
-    "03: n8n workflow 'prioritise before research' (Switch on tier; Review -> review queue, never the sequencer), structure-tested; then README v0.1.0.",
-    "03 follow-up: headcount provider adapter (e.g. Clay 'Find Company Headcount Growth' / Apollo organization fields) once the vendor docs can be opened; until then the caller supplies counts.",
+    "04: scaffold + provider interface for waterfall enrichment: ordered providers behind a Protocol with offline fakes, run only on an explicit condition, stop at the first acceptable result, record which provider answered; refuse .example fixtures and placeholder inputs ('Unknown') before any paid call.",
+    "04: input-mapping preflight: validate each provider's required inputs before a run and report coverage per provider with a named denominator (PRACTICE: empty mappings -> ~45% coverage).",
+    "04: email status ladder found -> checked (provider + date) -> verified, never promoted by arithmetic; cost per record with explicit denominator.",
+    "04: contact dedupe LinkedIn URL -> email -> normalised name + company with provenance; one merged identity-consistent person record downstream.",
+    "03 follow-ups: source adapters (ATS postings e.g. Lever / Greenhouse job boards -> hiring events; headcount provider adapter once vendor docs can be opened); tier boost when several independent sources confirm a signal.",
     "02 follow-ups: opt-in env-gated live-DNS smoke test; re-check DMARCbis against the published RFC text (reported RFC 9989) when rfc-editor.org is reachable."
   ],
   "known_gaps": [
@@ -133,13 +138,14 @@
     "02: assign_batch spreads leads evenly over mailboxes but ignores per-domain balance, sending windows/time zones and leads already in flight in a sequencer; dedupe is by id and exact e-mail only.",
     "03: EventDate format taken from schema.org `Date` (ISO 8601, schema.ttl via the schemaorg GitHub repo); schema.org and developers.google.com (JobPosting structured-data guide) gave ENOTFOUND on 2026-10-19. Quarter/week dates are rejected, not parsed. The homepage rule checks only for an empty URL path.",
     "03: dedupe needs a source id, a shared URL or a caller-supplied subject; it does not compare evidence text. Priority window defaults are hand-set (no calibration) and the tier ignores how many sources confirmed a signal. Crunchbase docs (data.crunchbase.com) and unhead.unjs.io were unreachable (ENOTFOUND, 2026-10-19); the 'ids unique per source' rule comes from Lever's Postings API README plus a search summary of schema.org JobPosting.identifier ('unique within the hiring organization').",
-    "03: headcount growth thresholds (20% / -10%) are PRACTICE defaults, not calibrated; total headcount only (no per-function growth). Provider shapes (Clay 'Find Company Headcount Growth': counts 1/3/6/9/12/24... months back from LinkedIn; third-party counts are observed profiles and disagree between providers) come from web-search summaries only: community.clay.com, www.clay.com, docs.apollo.io, support.ocean.io, help.ai-ark.com gave ENOTFOUND and unifygtm.com / reveliolabs.com a proxy 403 on 2026-10-20; no field name of any provider is relied on."
+    "03: headcount growth thresholds (20% / -10%) are PRACTICE defaults, not calibrated; total headcount only (no per-function growth). Provider shapes (Clay 'Find Company Headcount Growth': counts 1/3/6/9/12/24... months back from LinkedIn; third-party counts are observed profiles and disagree between providers) come from web-search summaries only: community.clay.com, www.clay.com, docs.apollo.io, support.ocean.io, help.ai-ark.com gave ENOTFOUND and unifygtm.com / reveliolabs.com a proxy 403 on 2026-10-20; no field name of any provider is relied on.",
+    "03: API tested with TestClient plus one local uvicorn run on synthetic data; n8n 'prioritise before research' never imported into a live n8n (Switch V3 / Split Out parameters taken from n8n's node source on GitHub; docs.n8n.io and fastapi.tiangolo.com gave ENOTFOUND on 2026-10-21). The 01 mapping is offline only and 01 still drops events older than its 90-day max_age_days; signal_<type> weights in 01's config are hand-set."
   ],
   "last_run": {
-    "date": "2026-10-20",
+    "date": "2026-10-21",
     "by": "daily agent",
-    "commits": 1,
-    "notes": "Commit budget drawn: 1, used 1 (work + state folded). 03 v0.0.4: headcount growth. No research page could be opened (ENOTFOUND / proxy 403); design used search summaries only, recorded in known_gaps."
+    "commits": 4,
+    "notes": "Commit budget drawn: 4, used 4 (3 work + state). 03 reached v0.1.0: mapping into 01, POST /v1/signals/prioritise + synthetic dataset, n8n workflow. current_project moved to 04."
   },
   "run_log": [
     {
@@ -255,6 +261,17 @@
       "summary": "03-signal-engine v0.0.4: assess_headcount() (6/12-month growth from one source's raw monthly counts, exact thresholds, missing = unknown, contraction and mixed as own states) + headcount_growth SignalType/window/event; 106 tests in 03.",
       "sources": [],
       "research_note": "Three web searches (Apollo organization headcount growth fields; Clay headcount growth enrichment; organization_headcount_twelve_month_growth). Summaries only: Clay's action reportedly returns LinkedIn-based counts at fixed offsets (1/3/6/9/12... months back), and third-party providers disagree on the same company's growth. Every page tried was unreachable (ENOTFOUND or proxy 403), so no URL is cited as opened."
+    },
+    {
+      "date": "2026-10-21",
+      "commits": 4,
+      "summary": "03-signal-engine v0.1.0: to_engagement_events() (one 01 event per merged signal), FastAPI POST /v1/signals/prioritise + .example dataset covering every tier, n8n 'prioritise before research' workflow (Switch on tier, Review -> human review); 126 tests in 03, 34 in 01.",
+      "sources": [
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Switch/V3/SwitchV3.node.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Transform/SplitOut/SplitOut.node.ts",
+        "https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/release-notes.md"
+      ],
+      "research_note": "Switch V3 source: rules.values with outputKey + filter conditions, fallbackOutput 'extra' adds an output at index rules.length, unwired outputs drop items. FastAPI release notes: latest 0.156.4 (2026-10-21), the installed version; Starlette warns that httpx-based TestClient is deprecated in favour of httpx2 (seen in all three projects, not acted on yet). docs.n8n.io and fastapi.tiangolo.com: ENOTFOUND."
     }
   ]
 }
