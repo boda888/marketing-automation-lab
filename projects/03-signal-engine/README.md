@@ -9,8 +9,8 @@ personalisation line cites the company homepage, which proves nothing. The
 fix is to treat each signal as a typed event with its evidence, and to do
 dates, windows and dedupe in code.
 
-**Status: v0.0.4 — event model, cross-source dedupe, priority tiers, headcount growth.** The API,
-the n8n workflow and a synthetic dataset are next (see [ROADMAP](../../ROADMAP.md#03--signal-engine)).
+**Status: v0.0.5 — event model, cross-source dedupe, priority tiers, headcount growth,
+mapping into 01, FastAPI service + synthetic dataset.** The n8n workflow is next (see [ROADMAP](../../ROADMAP.md#03--signal-engine)).
 
 ## What exists now
 
@@ -161,6 +161,31 @@ provenance (`source_url`, `sightings`, `signal_type`) that 01 ignores:
 Default types: `site_visit` → `site_visit` (already a 01 event), every other type →
 `signal_<type>`; 01's `default_icp.json` carries hand-set weights for them.
 
+## API: `POST /v1/signals/prioritise`
+
+```bash
+python -m pip install -e ".[dev]"
+uvicorn signal_engine.api:app --port 8003
+curl -s localhost:8003/v1/signals/prioritise \
+  -H 'content-type: application/json' -d @examples/prioritise_request.json
+```
+
+In: `events` (raw `SignalEvent`s), optional `headcount` (`HeadcountSeries`), optional
+`as_of` (default: today UTC). One call assesses every headcount series into a
+`headcount_growth` check, dedupes all events **once**, tiers every company, and maps the
+merged signals to 01 engagement events. Out: `accounts` (one `AccountPriority` per
+company, first-seen order), `tier_counts`, `dedupe` (`input_found`, `duplicates_removed`,
+`merged_signals`), `headcount` trends, `engagement_events`, `skipped_for_engagement`.
+Invalid events (e.g. `found` citing a homepage) are a 422, not a guess; more than 2,000
+events or 500 series is a 413.
+
+[`examples/prioritise_request.json`](examples/prioritise_request.json) is a synthetic
+`.example` dataset that lands one account in each tier: a Series A seen by a press
+release and a funding database (merged, `sightings=2`) plus a fresh job post → Tier 1;
+strong headcount growth from a series whose 12-month base month is missing, with an
+`unknown` funding check → Tier 2 (could reach Tier 1); a tech change → Tier 3; a 2023
+seed round → Hold; an undated leadership change next to an empty careers page → Review.
+
 ## Run the tests
 
 ```bash
@@ -171,7 +196,7 @@ python -m pytest -q
 
 ## Limits (today)
 
-- No source adapters, no API or n8n workflow yet.
+- No source adapters and no n8n workflow yet; the API is tested with `TestClient` only.
 - The 01 mapping is one-way and offline: 01 still decays with its own 14-day half-life and
   drops events older than 90 days, so 01's engagement only sees recent signals.
 - Headcount: no provider adapter yet (the caller supplies the monthly counts); thresholds

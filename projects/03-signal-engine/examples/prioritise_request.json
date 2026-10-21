@@ -1,0 +1,96 @@
+{
+  "as_of": "2026-10-21",
+  "events": [
+    {
+      "company_domain": "northwind.example",
+      "type": "funding",
+      "status": "found",
+      "subject": "Series A",
+      "observed_at": "2026-10-20T08:00:00Z",
+      "source_name": "press_fixture",
+      "source_url": "https://news.northwind.example/2026/09/series-a",
+      "evidence": "Northwind raised a $12M Series A led by Fictive Ventures.",
+      "occurred_on": "2026-09-14"
+    },
+    {
+      "company_domain": "northwind.example",
+      "type": "funding",
+      "status": "found",
+      "subject": "Series A",
+      "observed_at": "2026-10-20T09:30:00Z",
+      "source_name": "funding_db_fixture",
+      "source_event_id": "round-8841",
+      "source_url": "https://funding-db.example/rounds/round-8841",
+      "evidence": "Series A, USD 12M, September 2026.",
+      "occurred_on": "2026-09"
+    },
+    {
+      "company_domain": "northwind.example",
+      "type": "hiring",
+      "status": "found",
+      "subject": "Head of Revenue Operations",
+      "observed_at": "2026-10-20T08:05:00Z",
+      "source_name": "ats_fixture",
+      "source_event_id": "job-102",
+      "source_url": "https://jobs.northwind.example/postings/job-102",
+      "evidence": "Head of Revenue Operations, remote (EU), posted 2026-10-05.",
+      "occurred_on": "2026-10-05"
+    },
+    {
+      "company_domain": "contoso-labs.example",
+      "type": "leadership",
+      "status": "found",
+      "subject": "New CRO",
+      "observed_at": "2026-10-20T10:00:00Z",
+      "source_url": "https://contoso-labs.example/team/chief-revenue-officer",
+      "evidence": "Team page lists a Chief Revenue Officer; no start date given."
+    },
+    {
+      "company_domain": "contoso-labs.example",
+      "type": "hiring",
+      "status": "not_found_in_sample",
+      "observed_at": "2026-10-20T10:02:00Z",
+      "source_url": "https://contoso-labs.example/careers",
+      "sample": "careers page, 2026-10-20: no open roles listed"
+    },
+    {
+      "company_domain": "tailspin.example",
+      "type": "tech_change",
+      "status": "found",
+      "subject": "HubSpot",
+      "observed_at": "2026-10-19T12:00:00Z",
+      "source_url": "https://stack-tracker.example/companies/tailspin/hubspot",
+      "evidence": "HubSpot tracking script first detected in September 2026.",
+      "occurred_on": "2026-09"
+    },
+    {
+      "company_domain": "adatum.example",
+      "type": "funding",
+      "status": "found",
+      "subject": "Seed",
+      "observed_at": "2026-10-19T12:10:00Z",
+      "source_url": "https://news.adatum.example/2023/seed-round",
+      "evidence": "Adatum closed a seed round in 2023.",
+      "occurred_on": "2023"
+    },
+    {
+      "company_domain": "fabrikam.example",
+      "type": "funding",
+      "status": "unknown",
+      "observed_at": "2026-10-20T11:00:00Z"
+    }
+  ],
+  "headcount": [
+    {
+      "company_domain": "fabrikam.example",
+      "source_name": "people_data_fixture",
+      "source_url": "https://people-data.example/companies/fabrikam/headcount",
+      "observed_at": "2026-10-20T11:05:00Z",
+      "counts": {
+        "2026-04": 50,
+        "2026-07": 55,
+        "2026-10": 62
+      }
+    }
+  ]
+}
