@@ -83,6 +83,12 @@
       "path": "projects/13-gtm-mcp-server",
       "status": "planned",
       "summary": "MCP server exposing score, enrich, preflight, classify to AI agents."
+    },
+    {
+      "id": "14-calls-ai-voice",
+      "path": "projects/14-calls-ai-voice",
+      "status": "planned",
+      "summary": "Call tasks from engagement signals, dialer and AI voice-agent adapters, call outcome back to sequence and CRM, consent checks."
     }
   ],
   "done": [
@@ -284,5 +290,46 @@
       "sources": [],
       "research_note": "Two web searches (Apollo People Match parameters; Clay waterfall 'Only run if' / stop at first result). Summaries only: Apollo /v1/people/match reportedly accepts alternative identifiers (email, LinkedIn URL, or name + domain), which is why providers declare alternative input sets; Clay's 'Only run if' runs an enrichment when a formula is true, and waterfalls reportedly stop at the first passing result (third-party claim, not in Clay docs found). Every page tried was ENOTFOUND, so no URL is cited as opened."
     }
-  ]
+  ],
+  "research": {
+    "roadmap": "research/ROADMAP.md",
+    "tracks": {
+      "R1": {
+        "name": "Account & contact sourcing",
+        "last_researched": null
+      },
+      "R2": {
+        "name": "Signals & research",
+        "last_researched": null
+      },
+      "R3": {
+        "name": "Enrichment & verification",
+        "last_researched": null
+      },
+      "R4": {
+        "name": "Email infrastructure & sequencers",
+        "last_researched": null
+      },
+      "R5": {
+        "name": "LinkedIn automation",
+        "last_researched": null
+      },
+      "R6": {
+        "name": "Calls & AI voice",
+        "last_researched": null
+      },
+      "R7": {
+        "name": "CRM, pipeline & reporting",
+        "last_researched": null
+      },
+      "R8": {
+        "name": "AI agents & MCP over the stack",
+        "last_researched": null
+      },
+      "R9": {
+        "name": "Orchestration & reliability",
+        "last_researched": null
+      }
+    }
+  }
 }

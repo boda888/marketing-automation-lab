@@ -37,7 +37,9 @@ modes and patterns (anonymised). Projects should make those failures impossible 
 5. **Demo-able.** Each v0.1 ships: FastAPI service and/or CLI, n8n workflow, synthetic dataset
    on `.example` domains, a README with problem → architecture → run it → limits.
 6. **Trends are inputs, not content.** A trend only earns a commit if it changes code or the
-   roadmap. No trend-summary filler files.
+   roadmap. The one exception is the research track in `research/` (RUN_PROTOCOL §2b): notes
+   there must answer a concrete question about how practitioners run outbound with real tools
+   (workflow, limits, price, API), cite opened sources and end in something the owner can apply.
 
 ## Project line-up (order can change if research says so)
 | # | Project | Pain it removes |
@@ -55,3 +57,4 @@ modes and patterns (anonymised). Projects should make those failures impossible 
 | 11 | End-to-end: docker-compose (n8n + services + Postgres), full synthetic run, live n8n import test | parts that never ran together |
 | 12 | Calibration: learn ICP and signal weights from won/lost | hand-set weights drift |
 | 13 | GTM MCP server: expose the lab's tools (score, enrich, preflight, classify) to AI agents | agents with no safe access to the pipeline |
+| 14 | Calls: call tasks from engagement signals, dialer + AI voice-agent adapters (Vapi / Retell-style), call outcome → sequence and CRM, consent rules | engaged leads never get a call, or the sequence stalls waiting for one |

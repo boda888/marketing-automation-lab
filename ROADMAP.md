@@ -1,5 +1,6 @@
 # Roadmap
 
+Research track: [`research/`](research/) (practitioner workflows, tool catalogue, insights).
 Project line-up and rules come from [`.agent/FOCUS.md`](.agent/FOCUS.md): every
 project removes a concrete GTM failure mode, targets the stack people hire for
 (Clay, Apollo, Instantly, Smartlead, HeyReach, HubSpot, Pipedrive, Attio, n8n,
@@ -116,3 +117,9 @@ Pain: hand-set weights drift.
 ## 13 · GTM MCP server
 Pain: agents with no safe access to the pipeline.
 - [ ] expose score, enrich, preflight, classify as MCP tools with input validation and dry-run
+
+## 14 · Calls & AI voice
+Pain: engaged leads never get a call, or the whole sequence stalls waiting for a manual call.
+- [ ] call-task engine: create a task from engagement (reply, repeated opens, site visit) without blocking the sequence; CALL / Done / Callback states
+- [ ] dialer + AI voice-agent adapters behind one interface (shapes from vendor docs), fake provider for tests
+- [ ] call outcome → sequence (pause / continue / stop) and CRM write-back; consent / do-not-call checks before any automated call

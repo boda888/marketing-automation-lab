@@ -43,6 +43,25 @@ Never pad to reach the budget, and never fake or shift commit times.
 - If research shows a roadmap assumption is outdated, update the code/README/ROADMAP accordingly — that is a valid commit.
 - Record the URLs actually used in the run log (`sources`). Never cite something you did not open.
 
+## 2b. Research track (morning runs: started before 12:00 UTC)
+Morning runs spend **one** commit of the budget on the research track in `research/`; evening
+runs build code. Skip the track when the budget is 0, or when the only commit must be a fix.
+1. Pick the track in `.agent/state.json` → `research.tracks` with the oldest `last_researched`
+   (null first). Read its open questions in `research/ROADMAP.md` and the notes already in
+   `research/notes/` so nothing is researched twice.
+2. Answer 1–3 open questions with 3–8 searches/fetches. Prefer vendor docs, API references,
+   pricing pages and changelogs, then practitioners' published workflows (blog posts, n8n /
+   Clay templates, case studies with concrete steps). Apply `research/README.md` honesty rules.
+3. Write `research/notes/<YYYY-MM-DD>-<track>-<slug>.md` from `notes/_TEMPLATE.md` (all five
+   sections). Screenshots: only public pages you opened, via the preinstalled Chromium
+   (Playwright), ≤ 300 KB into `research/assets/`; if pages are blocked, say so and skip.
+4. Update `research/STACK.md` rows (price + source + date, API / MCP / n8n columns), add
+   1–3 entries to `research/INSIGHTS.md` that the owner can act on, tick the answered
+   questions and add new ones in `research/ROADMAP.md`, set the track's `last_researched`.
+5. If a finding changes what the lab should build, add or edit the item in the root
+   `ROADMAP.md` / `next_steps` (no duplicates).
+Commit as `docs(research): <track> <topic>`.
+
 ## 3. Work: up to the budget from 1b (max 4 commits)
 Each commit must be **one meaningful, self-contained step** and must:
 - add or change working code **with tests**, or fix a real bug/outdated fact, or add docs that describe something that now exists;
@@ -77,3 +96,5 @@ Tick completed boxes in `ROADMAP.md`. Commit as `chore(agent): update state afte
 
 ## 6. Report
 End with a short summary: commits (hash + message), tests run, sources used, CI status, and next step.
+On research runs add a section **«Инсайты для Богдана»** in Russian: 1–3 findings he can apply
+in his own Clay / n8n / sequencer / calling work, each with its source.

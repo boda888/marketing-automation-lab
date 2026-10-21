@@ -3,6 +3,7 @@
 - every project has README.md, pyproject.toml and a non-empty tests/ dir
 - .agent/state.json parses and has the fields the daily agent relies on
 - every n8n workflow JSON parses, has unique node names and valid connections
+- research notes follow the template and research screenshots stay small
 """
 
 from __future__ import annotations
@@ -69,11 +70,45 @@ def check_n8n(errors: list[str]) -> None:
                         errors.append(f"{rel}: connection to unknown node {link.get('node')!r}")
 
 
+NOTE_SECTIONS = ("## Question", "## Findings", "## Apply", "## Lab impact", "## Sources")
+MAX_ASSET_BYTES = 300_000
+ASSET_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+def check_research(errors: list[str]) -> None:
+    research = ROOT / "research"
+    if not research.is_dir():
+        return
+    for note in sorted((research / "notes").glob("*.md")):
+        if note.name.startswith("_"):
+            continue
+        text = note.read_text()
+        missing = [h for h in NOTE_SECTIONS if h not in text]
+        if missing:
+            errors.append(f"research/notes/{note.name}: missing sections {missing}")
+    for asset in sorted((research / "assets").glob("*")):
+        if asset.name.startswith("."):
+            continue
+        if asset.suffix.lower() not in ASSET_SUFFIXES:
+            errors.append(f"research/assets/{asset.name}: not an image")
+        elif asset.stat().st_size > MAX_ASSET_BYTES:
+            errors.append(f"research/assets/{asset.name}: larger than {MAX_ASSET_BYTES} bytes")
+    try:
+        tracks = json.loads((ROOT / ".agent" / "state.json").read_text())["research"]["tracks"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        errors.append("state.json: missing research.tracks")
+        return
+    for track_id, track in tracks.items():
+        if not {"name", "last_researched"} <= set(track):
+            errors.append(f"state.json: research track {track_id} needs name and last_researched")
+
+
 def main() -> int:
     errors: list[str] = []
     check_projects(errors)
     check_state(errors)
     check_n8n(errors)
+    check_research(errors)
     for e in errors:
         print(f"ERROR: {e}")
     print("repo checks:", "FAILED" if errors else "OK")
