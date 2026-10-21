@@ -61,13 +61,15 @@ Pain: list-based outreach with 2–4% replies.
 - [x] FastAPI `POST /v1/signals/prioritise` + synthetic `.example` dataset + n8n workflow 'prioritise before research' (Switch on tier, Review → human review)
 - [x] dedupe the same event seen in several sources (source id within a source, evidence URL, subject + overlapping dates; provenance kept); `Unknown` / `Not found in sample` kept apart from "no signal"
 
-## 04 · Waterfall enrichment + email verification + CRM dedupe
+## 04 · Waterfall enrichment + email verification + CRM dedupe — v0.0.2 (2026-10-21)
 Pain: 40–60% match rates, bounces, duplicates.
-- [ ] provider interface (Clay / Apollo shapes) + fake providers; field-level merge with confidence and provenance
+- [x] provider interface + fake providers + waterfall runner: explicit run condition, cheap first, stop at the first accepted answer, `answered_by` and per-attempt log (field names, credits), paid providers never see fixtures
+- [ ] Clay / Apollo request shapes as adapters; field-level merge with confidence and provenance
 - [ ] cost budget per record, cache, stop-when-complete; consumes `needs_enrichment` / `missing_fields` from 01
 - [ ] verification: syntax, MX, disposable, role-based, catch-all heuristics; risk score, no SMTP probing by default
 - [ ] dedupe / match against existing CRM records
-- [ ] status ladder found → checked (provider + date) → verified; validate provider inputs (no `"Unknown"` placeholders) and report coverage/cost with an explicit denominator
+- [x] validate provider inputs before a run (`check_mappings`: no `"Unknown"` placeholders, empty-everywhere fields, eligibility per provider) and report coverage/cost with an explicit denominator (`coverage`)
+- [ ] status ladder found → checked (provider + date) → verified
 
 ## 05 · AI research + first-line personalisation
 Pain: one bad model response ships to the whole list.

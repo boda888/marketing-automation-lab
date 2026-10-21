@@ -26,8 +26,9 @@
     {
       "id": "04-enrichment-verification",
       "path": "projects/04-enrichment-verification",
-      "status": "planned",
-      "summary": "Waterfall enrichment with provenance and cost budget, email verification, CRM dedupe."
+      "status": "in_progress",
+      "summary": "LeadRecord (placeholders -> None, is_fixture on reserved test domains); Provider protocol with alternative input sets; Waterfall (explicit run_if, ordered providers, only matched inputs sent, paid providers never see fixtures, first accepted answer wins, answered_by + per-attempt log without values); FakeProvider; check_mappings() input-mapping preflight and coverage() with named denominators; 68 tests. Planned: status ladder, verification, budget/cache, CRM dedupe.",
+      "version": "0.0.2"
     },
     {
       "id": "05-ai-personalization",
@@ -111,15 +112,17 @@
     "03: to_engagement_events(): one 01-shaped engagement event per MergedSignal (never per sighting), dated at the oldest possible day (oldest sighting on a date conflict), contact_id None so 01's stakeholder bonus is never triggered; checks never become events; undated / unmapped -> skipped with reason; 01 default_icp.json weights signal_<type> events",
     "03: FastAPI POST /v1/signals/prioritise (headcount series -> checks, one dedupe, tiers per company, tier_counts, dedupe counts, engagement events; 422 on invalid events, 413 over 2,000 events / 500 series) + examples/prioritise_request.json landing one .example account in each tier",
     "03: n8n workflow 'prioritise before research' (HTTP retry 3x, Respond with tier counts, Split Out accounts, Switch v3.2 one output per tier + extra fallback; Review / unexpected -> human review), contract-tested against the API",
-    "03-signal-engine v0.1.0 (README: pain -> architecture -> API -> n8n -> limits; package / pyproject / OpenAPI versions tested to agree)"
+    "03-signal-engine v0.1.0 (README: pain -> architecture -> API -> n8n -> limits; package / pyproject / OpenAPI versions tested to agree)",
+    "04: scaffold + Provider protocol (name, output_field, alternative input_sets, paid) + Waterfall runner (explicit run_if, default only while field empty; ordered providers; only the matched input set's fields sent; placeholders cleaned to None before any call; paid providers skip .example/.test/.invalid/.localhost/example.com fixtures; first accepted answer stops, answered_by recorded; rejected / not found / ProviderError move on; attempts log field names, credits, provider status; misconfiguration fails at construction; run_many refuses duplicate ids) + FakeProvider",
+    "04: check_mappings() input-mapping preflight (eligible of run records per provider, fixture-blocked, missing fields; INPUT_FIELD_EMPTY_EVERYWHERE / NO_ELIGIBLE_RECORDS / LOW_ELIGIBILITY / RECORDS_WITHOUT_PROVIDER; report.ok) + coverage() (found of run / of input records, per-provider answers of calls, rejections, errors, credits, credits per found; every Ratio names its denominator, 0/0 = None)"
   ],
   "next_steps": [
-    "04: scaffold + provider interface for waterfall enrichment: ordered providers behind a Protocol with offline fakes, run only on an explicit condition, stop at the first acceptable result, record which provider answered; refuse .example fixtures and placeholder inputs ('Unknown') before any paid call.",
-    "04: input-mapping preflight: validate each provider's required inputs before a run and report coverage per provider with a named denominator (PRACTICE: empty mappings -> ~45% coverage).",
-    "04: email status ladder found -> checked (provider + date) -> verified, never promoted by arithmetic; cost per record with explicit denominator.",
+    "04: email status ladder found -> checked (provider + date) -> verified, never promoted by arithmetic; provider_status kept as context, not truth.",
+    "04: per-record credit budget + result cache (same inputs to the same provider are not paid twice) + stop when the budget is spent, reported as its own attempt status.",
+    "04: email verification without SMTP probing: syntax, MX via an injectable resolver (reuse 02's pattern), disposable / role-based lists, catch-all heuristics -> risk score.",
     "04: contact dedupe LinkedIn URL -> email -> normalised name + company with provenance; one merged identity-consistent person record downstream.",
-    "03 follow-ups: source adapters (ATS postings e.g. Lever / Greenhouse job boards -> hiring events; headcount provider adapter once vendor docs can be opened); tier boost when several independent sources confirm a signal.",
-    "02 follow-ups: opt-in env-gated live-DNS smoke test; re-check DMARCbis against the published RFC text (reported RFC 9989) when rfc-editor.org is reachable."
+    "04: Apollo / Clay request shapes as adapters once vendor docs can be opened; FastAPI endpoint + n8n workflow + synthetic dataset for v0.1.",
+    "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; tier boost for independently confirmed signals."
   ],
   "known_gaps": [
     "01 n8n workflow is structure-tested only; never imported into a live n8n instance.",
@@ -139,13 +142,14 @@
     "03: EventDate format taken from schema.org `Date` (ISO 8601, schema.ttl via the schemaorg GitHub repo); schema.org and developers.google.com (JobPosting structured-data guide) gave ENOTFOUND on 2026-10-19. Quarter/week dates are rejected, not parsed. The homepage rule checks only for an empty URL path.",
     "03: dedupe needs a source id, a shared URL or a caller-supplied subject; it does not compare evidence text. Priority window defaults are hand-set (no calibration) and the tier ignores how many sources confirmed a signal. Crunchbase docs (data.crunchbase.com) and unhead.unjs.io were unreachable (ENOTFOUND, 2026-10-19); the 'ids unique per source' rule comes from Lever's Postings API README plus a search summary of schema.org JobPosting.identifier ('unique within the hiring organization').",
     "03: headcount growth thresholds (20% / -10%) are PRACTICE defaults, not calibrated; total headcount only (no per-function growth). Provider shapes (Clay 'Find Company Headcount Growth': counts 1/3/6/9/12/24... months back from LinkedIn; third-party counts are observed profiles and disagree between providers) come from web-search summaries only: community.clay.com, www.clay.com, docs.apollo.io, support.ocean.io, help.ai-ark.com gave ENOTFOUND and unifygtm.com / reveliolabs.com a proxy 403 on 2026-10-20; no field name of any provider is relied on.",
-    "03: API tested with TestClient plus one local uvicorn run on synthetic data; n8n 'prioritise before research' never imported into a live n8n (Switch V3 / Split Out parameters taken from n8n's node source on GitHub; docs.n8n.io and fastapi.tiangolo.com gave ENOTFOUND on 2026-10-21). The 01 mapping is offline only and 01 still drops events older than its 90-day max_age_days; signal_<type> weights in 01's config are hand-set."
+    "03: API tested with TestClient plus one local uvicorn run on synthetic data; n8n 'prioritise before research' never imported into a live n8n (Switch V3 / Split Out parameters taken from n8n's node source on GitHub; docs.n8n.io and fastapi.tiangolo.com gave ENOTFOUND on 2026-10-21). The 01 mapping is offline only and 01 still drops events older than its 90-day max_age_days; signal_<type> weights in 01's config are hand-set.",
+    "04: no real provider adapter; Apollo People Match / Clay waterfall shapes known only from search summaries (docs.apollo.io, university.clay.com, deepline.com, cleanlist.ai all ENOTFOUND on 2026-10-21). Reserved test domains taken from RFC 2606 / 6761 from knowledge, RFC pages not opened. Costs are provider credits, not money; fixture detection only looks at domain-like field values."
   ],
   "last_run": {
     "date": "2026-10-21",
     "by": "daily agent",
-    "commits": 4,
-    "notes": "Commit budget drawn: 4, used 4 (3 work + state). 03 reached v0.1.0: mapping into 01, POST /v1/signals/prioritise + synthetic dataset, n8n workflow. current_project moved to 04."
+    "commits": 3,
+    "notes": "Commit budget drawn: 3, used 3 (2 work + state). 04 started: v0.0.2 with provider interface, waterfall runner, input-mapping preflight and coverage report."
   },
   "run_log": [
     {
@@ -272,6 +276,13 @@
         "https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/release-notes.md"
       ],
       "research_note": "Switch V3 source: rules.values with outputKey + filter conditions, fallbackOutput 'extra' adds an output at index rules.length, unwired outputs drop items. FastAPI release notes: latest 0.156.4 (2026-10-21), the installed version; Starlette warns that httpx-based TestClient is deprecated in favour of httpx2 (seen in all three projects, not acted on yet). docs.n8n.io and fastapi.tiangolo.com: ENOTFOUND."
+    },
+    {
+      "date": "2026-10-21",
+      "commits": 3,
+      "summary": "04-enrichment-verification v0.0.2: Provider protocol + Waterfall runner with placeholder/fixture gates and per-attempt provenance, FakeProvider, check_mappings() input-mapping preflight, coverage() with named denominators; 68 tests in 04.",
+      "sources": [],
+      "research_note": "Two web searches (Apollo People Match parameters; Clay waterfall 'Only run if' / stop at first result). Summaries only: Apollo /v1/people/match reportedly accepts alternative identifiers (email, LinkedIn URL, or name + domain), which is why providers declare alternative input sets; Clay's 'Only run if' runs an enrichment when a formula is true, and waterfalls reportedly stop at the first passing result (third-party claim, not in Clay docs found). Every page tried was ENOTFOUND, so no URL is cited as opened."
     }
   ]
 }
