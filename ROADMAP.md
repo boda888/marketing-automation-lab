@@ -51,13 +51,14 @@ Open follow-ups:
 - [ ] import both n8n workflows into a real n8n instance (with 01's)
 - [ ] opt-in live-DNS smoke test (env-gated)
 
-## 03 · Signal engine — in progress (v0.0.4, 2026-10-20)
+## 03 · Signal engine — v0.1.0 (2026-10-21)
 Pain: list-based outreach with 2–4% replies.
 - [ ] signal sources: hiring (job posts), funding, new office/expansion, tech change, site visits
 - [x] headcount growth from raw monthly counts (6/12-month %, ≥20% strong, ≤−10% contraction as its own state, missing month → unknown, one source per figure) → `headcount_growth` event
 - [x] evidence-backed signal events: every event carries source URL + observed-at timestamp (`SignalEvent`: non-homepage URL + evidence for `found`, `EventDate` with day/month/year precision)
 - [x] priority rules: per-type strong/medium windows over the whole date interval, worst/best case → Tier 1–3 / Hold / Review with a ≤30-word best signal and ≤45-word reason instead of an opaque score
-- [ ] mapping into engagement events for 01
+- [x] mapping into engagement events for 01 (one event per merged signal, oldest possible date, no contact id)
+- [x] FastAPI `POST /v1/signals/prioritise` + synthetic `.example` dataset + n8n workflow 'prioritise before research' (Switch on tier, Review → human review)
 - [x] dedupe the same event seen in several sources (source id within a source, evidence URL, subject + overlapping dates; provenance kept); `Unknown` / `Not found in sample` kept apart from "no signal"
 
 ## 04 · Waterfall enrichment + email verification + CRM dedupe

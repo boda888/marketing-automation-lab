@@ -41,7 +41,7 @@ from signal_engine.priority import (
     prioritise_events,
 )
 
-__version__ = "0.0.5"
+__version__ = "0.1.0"
 
 __all__ = [
     "DEFAULT_EVENT_TYPES",

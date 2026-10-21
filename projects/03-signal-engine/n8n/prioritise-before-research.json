@@ -1,0 +1,386 @@
+{
+  "name": "Prioritise before research (marketing-automation-lab/03)",
+  "nodes": [
+    {
+      "id": "a3f5c901-0003-4c1e-9d40-000000000001",
+      "name": "Webhook: signal events in",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "a3f5c901-0003-4c1e-9d40-0000000000aa",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "signals/prioritise",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "a3f5c901-0003-4c1e-9d40-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-signal-url",
+              "name": "signal_engine_url",
+              "value": "http://signal-engine:8003",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "a3f5c901-0003-4c1e-9d40-000000000003",
+      "name": "Dedupe + tier (signal engine)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.signal_engine_url }}/v1/signals/prioritise",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ events: $json.body.events || [], headcount: $json.body.headcount || [], as_of: $json.body.as_of }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    },
+    {
+      "id": "a3f5c901-0003-4c1e-9d40-000000000004",
+      "name": "Respond: tier summary",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        -160
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ as_of: $json.as_of, tier_counts: $json.tier_counts, dedupe: $json.dedupe }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "a3f5c901-0003-4c1e-9d40-000000000005",
+      "name": "One item per account",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        660,
+        80
+      ],
+      "parameters": {
+        "fieldToSplitOut": "accounts",
+        "include": "noOtherFields",
+        "options": {}
+      }
+    },
+    {
+      "id": "a3f5c901-0003-4c1e-9d40-000000000006",
+      "name": "Route by tier",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        880,
+        80
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "renameOutput": true,
+              "outputKey": "Tier 1",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "tier-tier-1",
+                    "leftValue": "={{ $json.tier }}",
+                    "rightValue": "Tier 1",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Tier 2",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "tier-tier-2",
+                    "leftValue": "={{ $json.tier }}",
+                    "rightValue": "Tier 2",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Tier 3",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "tier-tier-3",
+                    "leftValue": "={{ $json.tier }}",
+                    "rightValue": "Tier 3",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Review",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "tier-review",
+                    "leftValue": "={{ $json.tier }}",
+                    "rightValue": "Review",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Hold",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "tier-hold",
+                    "leftValue": "={{ $json.tier }}",
+                    "rightValue": "Hold",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Unexpected tier"
+        }
+      }
+    },
+    {
+      "id": "a3f5c901-0003-4c1e-9d40-000000000007",
+      "name": "Queue: research + personalise (Tier 1/2)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        -80
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "a3f5c901-0003-4c1e-9d40-000000000008",
+      "name": "Queue: nurture (Tier 3)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        60
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "a3f5c901-0003-4c1e-9d40-000000000009",
+      "name": "Queue: human review (never the sequencer)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        200
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "a3f5c901-0003-4c1e-9d40-000000000010",
+      "name": "Hold: re-check signals later",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        340
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Webhook: signal events in": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Dedupe + tier (signal engine)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe + tier (signal engine)": {
+      "main": [
+        [
+          {
+            "node": "Respond: tier summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "One item per account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per account": {
+      "main": [
+        [
+          {
+            "node": "Route by tier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by tier": {
+      "main": [
+        [
+          {
+            "node": "Queue: research + personalise (Tier 1/2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue: research + personalise (Tier 1/2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue: nurture (Tier 3)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue: human review (never the sequencer)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hold: re-check signals later",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue: human review (never the sequencer)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -9,8 +9,29 @@ personalisation line cites the company homepage, which proves nothing. The
 fix is to treat each signal as a typed event with its evidence, and to do
 dates, windows and dedupe in code.
 
-**Status: v0.0.5 — event model, cross-source dedupe, priority tiers, headcount growth,
-mapping into 01, FastAPI service + synthetic dataset.** The n8n workflow is next (see [ROADMAP](../../ROADMAP.md#03--signal-engine)).
+v0.1.0: typed signal events with evidence, cross-source dedupe, Tier 1 / 2 / 3 / Hold /
+Review computed over whole date intervals, headcount growth from raw monthly counts,
+one-event-per-signal mapping into 01's engagement score, a FastAPI service, an n8n
+workflow and a synthetic `.example` dataset. Source adapters are next
+(see [ROADMAP](../../ROADMAP.md#03--signal-engine)).
+
+## Architecture
+
+```
+research runs / provider exports (n8n, Clay, ATS, funding DB, people data)
+   │  raw SignalEvents (found / not_found_in_sample / unknown) + HeadcountSeries
+   ▼
+POST /v1/signals/prioritise
+   ├─ assess_headcount()   monthly counts ──► headcount_growth check
+   ├─ dedupe()             one MergedSignal per real event, every sighting as provenance
+   ├─ prioritise()         windows over whole date intervals, worst / best case
+   │                        ──► Tier 1 / 2 / 3 / Hold / Review + best_signal + reason
+   └─ to_engagement_events() one 01 event per merged signal ──► 01 ScoreRequest.events
+   ▼
+n8n "prioritise before research": Split Out accounts ─► Switch on tier
+   Tier 1/2 → research + personalise · Tier 3 → nurture · Review / unexpected → human
+   review (never the sequencer) · Hold → re-check later
+```
 
 ## What exists now
 
@@ -186,6 +207,25 @@ strong headcount growth from a series whose 12-month base month is missing, with
 `unknown` funding check → Tier 2 (could reach Tier 1); a tech change → Tier 3; a 2023
 seed round → Hold; an undated leadership change next to an empty careers page → Review.
 
+## n8n: prioritise before research
+
+[`n8n/prioritise-before-research.json`](n8n/prioritise-before-research.json): Webhook
+(`POST …/signals/prioritise`, body = the API request) → Config (`signal_engine_url`) →
+HTTP Request to `/v1/signals/prioritise` (retry 3×, 2 s apart) → two branches:
+
+- **Respond to Webhook** with `as_of`, `tier_counts` and `dedupe` for the caller;
+- **Split Out** `accounts` (one item per company, so accounts are never mixed up) →
+  **Switch** (v3.2, rules on `$json.tier`, case-sensitive, strict types) with one named
+  output per tier plus the *extra* fallback output. Tier 1 and 2 go to research +
+  personalisation, Tier 3 to nurture, Hold to a re-check queue; **Review and any
+  unexpected tier go to human review, never towards the sequencer** (Switch drops items
+  on unwired outputs, so every output is wired).
+
+The four queue nodes are `No Operation` placeholders: wire them to your own sheet, table
+or sub-workflow. The workflow is structure-tested against the API contract (route, request
+and response fields, one Switch rule per `Tier` value); it has not been imported into a
+live n8n instance.
+
 ## Run the tests
 
 ```bash
@@ -194,9 +234,12 @@ python -m pip install -e ".[dev]"
 python -m pytest -q
 ```
 
-## Limits (today)
+## Limits (not yet / not verified)
 
-- No source adapters and no n8n workflow yet; the API is tested with `TestClient` only.
+- No source adapters: the caller (an n8n research run, a Clay table export) supplies events.
+- The API is tested with `TestClient` and one local `uvicorn` run; the n8n workflow is
+  structure-tested only (node parameters from n8n's Switch V3 / Split Out source on GitHub,
+  docs.n8n.io was unreachable) and never imported into a live n8n.
 - The 01 mapping is one-way and offline: 01 still decays with its own 14-day half-life and
   drops events older than 90 days, so 01's engagement only sees recent signals.
 - Headcount: no provider adapter yet (the caller supplies the monthly counts); thresholds

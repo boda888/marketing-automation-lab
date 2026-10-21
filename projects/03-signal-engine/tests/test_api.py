@@ -103,3 +103,12 @@ def test_as_of_defaults_to_today(client):
     assert resp.status_code == 200
     (account,) = resp.json()["accounts"]
     assert account["tier"] == "Review"
+
+
+def test_versions_agree(client):
+    import tomllib
+
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    project = tomllib.loads(pyproject.read_text())["project"]
+    assert project["version"] == __version__
+    assert client.get("/openapi.json").json()["info"]["version"] == project["version"]
