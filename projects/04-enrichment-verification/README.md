@@ -9,9 +9,9 @@ email. The fix is a waterfall in code: an explicit run condition, cheap
 providers first, stop at the first acceptable answer, placeholders that never
 leave the building, and a record of every attempt.
 
-v0.0.1: the provider interface, the waterfall runner and offline fakes. Input-mapping
-preflight, coverage reports, the email status ladder, verification and CRM
-dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
+v0.0.2: the provider interface, the waterfall runner, offline fakes, an
+input-mapping preflight and a coverage report. The email status ladder,
+verification, per-record budgets and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
 
 ## Architecture
 
@@ -28,6 +28,11 @@ Waterfall(field, providers, run_if, accept)
                                                   not_found / rejected / error → next
    ▼
 WaterfallOutcome: status, value, answered_by, attempts[provider, status, inputs_used, cost]
+   │
+   ▼
+coverage(outcomes) ──► found / run records, found / input records, per-provider hits / calls, cost
+
+check_mappings(waterfall, records)   dry run before any paid call: who can be fed, what is missing
 ```
 
 ## What exists now
@@ -44,6 +49,26 @@ WaterfallOutcome: status, value, answered_by, attempts[provider, status, inputs_
 | attempts | every provider gets one entry: status, the input *field names* used (never values), credits charged, the provider's own status as context |
 | outcome | `found` / `not_found` (something was called) / `not_run` / `no_eligible_provider` (every provider skipped) |
 | `run_many` | refuses duplicate `record_id`s: ids are the keys later steps update by |
+
+**Before a run — `check_mappings(waterfall, records)`** calls nothing. Per
+provider it reports how many records the waterfall would run on have a complete
+input set, how many a paid provider must skip as fixtures, and which required
+fields are missing. Findings:
+
+| code | severity | when |
+|---|---|---|
+| `INPUT_FIELD_EMPTY_EVERYWHERE` | error (warning if another input set of the provider still works) | a required field is empty or a placeholder in every record: unmapped column or typo |
+| `NO_ELIGIBLE_RECORDS` | error | the provider would never be called |
+| `LOW_ELIGIBILITY` | warning | fewer than `min_eligible` (default 50%) of run records can be fed |
+| `RECORDS_WITHOUT_PROVIDER` | warning | some run records fit no provider at all |
+
+`report.ok` is false on any error, so an n8n step can stop before spending credits.
+
+**After a run — `coverage(outcomes)`**: every ratio is a `Ratio` carrying its
+denominator name (`records the waterfall runs on`, `input records`, `calls to
+this provider`), and `0/0` is `None`, not 0%. Per provider: calls (skips
+excluded), accepted answers, rejections, errors, credits; overall credits and
+credits per record found.
 
 `FakeProvider` answers from a lookup table, can simulate faults (`ProviderError`)
 and billing only on hits (`charge_on_miss=False`), and records every call so
@@ -75,8 +100,8 @@ out.status, out.answered_by, out.cost  # found, 'pricey', 1.5
 - No real provider adapters yet: the shapes of Clay / Apollo requests were not
   checked against vendor docs (docs.apollo.io and university.clay.com were
   unreachable from the run environment on 2026-10-21).
-- No per-record cost budget, cache or coverage report yet; cost is reported as
-  provider credits, not money.
+- No per-record cost budget or cache yet; cost is reported as provider
+  credits, not money.
 - Fixture detection looks at domain-like field values only; a fixture with no
   domain, email or URL field is not recognised.
 - Nothing here has run against a live provider.
