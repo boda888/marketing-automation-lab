@@ -8,6 +8,13 @@ from signal_engine.dedupe import (
     dedupe,
     normalise_subject,
 )
+from signal_engine.engagement import (
+    DEFAULT_EVENT_TYPES,
+    EngagementEvent,
+    EngagementMapping,
+    SkippedSignal,
+    to_engagement_events,
+)
 from signal_engine.headcount import (
     Growth,
     HeadcountSeries,
@@ -37,12 +44,15 @@ from signal_engine.priority import (
 __version__ = "0.0.4"
 
 __all__ = [
+    "DEFAULT_EVENT_TYPES",
     "DEFAULT_WINDOWS",
     "AccountPriority",
     "Assessment",
     "Band",
     "DatePrecision",
     "DedupeResult",
+    "EngagementEvent",
+    "EngagementMapping",
     "EventDate",
     "Growth",
     "HeadcountSeries",
@@ -55,6 +65,7 @@ __all__ = [
     "SignalEvent",
     "SignalStatus",
     "SignalType",
+    "SkippedSignal",
     "Tier",
     "Window",
     "__version__",
@@ -63,4 +74,5 @@ __all__ = [
     "normalise_subject",
     "prioritise",
     "prioritise_events",
+    "to_engagement_events",
 ]

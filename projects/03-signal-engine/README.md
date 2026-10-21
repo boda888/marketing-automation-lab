@@ -142,6 +142,25 @@ strong_growth: 50 (2026-04) -> 62 (2026-10): +24.0% over 6 months;
                40 (2025-10) -> 62 (2026-10): +55.0% over 12 months
 ```
 
+## Into 01's engagement score: one event per real signal
+
+`to_engagement_events(dedupe(events))` turns deduplicated signals into rows with
+01-icp-scoring's `EngagementEvent` fields (`type`, `occurred_at`, `contact_id`) plus
+provenance (`source_url`, `sightings`, `signal_type`) that 01 ignores:
+
+- **one event per `MergedSignal`**, never per sighting: a round seen by a press release
+  and a funding database is one `signal_funding` event with `sightings=2`;
+- `not_found_in_sample` / `unknown` checks never become events;
+- `occurred_at` is the **oldest** day the date can mean (`2026-03` → 2026-03-01; with a
+  date conflict, the oldest sighting), so decay never makes a signal look fresher;
+- undated signals, and types mapped to `None` in `event_types=`, come back in `skipped`
+  with a reason instead of being dated "now";
+- `contact_id` is always `None`: signals are account-level and must not trigger 01's
+  buying-committee multiplier.
+
+Default types: `site_visit` → `site_visit` (already a 01 event), every other type →
+`signal_<type>`; 01's `default_icp.json` carries hand-set weights for them.
+
 ## Run the tests
 
 ```bash
@@ -152,7 +171,9 @@ python -m pytest -q
 
 ## Limits (today)
 
-- No source adapters, no API or n8n workflow yet; not yet mapped into 01's engagement events.
+- No source adapters, no API or n8n workflow yet.
+- The 01 mapping is one-way and offline: 01 still decays with its own 14-day half-life and
+  drops events older than 90 days, so 01's engagement only sees recent signals.
 - Headcount: no provider adapter yet (the caller supplies the monthly counts); thresholds
   20% / −10% are PRACTICE defaults, not calibrated; growth is total headcount, not per
   function; provider field shapes (e.g. counts 1/3/6/9/12 months back) come from search

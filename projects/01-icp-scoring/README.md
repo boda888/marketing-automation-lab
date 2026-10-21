@@ -40,6 +40,13 @@ contribution, and tie every score to an action.
   than `max_age_days` are dropped, multiple distinct contacts add a capped
   buying-committee multiplier, and the result saturates:
   `100 · (1 − e^(−raw/saturation))`.
+- **Account-level signals from 03.** `signal_engine.to_engagement_events()`
+  sends one `signal_<type>` event per *deduplicated* signal (`signal_funding`,
+  `signal_hiring`, … with hand-set weights in the config), dated at the oldest
+  day it can have happened and with no `contact_id`, so a round seen by two
+  sources counts once and never triggers the buying-committee bonus. With the
+  default 90-day `max_age_days`, older signals add nothing here; 03's tiers
+  still see them.
 - **ICP as data.** Everything tunable lives in a JSON config
   ([`default_icp.json`](src/icp_scoring/default_icp.json) is a fictional
   example for a B2B SaaS seller). Changing the ICP never touches code.

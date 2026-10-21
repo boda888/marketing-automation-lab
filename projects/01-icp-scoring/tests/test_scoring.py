@@ -196,3 +196,29 @@ def test_end_to_end_tier1(cfg):
     ]
     r = score(ScoreRequest(company=ideal_company(), events=events, as_of=NOW), cfg)
     assert r.tier == 1 and r.action == "ae_one_to_one"
+
+
+def test_signal_events_from_03_are_weighted_and_account_level(cfg):
+    # Shape emitted by signal_engine.to_engagement_events (extra keys are ignored).
+    payload = {
+        "type": "signal_funding",
+        "occurred_at": "2026-10-01T00:00:00+00:00",
+        "contact_id": None,
+        "company_domain": "northwind.example",
+        "signal_type": "funding",
+        "source_url": "https://news.northwind.example/series-a",
+        "sightings": 2,
+    }
+    funding = EngagementEvent.model_validate(payload)
+    assert score_engagement([funding], cfg, NOW) > 0
+    for kind in ("funding", "hiring", "expansion", "leadership", "headcount_growth"):
+        assert cfg.engagement.event_weights[f"signal_{kind}"] > 0
+    # No contact id: signals never add the multi-stakeholder bonus.
+    hiring = EngagementEvent(type="signal_hiring", occurred_at=funding.occurred_at)
+    both = score_engagement([funding, hiring], cfg, NOW)
+    assert both > score_engagement([funding], cfg, NOW)
+    with_contacts = [
+        funding.model_copy(update={"contact_id": "c1"}),
+        hiring.model_copy(update={"contact_id": "c2"}),
+    ]
+    assert both < score_engagement(with_contacts, cfg, NOW)

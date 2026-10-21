@@ -73,7 +73,13 @@
       "content_download": 1.5,
       "webinar_attended": 2.0,
       "site_visit": 0.5,
-      "third_party_intent": 1.0
+      "third_party_intent": 1.0,
+      "signal_funding": 2.0,
+      "signal_hiring": 1.5,
+      "signal_expansion": 1.5,
+      "signal_leadership": 1.5,
+      "signal_headcount_growth": 1.0,
+      "signal_tech_change": 0.5
     },
     "half_life_days": 14,
     "max_age_days": 90,
