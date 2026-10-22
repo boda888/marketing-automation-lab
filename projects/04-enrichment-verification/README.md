@@ -9,9 +9,9 @@ email. The fix is a waterfall in code: an explicit run condition, cheap
 providers first, stop at the first acceptable answer, placeholders that never
 leave the building, and a record of every attempt.
 
-v0.0.2: the provider interface, the waterfall runner, offline fakes, an
-input-mapping preflight and a coverage report. The email status ladder,
-verification, per-record budgets and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
+v0.0.3: the provider interface, the waterfall runner, offline fakes, an
+input-mapping preflight, a coverage report and the email status ladder.
+Verification checks, per-record budgets and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
 
 ## Architecture
 
@@ -70,6 +70,34 @@ this provider`), and `0/0` is `None`, not 0%. Per provider: calls (skips
 excluded), accepted answers, rejections, errors, credits; overall credits and
 credits per record found.
 
+**Email status ladder — `assess_email` / `assess_outcome`.** A found address
+is not a valid address, and the rows left after removing the invalid ones are
+not "verified". Each address earns its rung from explicit checks of *that*
+address:
+
+| status | when | reason codes |
+|---|---|---|
+| `found` | an address + the provider that found it, no usable check | `no_check`, `only_stale_checks` |
+| `checked` | a named checker looked at it on a known date, verdict not a clean independent "valid" | `catch_all`, `unknown`, `checked_by_finder_only` |
+| `verified` | deciding check says valid, within `max_age` (default 90 days), checker ≠ finder | `valid` |
+| `invalid` | deciding check says invalid or do-not-mail (spam trap, abuse, ...) | `invalid`, `do_not_mail` |
+
+- `EmailCheck` = address, checker, timezone-aware `checked_at`, normalised
+  `result`, the checker's own code as `provider_status` (context). A check
+  dated after `now` raises; a placeholder checker name is rejected.
+- Checks of another address (e.g. the old employer's email) are ignored and
+  counted in `checks_ignored`.
+- Deciding check: the newest fresh conclusive one; `unknown` decides only
+  when nothing else is fresh; same timestamp → the most cautious result.
+- The finder's own label never verifies its own answer unless
+  `require_independent=False` is passed on purpose.
+- `EmailCheck.from_zerobounce(email, status, sub_status, checked_at=...)` maps
+  ZeroBounce's `status` values (`valid`, `invalid`, `catch-all`, `unknown`,
+  `spamtrap`, `abuse`, `do_not_mail`, from `ZBValidateStatus` in
+  zerobouncesdk 2.2.4); an unmapped status raises instead of guessing.
+- `ladder_summary(assessments)` counts each rung as a `Ratio` over
+  `emails found` (an address assessed twice raises); `sendable` = verified.
+
 `FakeProvider` answers from a lookup table, can simulate faults (`ProviderError`)
 and billing only on hits (`charge_on_miss=False`), and records every call so
 tests can assert what was — and was not — sent.
@@ -100,6 +128,10 @@ out.status, out.answered_by, out.cost  # found, 'pricey', 1.5
 - No real provider adapters yet: the shapes of Clay / Apollo requests were not
   checked against vendor docs (docs.apollo.io and university.clay.com were
   unreachable from the run environment on 2026-10-21).
+- The ladder consumes checks; it does not run them. No verifier adapter
+  calls an API yet, and only ZeroBounce's status names are mapped (taken
+  from its published Python SDK; the vendor's docs pages gave proxy 403 on
+  2026-10-22). No syntax / MX / disposable checks of our own yet.
 - No per-record cost budget or cache yet; cost is reported as provider
   credits, not money.
 - Fixture detection looks at domain-like field values only; a fixture with no

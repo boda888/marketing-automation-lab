@@ -12,6 +12,19 @@ from enrichment.coverage import (
     coverage,
 )
 from enrichment.fakes import FakeProvider
+from enrichment.ladder import (
+    EMAILS_FOUND,
+    ZEROBOUNCE_STATUS,
+    CheckResult,
+    EmailAssessment,
+    EmailCheck,
+    EmailStatus,
+    LadderSummary,
+    assess_email,
+    assess_outcome,
+    ladder_summary,
+    normalise_email,
+)
 from enrichment.models import (
     PLACEHOLDERS,
     Attempt,
@@ -26,14 +39,21 @@ from enrichment.models import (
 )
 from enrichment.waterfall import Provider, Waterfall, select_inputs
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 __all__ = [
+    "EMAILS_FOUND",
     "PLACEHOLDERS",
+    "ZEROBOUNCE_STATUS",
     "Attempt",
     "AttemptStatus",
+    "CheckResult",
     "CoverageReport",
+    "EmailAssessment",
+    "EmailCheck",
+    "EmailStatus",
     "FakeProvider",
+    "LadderSummary",
     "LeadRecord",
     "MappingFinding",
     "MappingReport",
@@ -48,9 +68,13 @@ __all__ = [
     "WaterfallOutcome",
     "WaterfallStatus",
     "__version__",
+    "assess_email",
+    "assess_outcome",
     "check_mappings",
     "clean",
     "coverage",
     "is_reserved_host",
+    "ladder_summary",
+    "normalise_email",
     "select_inputs",
 ]
