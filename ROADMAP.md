@@ -116,7 +116,7 @@ Pain: hand-set weights drift.
 
 ## 13 · GTM MCP server
 Pain: agents with no safe access to the pipeline.
-- [ ] expose score, enrich, preflight, classify as MCP tools with input validation and dry-run
+- [ ] expose score, enrich, preflight, classify as MCP tools with input validation and dry-run; every tool declares an effect class (`read` / `spends_credits` with an estimate / `outbound`) and non-read tools need explicit confirm, mirroring the effect table in Apollo's official MCP README ([R1 note](research/notes/2026-10-22-R1-sourcing-mcp-servers.md)); `.example` fixtures never reach paid tools
 
 ## 14 · Calls & AI voice
 Pain: engaged leads never get a call, or the whole sequence stalls waiting for a manual call.

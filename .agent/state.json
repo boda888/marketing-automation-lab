@@ -120,14 +120,15 @@
     "03: n8n workflow 'prioritise before research' (HTTP retry 3x, Respond with tier counts, Split Out accounts, Switch v3.2 one output per tier + extra fallback; Review / unexpected -> human review), contract-tested against the API",
     "03-signal-engine v0.1.0 (README: pain -> architecture -> API -> n8n -> limits; package / pyproject / OpenAPI versions tested to agree)",
     "04: scaffold + Provider protocol (name, output_field, alternative input_sets, paid) + Waterfall runner (explicit run_if, default only while field empty; ordered providers; only the matched input set's fields sent; placeholders cleaned to None before any call; paid providers skip .example/.test/.invalid/.localhost/example.com fixtures; first accepted answer stops, answered_by recorded; rejected / not found / ProviderError move on; attempts log field names, credits, provider status; misconfiguration fails at construction; run_many refuses duplicate ids) + FakeProvider",
-    "04: check_mappings() input-mapping preflight (eligible of run records per provider, fixture-blocked, missing fields; INPUT_FIELD_EMPTY_EVERYWHERE / NO_ELIGIBLE_RECORDS / LOW_ELIGIBILITY / RECORDS_WITHOUT_PROVIDER; report.ok) + coverage() (found of run / of input records, per-provider answers of calls, rejections, errors, credits, credits per found; every Ratio names its denominator, 0/0 = None)"
+    "04: check_mappings() input-mapping preflight (eligible of run records per provider, fixture-blocked, missing fields; INPUT_FIELD_EMPTY_EVERYWHERE / NO_ELIGIBLE_RECORDS / LOW_ELIGIBILITY / RECORDS_WITHOUT_PROVIDER; report.ok) + coverage() (found of run / of input records, per-provider answers of calls, rejections, errors, credits, credits per found; every Ratio names its denominator, 0/0 = None)",
+    "research R1: which sourcing tools ship MCP servers (official MCP registry + vendor repos): first-party Apollo, Apify, Firecrawl, Airtable, HeyReach; none found for Clay, AI Ark, MoltSets, Instantly, Smartlead, Lemlist, HubSpot, Attio; Apollo tool effect classes (read / credits / outbound) recorded; STACK MCP column, 3 insights, root ROADMAP 13 edited"
   ],
   "next_steps": [
     "04: email status ladder found -> checked (provider + date) -> verified, never promoted by arithmetic; provider_status kept as context, not truth.",
     "04: per-record credit budget + result cache (same inputs to the same provider are not paid twice) + stop when the budget is spent, reported as its own attempt status.",
     "04: email verification without SMTP probing: syntax, MX via an injectable resolver (reuse 02's pattern), disposable / role-based lists, catch-all heuristics -> risk score.",
     "04: contact dedupe LinkedIn URL -> email -> normalised name + company with provenance; one merged identity-consistent person record downstream.",
-    "04: Apollo / Clay request shapes as adapters once vendor docs can be opened; FastAPI endpoint + n8n workflow + synthetic dataset for v0.1.",
+    "04: Apollo / Clay request shapes as adapters (Apollo match fields first_name / last_name / domain, batches of 10, from the official apollo-mcp-plugin skills; confirm against docs.apollo.io when reachable); FastAPI endpoint + n8n workflow + synthetic dataset for v0.1.",
     "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; tier boost for independently confirmed signals."
   ],
   "known_gaps": [
@@ -149,13 +150,14 @@
     "03: dedupe needs a source id, a shared URL or a caller-supplied subject; it does not compare evidence text. Priority window defaults are hand-set (no calibration) and the tier ignores how many sources confirmed a signal. Crunchbase docs (data.crunchbase.com) and unhead.unjs.io were unreachable (ENOTFOUND, 2026-10-19); the 'ids unique per source' rule comes from Lever's Postings API README plus a search summary of schema.org JobPosting.identifier ('unique within the hiring organization').",
     "03: headcount growth thresholds (20% / -10%) are PRACTICE defaults, not calibrated; total headcount only (no per-function growth). Provider shapes (Clay 'Find Company Headcount Growth': counts 1/3/6/9/12/24... months back from LinkedIn; third-party counts are observed profiles and disagree between providers) come from web-search summaries only: community.clay.com, www.clay.com, docs.apollo.io, support.ocean.io, help.ai-ark.com gave ENOTFOUND and unifygtm.com / reveliolabs.com a proxy 403 on 2026-10-20; no field name of any provider is relied on.",
     "03: API tested with TestClient plus one local uvicorn run on synthetic data; n8n 'prioritise before research' never imported into a live n8n (Switch V3 / Split Out parameters taken from n8n's node source on GitHub; docs.n8n.io and fastapi.tiangolo.com gave ENOTFOUND on 2026-10-21). The 01 mapping is offline only and 01 still drops events older than its 90-day max_age_days; signal_<type> weights in 01's config are hand-set.",
-    "04: no real provider adapter; Apollo People Match / Clay waterfall shapes known only from search summaries (docs.apollo.io, university.clay.com, deepline.com, cleanlist.ai all ENOTFOUND on 2026-10-21). Reserved test domains taken from RFC 2606 / 6761 from knowledge, RFC pages not opened. Costs are provider credits, not money; fixture detection only looks at domain-like field values."
+    "04: no real provider adapter; Apollo People Match / Clay waterfall shapes known only from search summaries (docs.apollo.io, university.clay.com, deepline.com, cleanlist.ai all ENOTFOUND on 2026-10-21). Reserved test domains taken from RFC 2606 / 6761 from knowledge, RFC pages not opened. Costs are provider credits, not money; fixture detection only looks at domain-like field values.",
+    "research R1 (2026-10-22): vendor sites (apollo.io, docs.apollo.io, clay.com, university.clay.com) blocked by proxy 403, so no prices were verified and STACK prices remain slides-2026-09; MCP registry search matches server names only and apify / firecrawl / lemlist queries timed out, so 'not in registry' is not proof a vendor has no MCP. Apollo tool list is what the vendor README confirms, not the live server's list."
   ],
   "last_run": {
-    "date": "2026-10-21",
+    "date": "2026-10-22",
     "by": "daily agent",
-    "commits": 3,
-    "notes": "Commit budget drawn: 3, used 3 (2 work + state). 04 started: v0.0.2 with provider interface, waterfall runner, input-mapping preflight and coverage report."
+    "commits": 1,
+    "notes": "Commit budget drawn: 1, used 1 (research R1 note + state folded in). Morning run, research track."
   },
   "run_log": [
     {
@@ -289,6 +291,24 @@
       "summary": "04-enrichment-verification v0.0.2: Provider protocol + Waterfall runner with placeholder/fixture gates and per-attempt provenance, FakeProvider, check_mappings() input-mapping preflight, coverage() with named denominators; 68 tests in 04.",
       "sources": [],
       "research_note": "Two web searches (Apollo People Match parameters; Clay waterfall 'Only run if' / stop at first result). Summaries only: Apollo /v1/people/match reportedly accepts alternative identifiers (email, LinkedIn URL, or name + domain), which is why providers declare alternative input sets; Clay's 'Only run if' runs an enrichment when a formula is true, and waterfalls reportedly stop at the first passing result (third-party claim, not in Clay docs found). Every page tried was ENOTFOUND, so no URL is cited as opened."
+    },
+    {
+      "date": "2026-10-22",
+      "commits": 1,
+      "summary": "Research R1 (account & contact sourcing): which sourcing-adjacent tools ship first-party MCP servers and what an agent can read / spend / send through them; note + STACK MCP column + 3 insights + research ROADMAP questions + root ROADMAP 13 effect classes.",
+      "sources": [
+        "https://registry.modelcontextprotocol.io/v0/servers?search=apollo",
+        "https://raw.githubusercontent.com/apolloio/apollo-mcp-plugin/main/README.md",
+        "https://raw.githubusercontent.com/apolloio/apollo-mcp-plugin/main/server.json",
+        "https://raw.githubusercontent.com/apolloio/apollo-mcp-plugin/main/skills/prospect/SKILL.md",
+        "https://raw.githubusercontent.com/apolloio/apollo-mcp-plugin/main/skills/sequence-load/SKILL.md",
+        "https://raw.githubusercontent.com/apify/apify-mcp-server/master/README.md",
+        "https://raw.githubusercontent.com/firecrawl/firecrawl-mcp-server/main/README.md",
+        "https://registry.npmjs.org/@apify/actors-mcp-server",
+        "https://registry.npmjs.org/firecrawl-mcp",
+        "https://registry.npmjs.org/@apolloio/mcp"
+      ],
+      "research_note": "Registry also queried for airtable, heyreach, clay, instantly, smartlead, attio, hubspot. apollo.io / clay.com pages gave proxy 403; WebFetch ENOTFOUND."
     }
   ],
   "research": {
@@ -296,7 +316,7 @@
     "tracks": {
       "R1": {
         "name": "Account & contact sourcing",
-        "last_researched": null
+        "last_researched": "2026-10-22"
       },
       "R2": {
         "name": "Signals & research",

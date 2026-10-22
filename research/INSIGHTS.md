@@ -6,6 +6,9 @@ decision). If a later run disproves an entry, strike it through and say why — 
 
 Format: `- YYYY-MM-DD · <channel> · <action> — <why>. Source: <URL or note>`
 
+- 2026-10-22 · sourcing · Connect Apollo to Claude only via the official server `https://mcp.apollo.io/mcp` (registry `io.github.apolloio/…`) — the registry also lists ~20 third-party "Apollo" servers and paid proxies that would hold your account. Source: research/notes/2026-10-22-R1-sourcing-mcp-servers.md
+- 2026-10-22 · sourcing · In Apollo-via-agent prospecting: search first (no enrichment), enrich only the shortlist, and set `reveal_personal_emails` to false for B2B — Apollo's own `/apollo:prospect` and `sequence-load` skills enrich with it set to true. Source: same note (apolloio/apollo-mcp-plugin skills)
+- 2026-10-22 · agents · Give an agent sequence-enrol / campaign tools only against a paused or manual-start campaign; Apollo's README warns enrolment "may start outbound", and HeyReach's MCP key covers the whole workspace. Source: same note
 - 2026-10-21 · email · Verify emails in a separate step after the waterfall, even when the finder says "verified"; pause a sending domain when bounces pass ~3% — a provider's own check is context, not proof. Source: owner-supplied course slides (2026-09, unverified) + `.agent/PRACTICE.md`.
 - 2026-10-21 · stack · Buy mailbox infrastructure first (it needs weeks of warm-up), data and LinkedIn tools only when the list is being built (~weeks 3–4), calling and visitor-ID only after first replies show the need; pay monthly at the start. Source: owner-supplied course slides (2026-09, unverified).
 - 2026-10-21 · email · Plan mailboxes with spares: e.g. 10 inboxes over 4 domains when 6 are needed, so a burnt domain or a second hypothesis does not stop sending. Source: owner-supplied course slides (2026-09, unverified); check against `projects/02-deliverability-preflight` capacity planner.

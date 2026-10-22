@@ -7,7 +7,9 @@ can apply, a catalogue row, or a lab roadmap item.
 
 ## R1 · Account & contact sourcing
 - [ ] Clay vs Apollo vs AI Ark vs MoltSets for company + people search: filters, coverage, credits per 1,000 rows, export / API limits
-- [ ] Which sourcing tools expose an MCP server or API that an agent (Claude) can drive directly; what that changes in the workflow
+- [x] Which sourcing tools expose an MCP server or API that an agent (Claude) can drive directly; what that changes in the workflow → [note](notes/2026-10-22-R1-sourcing-mcp-servers.md)
+- [ ] Does Clay ship a first-party MCP server or agent API (not found in the MCP registry on 2026-10-22); check Clay docs when reachable
+- [ ] Apollo credits per MCP tool call (search vs match vs bulk match) and whether MCP calls count against API rate limits
 - [ ] Lookalike sourcing from best customers: how tools do it, input format, quality checks
 - [ ] Airtable (or Postgres / Supabase) as the ops database behind Clay: sync patterns, record limits, automations
 
