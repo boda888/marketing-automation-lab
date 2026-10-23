@@ -14,8 +14,11 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] Airtable (or Postgres / Supabase) as the ops database behind Clay: sync patterns, record limits, automations
 
 ## R2 · Signals & research
-- [ ] Apify actors for jobs, LinkedIn posts / reactions, company pages: cost per 1,000 results, reliability, ToS risk
-- [ ] Firecrawl / site crawling for ICP and signal research: crawl vs scrape, cost, output shape for LLM prompts
+- [x] Apify actors for jobs, LinkedIn posts / reactions, company pages: cost per 1,000 results (pricing models + max charge; per-Actor prices only as search summary) → [note](notes/2026-10-23-R2-firecrawl-apify-signal-costs.md)
+- [ ] Apify Actor reliability and ToS risk for LinkedIn posts / reactions / company pages; open live Store pages (apify.com blocked 2026-10-23) to confirm per-1,000 prices and whether platform usage is included
+- [x] Firecrawl / site crawling for ICP and signal research: crawl vs scrape, cost, output shape for LLM prompts → [note](notes/2026-10-23-R2-firecrawl-apify-signal-costs.md)
+- [ ] Firecrawl `/monitor` vs n8n Cron + scrape with `changeTracking` for weekly site-change signals: credits per 100 accounts per month, webhook payload into n8n
+- [ ] LinkedIn profile / company data per URL: Firecrawl provider routing (FullEnrich 5 … Apollo 30 credits) vs Apify Actors vs HarvestAPI — cost per 1,000 and freshness
 - [ ] Website-visitor identification (RB2B and similar): how it works, match rates claimed vs observed, privacy limits (US-only, GDPR)
 - [ ] Hiring, funding, tech-change and "new leader" signals: which sources are fresh enough to act on within a week
 
