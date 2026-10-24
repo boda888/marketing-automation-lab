@@ -9,8 +9,9 @@ email. The fix is a waterfall in code: an explicit run condition, cheap
 providers first, stop at the first acceptable answer, placeholders that never
 leave the building, and a record of every attempt.
 
-v0.0.3: the provider interface, the waterfall runner, offline fakes, an
-input-mapping preflight, a coverage report and the email status ladder.
+v0.0.4: the provider interface, the waterfall runner, offline fakes, an
+input-mapping preflight, a coverage report and the email status ladder with
+ZeroBounce and NeverBounce result mappings.
 Verification checks, per-record budgets and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
 
 ## Architecture
@@ -95,6 +96,11 @@ address:
   ZeroBounce's `status` values (`valid`, `invalid`, `catch-all`, `unknown`,
   `spamtrap`, `abuse`, `do_not_mail`, from `ZBValidateStatus` in
   zerobouncesdk 2.2.4); an unmapped status raises instead of guessing.
+- `EmailCheck.from_neverbounce(email, result, flags, checked_at=...)` maps
+  NeverBounce's single-check `result` by name or code (`valid` 0, `invalid` 1,
+  `disposable` 2 → do-not-mail, `catchall` 3, `unknown` 4, from NeverBounce's
+  own n8n node 1.0.20); flags are kept as context. Map `result`, never the
+  node's `email_verified`: that flag is true for every address it checked.
 - `ladder_summary(assessments)` counts each rung as a `Ratio` over
   `emails found` (an address assessed twice raises); `sendable` = verified.
 
@@ -129,9 +135,9 @@ out.status, out.answered_by, out.cost  # found, 'pricey', 1.5
   checked against vendor docs (docs.apollo.io and university.clay.com were
   unreachable from the run environment on 2026-10-21).
 - The ladder consumes checks; it does not run them. No verifier adapter
-  calls an API yet, and only ZeroBounce's status names are mapped (taken
-  from its published Python SDK; the vendor's docs pages gave proxy 403 on
-  2026-10-22). No syntax / MX / disposable checks of our own yet.
+  calls an API yet; only ZeroBounce's and NeverBounce's result names are
+  mapped (taken from their published SDK / n8n node packages; the vendors'
+  docs pages were unreachable on 2026-10-22 and 2026-10-24). No syntax / MX / disposable checks of our own yet.
 - No per-record cost budget or cache yet; cost is reported as provider
   credits, not money.
 - Fixture detection looks at domain-like field values only; a fixture with no

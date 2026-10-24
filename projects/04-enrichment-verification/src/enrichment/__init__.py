@@ -14,6 +14,7 @@ from enrichment.coverage import (
 from enrichment.fakes import FakeProvider
 from enrichment.ladder import (
     EMAILS_FOUND,
+    NEVERBOUNCE_RESULT,
     ZEROBOUNCE_STATUS,
     CheckResult,
     EmailAssessment,
@@ -39,10 +40,11 @@ from enrichment.models import (
 )
 from enrichment.waterfall import Provider, Waterfall, select_inputs
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 __all__ = [
     "EMAILS_FOUND",
+    "NEVERBOUNCE_RESULT",
     "PLACEHOLDERS",
     "ZEROBOUNCE_STATUS",
     "Attempt",

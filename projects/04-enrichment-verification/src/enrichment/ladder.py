@@ -65,6 +65,18 @@ ZEROBOUNCE_STATUS = {
     "do_not_mail": CheckResult.DO_NOT_MAIL,
 }
 
+# NeverBounce single-check ``result`` names and their numeric codes 0-4 (VerifyStatus /
+# VerifyStatusCode in NeverBounce's n8n node 1.0.20). A disposable inbox may accept mail but
+# is not a person to prospect, so it is do-not-mail, not invalid.
+NEVERBOUNCE_RESULT = {
+    "valid": CheckResult.VALID,
+    "invalid": CheckResult.INVALID,
+    "disposable": CheckResult.DO_NOT_MAIL,
+    "catchall": CheckResult.CATCH_ALL,
+    "unknown": CheckResult.UNKNOWN,
+}
+_NEVERBOUNCE_CODES = ("valid", "invalid", "disposable", "catchall", "unknown")
+
 
 class EmailStatus(StrEnum):
     FOUND = "found"
@@ -118,6 +130,34 @@ class EmailCheck(BaseModel):
             checker="zerobounce",
             checked_at=checked_at,
             result=ZEROBOUNCE_STATUS[key],
+            provider_status=code,
+        )
+
+    @classmethod
+    def from_neverbounce(
+        cls, email: str, result: str | int, flags: Sequence[str] = (), *, checked_at: datetime
+    ) -> EmailCheck:
+        """Map a NeverBounce single-check ``result`` (name or code 0-4); unmapped raises.
+
+        Pass ``result``, never the n8n node's ``email_verified``: that flag is true for every
+        address the node checked, invalid and catch-all included.
+        """
+        if isinstance(result, bool):
+            raise ValueError(f"unknown NeverBounce result {result!r}")
+        if isinstance(result, int):
+            if not 0 <= result < len(_NEVERBOUNCE_CODES):
+                raise ValueError(f"unknown NeverBounce result code {result!r}")
+            key = _NEVERBOUNCE_CODES[result]
+        else:
+            key = result.strip().lower()
+        if key not in NEVERBOUNCE_RESULT:
+            raise ValueError(f"unknown NeverBounce result {result!r}")
+        code = f"{key}/{','.join(flags)}" if flags else key
+        return cls(
+            email=email,
+            checker="neverbounce",
+            checked_at=checked_at,
+            result=NEVERBOUNCE_RESULT[key],
             provider_status=code,
         )
 

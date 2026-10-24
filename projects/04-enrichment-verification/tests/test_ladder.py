@@ -250,3 +250,49 @@ def test_summary_refuses_the_same_address_twice():
     a = assess([])
     with pytest.raises(ValueError, match="assessed twice"):
         ladder_summary([a, a])
+
+
+# --- NeverBounce mapping -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        ("valid", CheckResult.VALID),
+        ("invalid", CheckResult.INVALID),
+        ("disposable", CheckResult.DO_NOT_MAIL),
+        ("catchall", CheckResult.CATCH_ALL),
+        ("unknown", CheckResult.UNKNOWN),
+        (" Catchall ", CheckResult.CATCH_ALL),
+        (0, CheckResult.VALID),
+        (1, CheckResult.INVALID),
+        (2, CheckResult.DO_NOT_MAIL),
+        (3, CheckResult.CATCH_ALL),
+        (4, CheckResult.UNKNOWN),
+    ],
+)
+def test_neverbounce_results_by_name_and_code(result, expected):
+    c = EmailCheck.from_neverbounce(ADA, result, checked_at=NOW)
+    assert (c.result, c.checker) == (expected, "neverbounce")
+
+
+def test_neverbounce_keeps_flags_as_context():
+    c = EmailCheck.from_neverbounce(ADA, "catchall", ["has_dns", "accepts_all"], checked_at=NOW)
+    assert c.provider_status == "catchall/has_dns,accepts_all"
+
+
+@pytest.mark.parametrize("result", ["ok", "catch-all", "", 5, -1, True])
+def test_neverbounce_unmapped_result_raises_instead_of_guessing(result):
+    with pytest.raises(ValueError, match="unknown NeverBounce result"):
+        EmailCheck.from_neverbounce(ADA, result, checked_at=NOW)
+
+
+def test_neverbounce_catchall_is_checked_not_verified():
+    c = EmailCheck.from_neverbounce(ADA, "catchall", checked_at=NOW - timedelta(days=1))
+    a = assess_email(ADA, "finder", [c], now=NOW)
+    assert (a.status, a.sendable) == (EmailStatus.CHECKED, False)
+
+
+def test_neverbounce_disposable_is_invalid_rung():
+    c = EmailCheck.from_neverbounce(ADA, 2, checked_at=NOW - timedelta(days=1))
+    assert assess_email(ADA, "finder", [c], now=NOW).status is EmailStatus.INVALID
