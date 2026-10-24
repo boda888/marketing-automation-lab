@@ -23,8 +23,11 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] Hiring, funding, tech-change and "new leader" signals: which sources are fresh enough to act on within a week
 
 ## R3 · Enrichment & verification
-- [ ] Email waterfall order by cost and hit rate (Icypeas, Prospeo, LeadMagic, Findymail, Freckle, Clay); pay-per-found vs subscription
-- [ ] Verification as a separate step (MillionVerifier, NeverBounce, ZeroBounce…): catch-all policy, bounce thresholds that stop a domain
+- [x] Email waterfall order by cost and hit rate (Icypeas, Prospeo, LeadMagic, Findymail, Freckle, Clay); pay-per-found vs subscription → [note](notes/2026-10-24-R3-finder-verifier-billing-statuses.md) (billing rules first-party; hit rates only vendor-published search summaries)
+- [x] Verification as a separate step (MillionVerifier, NeverBounce, ZeroBounce…): catch-all policy, bounce thresholds that stop a domain → [note](notes/2026-10-24-R3-finder-verifier-billing-statuses.md) (thresholds are vendor heuristics, no provider cutoff published)
+- [ ] Measured waterfall on a 100-contact sample of the owner's own ICP (run outside the repo): hits, false positives (bounces) and cost per verified email per provider — no independent benchmark exists
+- [ ] MillionVerifier API docs (blocked 2026-10-24): result codes, whether catch_all / unknown are free on the API, rate limits; Icypeas API statuses and billing
+- [ ] Catch-all scoring (ZeroBounce AI scoring, activity data, LeadMagic / others): what the score predicts and what it costs per 1,000
 - [ ] Phone enrichment and validation: mobile vs direct vs main line, cost per valid number, when it pays off
 
 ## R4 · Email infrastructure & sequencers
