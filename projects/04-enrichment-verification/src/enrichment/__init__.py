@@ -12,6 +12,16 @@ from enrichment.coverage import (
     check_mappings,
     coverage,
 )
+from enrichment.dedupe import (
+    ContactCandidate,
+    FieldValue,
+    PersonRecord,
+    dedupe_contacts,
+    domain_key,
+    email_key,
+    linkedin_key,
+    name_key,
+)
 from enrichment.fakes import FakeProvider
 from enrichment.ladder import (
     EMAILS_FOUND,
@@ -72,6 +82,7 @@ __all__ = [
     "Attempt",
     "AttemptStatus",
     "CheckResult",
+    "ContactCandidate",
     "CoverageReport",
     "CreditBudget",
     "DNSTempError",
@@ -82,10 +93,12 @@ __all__ = [
     "EmailStatus",
     "FakeProvider",
     "FakeResolver",
+    "FieldValue",
     "LadderSummary",
     "LeadRecord",
     "MappingFinding",
     "MappingReport",
+    "PersonRecord",
     "PrecheckFinding",
     "PrecheckReport",
     "PrecheckSeverity",
@@ -109,9 +122,14 @@ __all__ = [
     "check_mappings",
     "clean",
     "coverage",
+    "dedupe_contacts",
+    "domain_key",
+    "email_key",
     "is_reserved_host",
     "ladder_summary",
+    "linkedin_key",
     "load_domain_list",
+    "name_key",
     "normalise_email",
     "select_inputs",
 ]

@@ -69,6 +69,7 @@ Pain: 40–60% match rates, bounces, duplicates.
 - [x] cost budget per record (checked against each provider's `max_cost` before the call, shared across a record's waterfalls), result cache (same provider + inputs never paid twice), timed-out calls kept as `outcome_unknown` and booked at `max_cost`
 - [ ] consume `needs_enrichment` / `missing_fields` from 01; persistent cache with a freshness window
 - [x] verification: syntax, MX (null MX, implicit MX, NXDOMAIN; DNS failure = unknown), disposable, role-based, known catch-all domains; risk score; no SMTP probing — a precheck never yields `valid`, it feeds the ladder as `lab-precheck`
+- [x] contact dedupe LinkedIn profile → email → name + company (weak key blocked by two profiles, ambiguous rows flagged), newest value wins with per-field provenance and conflicts kept, email-domain vs company-domain identity check → review
 - [ ] dedupe / match against existing CRM records
 - [x] validate provider inputs before a run (`check_mappings`: no `"Unknown"` placeholders, empty-everywhere fields, eligibility per provider) and report coverage/cost with an explicit denominator (`coverage`)
 - [x] status ladder found → checked (provider + date) → verified (+ invalid), never promoted by arithmetic: per-address checks only, freshness window, finder's own label is not verification, `ladder_summary` over emails found; ZeroBounce and NeverBounce (name or code 0–4, disposable → do-not-mail) results mapped

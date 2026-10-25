@@ -13,8 +13,9 @@ v0.0.6: the provider interface, the waterfall runner, offline fakes, an
 input-mapping preflight, a coverage report, per-record credit budgets with a
 result cache and timeouts kept as "outcome unknown", the email status ladder
 with ZeroBounce and NeverBounce result mappings, and an email precheck without
-SMTP probing that feeds the ladder.
-Contact dedupe, adapters and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
+SMTP probing that feeds the ladder, and contact dedupe into one
+identity-consistent person record with provenance.
+Adapters and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
 
 ## Architecture
 
@@ -135,6 +136,23 @@ small built-in samples, replaceable: `load_domain_list(path)` reads the one-doma
 format of the CC0 [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains)
 blocklist (~9,900 domains on 2026-10-25), and the role sample is a subset of the MIT
 `role-based-email-addresses` 3.1.0 package.
+
+**Contact dedupe — `dedupe_contacts(candidates, source_priority=...)`.** Candidates for
+one person arrive from several sources; downstream steps must all read the *same* merged
+record, or one of them builds an email on the old employer's domain.
+
+| rule | detail |
+|---|---|
+| strong keys | LinkedIn profile (`linkedin.com/in/<slug>` from any `*.linkedin.com` host, query / trailing path dropped; company pages are not keys) → email (case-insensitive); either joins, and joins chain |
+| weak key | normalised name (case, accents, punctuation) + company domain (`www.` and URL dropped); joins only when the rows sharing it carry at most one LinkedIn profile |
+| same name, two profiles | two people; a profile-less row with that name joins neither: `ambiguous_name_match` |
+| field values | newest `observed_at` wins; same date → `source_priority`, then input order; each field's `provenance` = source, candidate id, date |
+| conflicts | a field seen with values that differ after normalisation lists them all (old employer kept, not lost) |
+| identity check | email domain ≠ chosen company domain (subdomains allowed): `email_domain_mismatch`; two profiles joined by one email: `conflicting_linkedin_profiles`; any finding → `review` |
+
+Placeholders never match (`"Unknown"` is not a key), duplicate `candidate_id`s raise,
+`person_id` is the group's first candidate in input order, and matching is union-find over
+key indexes, so 2,000 rows of one company stay fast.
 
 `FakeProvider` answers from a lookup table, can simulate faults (`ProviderError`),
 timeouts (`ProviderTimeout`) and billing only on hits (`charge_on_miss=False`), and records every call so
