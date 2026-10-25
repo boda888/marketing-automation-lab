@@ -9,10 +9,11 @@ email. The fix is a waterfall in code: an explicit run condition, cheap
 providers first, stop at the first acceptable answer, placeholders that never
 leave the building, and a record of every attempt.
 
-v0.0.4: the provider interface, the waterfall runner, offline fakes, an
-input-mapping preflight, a coverage report and the email status ladder with
-ZeroBounce and NeverBounce result mappings.
-Verification checks, per-record budgets and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
+v0.0.5: the provider interface, the waterfall runner, offline fakes, an
+input-mapping preflight, a coverage report, per-record credit budgets with a
+result cache and timeouts kept as "outcome unknown", and the email status ladder
+with ZeroBounce and NeverBounce result mappings.
+Verification checks and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
 
 ## Architecture
 
@@ -42,13 +43,16 @@ check_mappings(waterfall, records)   dry run before any paid call: who can be fe
 |---|---|
 | `LeadRecord` | stable `record_id` (not a placeholder) + named fields; placeholders become `None` |
 | `is_fixture` | any field on a reserved test domain (`.example`, `.test`, `.invalid`, `.localhost`, `example.com/net/org`, RFC 2606 / 6761) |
-| `Provider` protocol | `name`, `output_field`, `input_sets` (alternative required-field sets, preferred first), `paid`, `lookup(inputs) → ProviderResult` |
+| `Provider` protocol | `name`, `output_field`, `input_sets` (alternative required-field sets, preferred first), `paid`, `max_cost` (most one call can bill), `lookup(inputs) → ProviderResult` |
 | `Waterfall` | one field, ordered providers; misconfiguration (no providers, duplicate names, wrong output field, empty input set) fails at construction |
 | run condition | explicit `run_if`; default: run only while the field is empty |
 | acceptance | optional `accept(value)`; a rejected answer (e.g. a role address) moves on to the next provider |
 | fixtures | a `paid=True` provider never receives a fixture record |
 | attempts | every provider gets one entry: status, the input *field names* used (never values), credits charged, the provider's own status as context |
-| outcome | `found` / `not_found` (something was called) / `not_run` / `no_eligible_provider` (every provider skipped) |
+| outcome | `found` / `not_found` (something was called) / `not_run` / `no_eligible_provider` (every provider skipped) / `budget_spent` (nothing found, a provider skipped for budget) / `outcome_unknown` (nothing found, a call timed out) |
+| budget | `run(record, budget=CreditBudget(5))`: one budget per record, shared by its email / phone / ... waterfalls; a provider whose `max_cost` no longer fits is `skipped_budget` and a cheaper one after it may still run; `run_many(..., budget_per_record=5)` |
+| cache | `ResultCache`: a value or a clean miss is stored per provider + output field + exact inputs; the same lookup again (duplicate rows, re-runs) is replayed at 0 credits, marked `cached`, and still goes through this waterfall's `accept`; errors and timeouts are never cached |
+| timeouts | `ProviderTimeout` → `outcome_unknown`: the call may have been processed and billed, so the budget is booked at `max_cost` and nothing is cached — inspect before replaying, never treat it as a free miss |
 | `run_many` | refuses duplicate `record_id`s: ids are the keys later steps update by |
 
 **Before a run — `check_mappings(waterfall, records)`** calls nothing. Per
@@ -69,7 +73,8 @@ fields are missing. Findings:
 denominator name (`records the waterfall runs on`, `input records`, `calls to
 this provider`), and `0/0` is `None`, not 0%. Per provider: calls (skips
 excluded), accepted answers, rejections, errors, credits; overall credits and
-credits per record found.
+credits per record found. Cache replays (`cached`) and timed-out calls (`unknown`)
+are counted apart from calls.
 
 **Email status ladder — `assess_email` / `assess_outcome`.** A found address
 is not a valid address, and the rows left after removing the invalid ones are
@@ -104,8 +109,8 @@ address:
 - `ladder_summary(assessments)` counts each rung as a `Ratio` over
   `emails found` (an address assessed twice raises); `sendable` = verified.
 
-`FakeProvider` answers from a lookup table, can simulate faults (`ProviderError`)
-and billing only on hits (`charge_on_miss=False`), and records every call so
+`FakeProvider` answers from a lookup table, can simulate faults (`ProviderError`),
+timeouts (`ProviderTimeout`) and billing only on hits (`charge_on_miss=False`), and records every call so
 tests can assert what was — and was not — sent.
 
 ## Run it
@@ -134,6 +139,8 @@ out.status, out.answered_by, out.cost  # found, 'pricey', 1.5
 - No real provider adapters yet: the shapes of Clay / Apollo requests were not
   checked against vendor docs (docs.apollo.io and university.clay.com were
   unreachable from the run environment on 2026-10-21).
+- `ResultCache` is in memory with no expiry: a long-lived store needs a freshness
+  window (a contact's email changes when they change jobs) — not built yet.
 - The ladder consumes checks; it does not run them. No verifier adapter
   calls an API yet; only ZeroBounce's and NeverBounce's result names are
   mapped (taken from their published SDK / n8n node packages; the vendors'

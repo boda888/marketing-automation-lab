@@ -1,5 +1,6 @@
 """Waterfall enrichment with provenance and input gates, email verification, CRM dedupe."""
 
+from enrichment.budget import CreditBudget, ResultCache
 from enrichment.coverage import (
     CoverageReport,
     MappingFinding,
@@ -33,6 +34,7 @@ from enrichment.models import (
     LeadRecord,
     ProviderError,
     ProviderResult,
+    ProviderTimeout,
     WaterfallOutcome,
     WaterfallStatus,
     clean,
@@ -40,7 +42,7 @@ from enrichment.models import (
 )
 from enrichment.waterfall import Provider, Waterfall, select_inputs
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 
 __all__ = [
     "EMAILS_FOUND",
@@ -51,6 +53,7 @@ __all__ = [
     "AttemptStatus",
     "CheckResult",
     "CoverageReport",
+    "CreditBudget",
     "EmailAssessment",
     "EmailCheck",
     "EmailStatus",
@@ -64,7 +67,9 @@ __all__ = [
     "ProviderError",
     "ProviderReadiness",
     "ProviderResult",
+    "ProviderTimeout",
     "Ratio",
+    "ResultCache",
     "Severity",
     "Waterfall",
     "WaterfallOutcome",

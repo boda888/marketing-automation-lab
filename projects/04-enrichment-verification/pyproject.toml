@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "enrichment-verification"
-version = "0.0.4"
+version = "0.0.5"
 description = "Waterfall enrichment with provenance and input gates, email verification and CRM dedupe"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2.6"]

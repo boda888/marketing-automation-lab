@@ -94,8 +94,20 @@ class AttemptStatus(StrEnum):
     REJECTED = "rejected"  # answered, but the value failed the waterfall's acceptance rule
     NOT_FOUND = "not_found"
     ERROR = "error"
+    OUTCOME_UNKNOWN = "outcome_unknown"  # timed out: may have been processed and billed
     SKIPPED_MISSING_INPUTS = "skipped_missing_inputs"
     SKIPPED_FIXTURE = "skipped_fixture"
+    SKIPPED_BUDGET = "skipped_budget"  # the call could cost more than the record has left
+
+
+# Attempts that never reached the provider.
+SKIPPED = frozenset(
+    {
+        AttemptStatus.SKIPPED_MISSING_INPUTS,
+        AttemptStatus.SKIPPED_FIXTURE,
+        AttemptStatus.SKIPPED_BUDGET,
+    }
+)
 
 
 class WaterfallStatus(StrEnum):
@@ -103,6 +115,8 @@ class WaterfallStatus(StrEnum):
     NOT_FOUND = "not_found"  # at least one provider was called, none gave an acceptable value
     NOT_RUN = "not_run"  # the run condition was false (e.g. the field is already filled)
     NO_ELIGIBLE_PROVIDER = "no_eligible_provider"  # every provider was skipped before a call
+    BUDGET_SPENT = "budget_spent"  # nothing found, and a provider was skipped for budget
+    OUTCOME_UNKNOWN = "outcome_unknown"  # nothing found, and a paid call timed out: inspect first
 
 
 class ProviderResult(BaseModel):
@@ -128,12 +142,18 @@ class ProviderError(Exception):
         self.cost = cost
 
 
+class ProviderTimeout(ProviderError):
+    """No answer in time. The provider may still have processed and billed the call, so it
+    is recorded as an unknown outcome, never as a free miss that is safe to replay."""
+
+
 class Attempt(BaseModel):
     provider: str
     status: AttemptStatus
     inputs_used: list[str] = Field(default_factory=list, description="Field names, not values")
     cost: float = 0.0
     detail: str | None = None
+    cached: bool = Field(default=False, description="Replayed from the cache: no call, no credits")
 
 
 class WaterfallOutcome(BaseModel):
@@ -150,8 +170,5 @@ class WaterfallOutcome(BaseModel):
 
     @property
     def calls(self) -> int:
-        """Provider calls actually made (skips excluded)."""
-        return sum(
-            a.status not in (AttemptStatus.SKIPPED_MISSING_INPUTS, AttemptStatus.SKIPPED_FIXTURE)
-            for a in self.attempts
-        )
+        """Provider calls actually made (skips and cache replays excluded)."""
+        return sum(a.status not in SKIPPED and not a.cached for a in self.attempts)

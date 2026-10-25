@@ -156,6 +156,8 @@ def test_coverage_names_both_denominators():
         "not_found": 2,
         "not_run": 1,
         "no_eligible_provider": 1,
+        "budget_spent": 0,
+        "outcome_unknown": 0,
     }
 
 

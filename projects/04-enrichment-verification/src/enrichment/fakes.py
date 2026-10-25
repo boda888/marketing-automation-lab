@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from enrichment.models import ProviderError, ProviderResult
+from enrichment.models import ProviderError, ProviderResult, ProviderTimeout
 
 
 @dataclass
@@ -13,7 +13,8 @@ class FakeProvider:
     """Answers from a lookup table keyed by any input value; records every call.
 
     ``answers`` maps an input value (e.g. a LinkedIn URL or a domain) to the value returned.
-    Keys in ``errors`` raise ``ProviderError`` instead. ``charge_on_miss=False`` models
+    Keys in ``errors`` raise ``ProviderError`` instead, keys in ``timeouts`` raise
+    ``ProviderTimeout``. ``charge_on_miss=False`` models
     providers that bill only when they return data.
     """
 
@@ -26,13 +27,20 @@ class FakeProvider:
     charge_on_miss: bool = True
     paid: bool = False
     provider_status: str | None = None
+    timeouts: frozenset[str] = frozenset()
     calls: list[dict[str, str]] = field(default_factory=list)
+
+    @property
+    def max_cost(self) -> float:
+        return self.cost_per_call
 
     def lookup(self, inputs: Mapping[str, str]) -> ProviderResult:
         self.calls.append(dict(inputs))
         for value in inputs.values():
             if value in self.errors:
                 raise ProviderError(f"{self.name}: simulated 503", cost=0.0)
+            if value in self.timeouts:
+                raise ProviderTimeout(f"{self.name}: simulated timeout")
         answer = next((self.answers[v] for v in inputs.values() if v in self.answers), None)
         result = ProviderResult(value=answer, provider_status=self.provider_status)
         charged = self.cost_per_call if (result.value or self.charge_on_miss) else 0.0

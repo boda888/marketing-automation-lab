@@ -6,8 +6,11 @@
     for provider in order (cheap first):
         fixture + paid provider ─► skipped_fixture
         no complete input set   ─► skipped_missing_inputs
+        max_cost > budget left  ─► skipped_budget
+        same inputs answered before (cache) ─► replay, no call, no credits
         call ─► value accepted  ─► FOUND, stop, answered_by = provider
               ─► value rejected / none / ProviderError ─► next provider
+              ─► ProviderTimeout ─► outcome_unknown (budget booked at max_cost) ─► next provider
 
 Only the fields of the provider's matched input set are sent, and only after placeholders
 were cleaned to ``None`` (see ``LeadRecord``), so ``"Unknown"`` never reaches a paid call.
@@ -19,12 +22,15 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from enrichment.budget import CreditBudget, ResultCache
 from enrichment.models import (
+    SKIPPED,
     Attempt,
     AttemptStatus,
     LeadRecord,
     ProviderError,
     ProviderResult,
+    ProviderTimeout,
     WaterfallOutcome,
     WaterfallStatus,
 )
@@ -36,13 +42,16 @@ class Provider(Protocol):
 
     ``input_sets`` lists alternative sets of required input fields, in preference order
     (e.g. ``(("linkedin_url",), ("first_name", "last_name", "company_domain"))``); the
-    provider runs only when one set is complete.
+    provider runs only when one set is complete. ``max_cost`` is the most one call can be
+    billed (charged-per-lookup and charged-only-on-hit alike); budgets are checked against it
+    before the call.
     """
 
     name: str
     output_field: str
     input_sets: tuple[tuple[str, ...], ...]
     paid: bool
+    max_cost: float
 
     def lookup(self, inputs: Mapping[str, str]) -> ProviderResult: ...
 
@@ -87,7 +96,14 @@ class Waterfall:
     def should_run(self, record: LeadRecord) -> bool:
         return (self.run_if or _field_missing(self.field))(record)
 
-    def run(self, record: LeadRecord) -> WaterfallOutcome:
+    def run(
+        self,
+        record: LeadRecord,
+        *,
+        budget: CreditBudget | None = None,
+        cache: ResultCache | None = None,
+    ) -> WaterfallOutcome:
+        """Run on one record. Pass the record's ``budget`` to every waterfall run on it."""
         outcome = WaterfallOutcome(
             record_id=record.record_id, field=self.field, status=WaterfallStatus.NOT_RUN
         )
@@ -97,33 +113,53 @@ class Waterfall:
         accept = self.accept or (lambda _value: True)
         called = False
         for provider in self.providers:
-            attempt, value = self._attempt(provider, record, accept)
+            attempt, value = self._attempt(provider, record, accept, budget, cache)
             outcome.attempts.append(attempt)
             if attempt.status is AttemptStatus.FOUND:
                 outcome.status = WaterfallStatus.FOUND
                 outcome.answered_by = provider.name
                 outcome.value = value
                 return outcome
-            called = called or attempt.status not in (
-                AttemptStatus.SKIPPED_FIXTURE,
-                AttemptStatus.SKIPPED_MISSING_INPUTS,
-            )
-        outcome.status = (
-            WaterfallStatus.NOT_FOUND if called else WaterfallStatus.NO_ELIGIBLE_PROVIDER
-        )
+            called = called or attempt.status not in SKIPPED
+        statuses = {a.status for a in outcome.attempts}
+        if AttemptStatus.OUTCOME_UNKNOWN in statuses:
+            outcome.status = WaterfallStatus.OUTCOME_UNKNOWN
+        elif AttemptStatus.SKIPPED_BUDGET in statuses:
+            outcome.status = WaterfallStatus.BUDGET_SPENT
+        elif called:
+            outcome.status = WaterfallStatus.NOT_FOUND
+        else:
+            outcome.status = WaterfallStatus.NO_ELIGIBLE_PROVIDER
         return outcome
 
-    def run_many(self, records: Sequence[LeadRecord]) -> list[WaterfallOutcome]:
+    def run_many(
+        self,
+        records: Sequence[LeadRecord],
+        *,
+        budget_per_record: float | None = None,
+        cache: ResultCache | None = None,
+    ) -> list[WaterfallOutcome]:
         seen: set[str] = set()
         for r in records:
             if r.record_id in seen:
                 raise ValueError(f"duplicate record_id {r.record_id!r}: ids must be stable keys")
             seen.add(r.record_id)
-        return [self.run(r) for r in records]
+        return [
+            self.run(
+                r,
+                budget=None if budget_per_record is None else CreditBudget(budget_per_record),
+                cache=cache,
+            )
+            for r in records
+        ]
 
-    @staticmethod
     def _attempt(
-        provider: Provider, record: LeadRecord, accept: Callable[[str], bool]
+        self,
+        provider: Provider,
+        record: LeadRecord,
+        accept: Callable[[str], bool],
+        budget: CreditBudget | None,
+        cache: ResultCache | None,
     ) -> tuple[Attempt, str | None]:
         if provider.paid and record.is_fixture:
             return Attempt(provider=provider.name, status=AttemptStatus.SKIPPED_FIXTURE), None
@@ -136,9 +172,30 @@ class Waterfall:
                 detail=f"needs {needed}",
             ), None
         used = list(inputs)
+        cached = cache.get(provider.name, self.field, inputs) if cache else None
+        if cached is None and budget is not None and not budget.can_afford(provider.max_cost):
+            return Attempt(
+                provider=provider.name,
+                status=AttemptStatus.SKIPPED_BUDGET,
+                detail=f"max_cost {provider.max_cost:g} > remaining {budget.remaining:g}",
+            ), None
+        if cached is not None:
+            return self._judge(provider, cached, used, accept, cached=True)
         try:
             result = provider.lookup(inputs)
+        except ProviderTimeout as exc:
+            if budget is not None:
+                budget.charge(max(exc.cost, provider.max_cost))
+            return Attempt(
+                provider=provider.name,
+                status=AttemptStatus.OUTCOME_UNKNOWN,
+                inputs_used=used,
+                cost=exc.cost,
+                detail=f"{exc}; up to {provider.max_cost:g} credits may have been charged",
+            ), None
         except ProviderError as exc:
+            if budget is not None:
+                budget.charge(exc.cost)
             return Attempt(
                 provider=provider.name,
                 status=AttemptStatus.ERROR,
@@ -146,6 +203,21 @@ class Waterfall:
                 cost=exc.cost,
                 detail=str(exc),
             ), None
+        if budget is not None:
+            budget.charge(result.cost)
+        if cache is not None:
+            cache.put(provider.name, self.field, inputs, result)
+        return self._judge(provider, result, used, accept, cached=False)
+
+    @staticmethod
+    def _judge(
+        provider: Provider,
+        result: ProviderResult,
+        used: list[str],
+        accept: Callable[[str], bool],
+        *,
+        cached: bool,
+    ) -> tuple[Attempt, str | None]:
         if result.value is None:
             status = AttemptStatus.NOT_FOUND
         elif accept(result.value):
@@ -156,7 +228,8 @@ class Waterfall:
             provider=provider.name,
             status=status,
             inputs_used=used,
-            cost=result.cost,
+            cost=0.0 if cached else result.cost,
             detail=result.provider_status,
+            cached=cached,
         )
         return attempt, result.value if status is AttemptStatus.FOUND else None

@@ -18,12 +18,19 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from enrichment.models import AttemptStatus, LeadRecord, WaterfallOutcome, WaterfallStatus
+from enrichment.models import (
+    SKIPPED,
+    AttemptStatus,
+    LeadRecord,
+    WaterfallOutcome,
+    WaterfallStatus,
+)
 from enrichment.waterfall import Waterfall, select_inputs
 
 RUN_RECORDS = "records the waterfall runs on"
 INPUT_RECORDS = "input records"
 PROVIDER_CALLS = "calls to this provider"
+CACHED = "cached"  # counter key for cache replays, kept apart from attempt statuses
 
 
 class Ratio(BaseModel):
@@ -188,7 +195,9 @@ class ProviderCoverage(BaseModel):
     answered: Ratio = Field(description="Accepted answers, of calls to this provider")
     rejected: int
     errors: int
+    unknown: int = Field(description="Timed-out calls whose outcome (and charge) is unknown")
     skipped: int
+    cached: int = Field(description="Answers replayed from the cache: no call, no credits")
     cost: float
 
 
@@ -213,16 +222,16 @@ def coverage(outcomes: Sequence[WaterfallOutcome]) -> CoverageReport:
     found = statuses[WaterfallStatus.FOUND]
     ran = len(outcomes) - statuses[WaterfallStatus.NOT_RUN]
 
-    per: dict[str, Counter[AttemptStatus]] = {}
+    per: dict[str, Counter[str]] = {}
     cost: Counter[str] = Counter()
     for o in outcomes:
         for a in o.attempts:
-            per.setdefault(a.provider, Counter())[a.status] += 1
+            per.setdefault(a.provider, Counter())[CACHED if a.cached else a.status] += 1
             cost[a.provider] += a.cost
     providers = []
     for name, c in per.items():
-        skipped = c[AttemptStatus.SKIPPED_MISSING_INPUTS] + c[AttemptStatus.SKIPPED_FIXTURE]
-        calls = c.total() - skipped
+        skipped = sum(c[s] for s in SKIPPED)
+        calls = c.total() - skipped - c[CACHED]
         providers.append(
             ProviderCoverage(
                 provider=name,
@@ -234,7 +243,9 @@ def coverage(outcomes: Sequence[WaterfallOutcome]) -> CoverageReport:
                 ),
                 rejected=c[AttemptStatus.REJECTED],
                 errors=c[AttemptStatus.ERROR],
+                unknown=c[AttemptStatus.OUTCOME_UNKNOWN],
                 skipped=skipped,
+                cached=c[CACHED],
                 cost=cost[name],
             )
         )
