@@ -27,8 +27,8 @@
       "id": "04-enrichment-verification",
       "path": "projects/04-enrichment-verification",
       "status": "in_progress",
-      "summary": "LeadRecord (placeholders -> None, is_fixture on reserved test domains); Provider protocol with alternative input sets; Waterfall (explicit run_if, ordered providers, only matched inputs sent, paid providers never see fixtures, first accepted answer wins, answered_by + per-attempt log without values); FakeProvider; check_mappings() input-mapping preflight and coverage() with named denominators; email status ladder assess_email()/assess_outcome() found -> checked -> verified / invalid from dated per-address checks (freshness window, finder's label is not verification, ZeroBounce + NeverBounce result maps) + ladder_summary() over emails found; 129 tests. Planned: verification checks, budget/cache, CRM dedupe.",
-      "version": "0.0.4"
+      "summary": "LeadRecord (placeholders -> None, is_fixture on reserved test domains); Provider protocol with alternative input sets; Waterfall (explicit run_if, ordered providers, only matched inputs sent, paid providers never see fixtures, first accepted answer wins, answered_by + per-attempt log without values); FakeProvider; check_mappings() input-mapping preflight and coverage() with named denominators; email status ladder assess_email()/assess_outcome() found -> checked -> verified / invalid from dated per-address checks (freshness window, finder's label is not verification, ZeroBounce + NeverBounce result maps) + ladder_summary() over emails found; per-record CreditBudget checked against each provider's max_cost (skipped_budget / budget_spent), ResultCache (same provider + field + inputs replayed at 0 credits), ProviderTimeout -> outcome_unknown booked at max_cost; 147 tests. Planned: verification checks, CRM dedupe, adapters.",
+      "version": "0.0.5"
     },
     {
       "id": "05-ai-personalization",
@@ -125,13 +125,15 @@
     "04: email status ladder (assess_email / assess_outcome): found -> checked (named checker + tz-aware date) -> verified / invalid; checks of other addresses ignored, stale checks (90 d default) fall back to found, newest conclusive check decides (ties -> most cautious), finder's own label cannot verify; EmailCheck.from_zerobounce; ladder_summary as Ratios over 'emails found'",
     "Research R2 (2026-10-23): Firecrawl credit model (map 1/call, scrape/crawl 1/page, JSON +4, 403/404 billed, LinkedIn URLs provider-routed 5–40 credits), changeTracking / monitor, Apify pay-per-event vs pay-per-usage + max charge per run; note + STACK + 3 insights.",
     "Research R3 (2026-10-24): finder billing from vendors' own npm packages (Prospeo / Findymail charge only on a hit, Prospeo free VERIFIED previews + free_enrichment flag, LeadMagic credits_consumed + no-retry timeouts), NeverBounce / ZeroBounce result sets, NeverBounce n8n node sets email_verified=true for every checked address; catch-all cohort + per-mailbox bounce policy (search summaries); note + STACK rows + 3 insights.",
-    "04: EmailCheck.from_neverbounce (result name or code 0-4; disposable -> do-not-mail; flags kept as provider_status; unmapped raises); v0.0.4, 129 tests in 04."
+    "04: EmailCheck.from_neverbounce (result name or code 0-4; disposable -> do-not-mail; flags kept as provider_status; unmapped raises); v0.0.4, 129 tests in 04.",
+    "04: per-record credit budget (CreditBudget, max_cost checked before each call, shared across a record's waterfalls), ResultCache (no paid lookup twice; errors/timeouts not cached), ProviderTimeout -> outcome_unknown; coverage counts cached / unknown apart from calls (v0.0.5)",
+    "Research R4 (sequencers): Smartlead / Instantly / lemlist lead push, dedupe defaults, reply webhooks, from vendor packages"
   ],
   "next_steps": [
-    "04: per-record credit budget + result cache (same inputs to the same provider are not paid twice) + stop when the budget is spent, reported as its own attempt status; model billing per provider as charged-per-lookup vs charged-only-on-hit (Prospeo, Findymail per R3 note) and record a timed-out paid call as 'outcome unknown', never as a free miss to retry.",
     "04: email verification without SMTP probing: syntax, MX via an injectable resolver (reuse 02's pattern), disposable / role-based lists, catch-all heuristics -> risk score; emit EmailCheck rows so results feed the ladder (checker = 'lab-preflight', never 'verified' on its own when catch-all).",
     "04: contact dedupe LinkedIn URL -> email -> normalised name + company with provenance; one merged identity-consistent person record downstream.",
-    "04: Apollo / Clay request shapes as adapters (Apollo match fields first_name / last_name / domain, batches of 10, from the official apollo-mcp-plugin skills; confirm against docs.apollo.io when reachable); FastAPI endpoint + n8n workflow + synthetic dataset for v0.1.",
+    "04: Apollo / Clay request shapes as adapters (Apollo match fields first_name / last_name / domain, batches of 10, from the official apollo-mcp-plugin skills; confirm against docs.apollo.io when reachable); consume 01's needs_enrichment / missing_fields; FastAPI endpoint + n8n workflow + synthetic dataset for v0.1.",
+    "06 (after 04 v0.1): sequencer push with explicit dedupe_scope mapped to Smartlead ignore_* settings / Instantly skip_if_* / lemlist deduplicate, sent / added / skipped report, idempotent retried creates (research R4 note).",
     "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status ≥ 400 → Unknown, see research R2 note); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort (R3 note: thresholds are vendor heuristics)."
   ],
   "known_gaps": [
@@ -157,13 +159,15 @@
     "research R1 (2026-10-22): vendor sites (apollo.io, docs.apollo.io, clay.com, university.clay.com) blocked by proxy 403, so no prices were verified and STACK prices remain slides-2026-09; MCP registry search matches server names only and apify / firecrawl / lemlist queries timed out, so 'not in registry' is not proof a vendor has no MCP. Apollo tool list is what the vendor README confirms, not the live server's list.",
     "04: email ladder maps ZeroBounce (zerobouncesdk 2.2.4, ZBValidateStatus) and NeverBounce (n8n node 1.0.20, VerifyStatus / VerifyStatusCode) results only; MillionVerifier codes known only from a search summary, so not mapped. Vendor docs sites gave proxy 403 / ENOTFOUND on 2026-10-22 and 2026-10-24; no mapping was checked against a live API.",
     "research R2 (2026-10-23): firecrawl.dev, apify.com and api.apify.com blocked (proxy 403 / ENOTFOUND); credit rules come from the vendors' docs repos on GitHub (cloned), USD plan prices and individual Apify Actor prices are search summaries only; nothing was run against a live Firecrawl or Apify account.",
-    "research R3 (2026-10-24): every vendor site (millionverifier, zerobounce, neverbounce, prospeo, leadmagic, findymail, icypeas, smartlead, support.google.com) blocked; billing rules read from the vendors' published npm packages (MCP servers / n8n nodes), hit rates, MillionVerifier billing and bounce thresholds are search summaries only (mostly vendor-published); nothing run against a live account."
+    "research R3 (2026-10-24): every vendor site (millionverifier, zerobounce, neverbounce, prospeo, leadmagic, findymail, icypeas, smartlead, support.google.com) blocked; billing rules read from the vendors' published npm packages (MCP servers / n8n nodes), hit rates, MillionVerifier billing and bounce thresholds are search summaries only (mostly vendor-published); nothing run against a live account.",
+    "04: ResultCache is in-memory with no expiry; max_cost per provider is declared by the adapter, not read from vendor billing. Budget/timeout behaviour tested only with FakeProvider.",
+    "Research R4: Smartlead upload settings (ignore_* flags, 400 per call) and Instantly bulk /api/v2/leads/add skip_if_* flags come from web-search summaries; smartlead.ai, developer.instantly.ai and developer.lemlist.com were rejected by the proxy on 2026-10-25."
   ],
   "last_run": {
-    "date": "2026-10-24",
+    "date": "2026-10-25",
     "by": "daily agent",
     "commits": 3,
-    "notes": "Commit budget drawn: 3, used 3 (research R3, 04 NeverBounce mapping, state). Morning run."
+    "notes": "Commit budget drawn: 4, used 3 (research R4, 04 budget/cache, state). Morning run."
   },
   "run_log": [
     {
@@ -361,6 +365,23 @@
         "https://registry.npmjs.org/@zerobounce/mcp/-/mcp-0.1.12.tgz"
       ],
       "research_note": "Three web searches (catch-all / bounce thresholds; MillionVerifier billing; waterfall hit rates) used as summaries only, labelled in the note. Vendor sites gave proxy 403 / ENOTFOUND; packages downloaded from registry.npmjs.org and read, not executed."
+    },
+    {
+      "date": "2026-10-25",
+      "commits": 3,
+      "summary": "Research R4 (email infrastructure & sequencers): Smartlead / Instantly / lemlist lead push, dedupe defaults, custom variables, reply webhooks and replays; note + STACK rows + 3 insights + research ROADMAP + root ROADMAP 06/07 items. 04 v0.0.5: CreditBudget, ResultCache, ProviderTimeout -> outcome_unknown; 147 tests in 04.",
+      "sources": [
+        "https://registry.npmjs.org/@smartlead/cli/-/cli-0.1.0.tgz",
+        "https://registry.npmjs.org/n8n-nodes-instantly/-/n8n-nodes-instantly-0.1.7547.tgz",
+        "https://registry.npmjs.org/@lemlist-official/cli/-/cli-0.3.2.tgz",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Lemlist/LemlistTrigger.node.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Lemlist/GenericFunctions.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Lemlist/v2/LemlistV2.node.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Lemlist/v2/descriptions/LeadDescription.ts",
+        "https://registry.npmjs.org/@automateitplease/n8n-nodes-smartlead/-/n8n-nodes-smartlead-1.0.4.tgz",
+        "https://registry.npmjs.org/instantly-mcp/-/instantly-mcp-1.0.5.tgz"
+      ],
+      "research_note": "Two web searches (Smartlead upload settings; Instantly skip_if flags) used as summaries only, labelled in the note. Vendor hosts rejected by the proxy; packages downloaded and read, not executed."
     }
   ],
   "research": {
