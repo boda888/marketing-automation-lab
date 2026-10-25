@@ -62,13 +62,13 @@ Pain: list-based outreach with 2–4% replies.
 - [x] FastAPI `POST /v1/signals/prioritise` + synthetic `.example` dataset + n8n workflow 'prioritise before research' (Switch on tier, Review → human review)
 - [x] dedupe the same event seen in several sources (source id within a source, evidence URL, subject + overlapping dates; provenance kept); `Unknown` / `Not found in sample` kept apart from "no signal"
 
-## 04 · Waterfall enrichment + email verification + CRM dedupe — v0.0.5 (2026-10-25)
+## 04 · Waterfall enrichment + email verification + CRM dedupe — v0.0.6 (2026-10-25)
 Pain: 40–60% match rates, bounces, duplicates.
 - [x] provider interface + fake providers + waterfall runner: explicit run condition, cheap first, stop at the first accepted answer, `answered_by` and per-attempt log (field names, credits), paid providers never see fixtures
 - [ ] Clay / Apollo request shapes as adapters; field-level merge with confidence and provenance
 - [x] cost budget per record (checked against each provider's `max_cost` before the call, shared across a record's waterfalls), result cache (same provider + inputs never paid twice), timed-out calls kept as `outcome_unknown` and booked at `max_cost`
 - [ ] consume `needs_enrichment` / `missing_fields` from 01; persistent cache with a freshness window
-- [ ] verification: syntax, MX, disposable, role-based, catch-all heuristics; risk score, no SMTP probing by default
+- [x] verification: syntax, MX (null MX, implicit MX, NXDOMAIN; DNS failure = unknown), disposable, role-based, known catch-all domains; risk score; no SMTP probing — a precheck never yields `valid`, it feeds the ladder as `lab-precheck`
 - [ ] dedupe / match against existing CRM records
 - [x] validate provider inputs before a run (`check_mappings`: no `"Unknown"` placeholders, empty-everywhere fields, eligibility per provider) and report coverage/cost with an explicit denominator (`coverage`)
 - [x] status ladder found → checked (provider + date) → verified (+ invalid), never promoted by arithmetic: per-address checks only, freshness window, finder's own label is not verification, `ladder_summary` over emails found; ZeroBounce and NeverBounce (name or code 0–4, disposable → do-not-mail) results mapped

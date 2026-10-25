@@ -9,11 +9,12 @@ email. The fix is a waterfall in code: an explicit run condition, cheap
 providers first, stop at the first acceptable answer, placeholders that never
 leave the building, and a record of every attempt.
 
-v0.0.5: the provider interface, the waterfall runner, offline fakes, an
+v0.0.6: the provider interface, the waterfall runner, offline fakes, an
 input-mapping preflight, a coverage report, per-record credit budgets with a
-result cache and timeouts kept as "outcome unknown", and the email status ladder
-with ZeroBounce and NeverBounce result mappings.
-Verification checks and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
+result cache and timeouts kept as "outcome unknown", the email status ladder
+with ZeroBounce and NeverBounce result mappings, and an email precheck without
+SMTP probing that feeds the ladder.
+Contact dedupe, adapters and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
 
 ## Architecture
 
@@ -109,6 +110,32 @@ address:
 - `ladder_summary(assessments)` counts each rung as a `Ratio` over
   `emails found` (an address assessed twice raises); `sendable` = verified.
 
+**Email precheck — `EmailPrecheck(resolver).check(email)`**, no SMTP. It can
+rule an address out, never in: its best result is `unknown`, so on its own it
+lifts an address to `checked`, never `verified`. `report.to_check(checked_at=...)`
+turns it into an `EmailCheck` by checker `lab-precheck`.
+
+| finding | severity | result | rule |
+|---|---|---|---|
+| `syntax_invalid` | block | invalid | dot-atom local part ≤ 64, LDH labels ≤ 63, a dot, non-numeric TLD, address ≤ 254; quoted or non-ASCII local parts refused; no DNS query spent |
+| `domain_not_found` | block | invalid | NXDOMAIN |
+| `null_mx` | block | invalid | MX `0 .` (RFC 7505: accepts no mail), also when mixed with other MX records |
+| `no_mail_host` | block | invalid | no MX and no A/AAAA |
+| `disposable` | block | do not mail | domain or a parent domain on the blocklist; checked before DNS |
+| `implicit_mx` | risk 20 | unknown | no MX but an A/AAAA host (RFC 5321 fallback) |
+| `dns_temp_error` | risk 30 | unknown | timeout / SERVFAIL / unparseable MX: never read as "no mail host" |
+| `role_address` | risk 30 | unknown | `info@`, `sales@`, `support+eu@`, ... |
+| `catch_all_domain` | risk 40 | catch-all | the caller passes domains it knows are catch-all; `catch_all_domains(checks)` collects them from an independent verifier's earlier checks (never from the precheck itself) |
+| `non_ascii` | risk 20 | unknown | IDN domain, looked up as its A-label |
+
+Any block → risk 100; otherwise risks add up, capped at 100. DNS answers are cached per
+domain in one `EmailPrecheck`, so 500 contacts at one company cost one MX query. The
+resolver is injectable (`FakeResolver` for tests); the disposable and role lists are
+small built-in samples, replaceable: `load_domain_list(path)` reads the one-domain-per-line
+format of the CC0 [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains)
+blocklist (~9,900 domains on 2026-10-25), and the role sample is a subset of the MIT
+`role-based-email-addresses` 3.1.0 package.
+
 `FakeProvider` answers from a lookup table, can simulate faults (`ProviderError`),
 timeouts (`ProviderTimeout`) and billing only on hits (`charge_on_miss=False`), and records every call so
 tests can assert what was — and was not — sent.
@@ -144,9 +171,12 @@ out.status, out.answered_by, out.cost  # found, 'pricey', 1.5
 - The ladder consumes checks; it does not run them. No verifier adapter
   calls an API yet; only ZeroBounce's and NeverBounce's result names are
   mapped (taken from their published SDK / n8n node packages; the vendors'
-  docs pages were unreachable on 2026-10-22 and 2026-10-24). No syntax / MX / disposable checks of our own yet.
-- No per-record cost budget or cache yet; cost is reported as provider
-  credits, not money.
+  docs pages were unreachable on 2026-10-22 and 2026-10-24).
+- The precheck has no live DNS adapter yet (only `FakeResolver`), and no catch-all
+  detection of its own: that needs an SMTP probe, deliberately not built. RFC 7505 /
+  5321 rules come from knowledge plus a search summary; rfc-editor.org and
+  datatracker.ietf.org were unreachable on 2026-10-25.
+- Cost is reported as provider credits, not money.
 - Fixture detection looks at domain-like field values only; a fixture with no
   domain, email or URL field is not recognised.
 - Nothing here has run against a live provider.
