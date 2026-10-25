@@ -85,11 +85,13 @@ Pain: leads pushed twice, unsubscribed people re-contacted.
 - [ ] Instantly / Smartlead / HeyReach adapters (shapes from current vendor docs), custom variables
 - [ ] suppression list, idempotent pushes, rate limits, mocked HTTP tests
 - [ ] resolve campaign by explicit name (missing/duplicate → loud error); campaign-level dedup separate from global suppression; update rows by person key, never by company
+- [ ] explicit `dedupe_scope` (campaign / other campaigns / workspace) mapped to each vendor's flag (Smartlead `ignore_*` settings, Instantly `skip_if_*`, lemlist `deduplicate`) — never the vendor default; push report `sent` / `added` / `skipped` per campaign (research R4 2026-10-25)
 
 ## 07 · Reply intent classification & routing
 Pain: replies triaged by hand, hot leads go cold.
 - [ ] classes: interested, objection, referral, OOO + return date, unsubscribe, bounce, wrong person, no meaningful reply; sequencer's own label is context only
 - [ ] routing + suppression actions, eval set
+- [ ] event dedupe before classification (vendors replay failed webhooks; lemlist fires per occurrence), shared-secret check on inbound hooks; Instantly numeric interest codes (OOO = 0) mapped as context (research R4 2026-10-25)
 
 ## 08 · CRM sync
 Pain: CRM no longer matches reality.

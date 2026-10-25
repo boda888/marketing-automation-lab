@@ -32,9 +32,11 @@ can apply, a catalogue row, or a lab roadmap item.
 
 ## R4 · Email infrastructure & sequencers
 - [ ] Mailbox infrastructure (Zapmail-style Google / Microsoft inbox providers): domains per mailbox, warm-up time, cost per inbox
-- [ ] Smartlead vs Instantly vs Lemlist: APIs, webhooks, custom variables, subsequences, campaign-level vs global dedupe, pricing tiers
+- [x] Smartlead vs Instantly vs Lemlist: APIs, webhooks, custom variables, campaign-level vs global dedupe → [note](notes/2026-10-25-R4-sequencer-dedupe-webhooks.md) (from vendor packages; upload-setting defaults only as search summary)
+- [ ] Open the live Smartlead / Instantly API references (blocked 2026-10-25): placement and defaults of Smartlead `settings` ignore_* flags and Instantly `skip_if_*`, webhook payload fields, rate limits per plan; pricing tiers and subsequences
 - [ ] Inbox placement testing and warm-up: what is measurable, what is vendor theatre
-- [ ] Reply handling: webhook payloads, unified inbox, how to push replies to CRM / Slack / Telegram
+- [ ] Reply handling: webhook payload fields per vendor and how to push replies to CRM / Slack / Telegram (event names, replay and inbox APIs covered in the 2026-10-25 note)
+- [ ] lemlist MCP server (`app.lemlist.com/mcp`, found in the official CLI config): which tools it exposes and which can start sending
 
 ## R5 · LinkedIn automation
 - [ ] HeyReach vs Aimfox vs Expandi / Waalaxy: multi-sender, limits per account, withdrawing invites, API / webhooks, n8n integration
