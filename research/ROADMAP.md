@@ -39,7 +39,10 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] lemlist MCP server (`app.lemlist.com/mcp`, found in the official CLI config): which tools it exposes and which can start sending
 
 ## R5 · LinkedIn automation
-- [ ] HeyReach vs Aimfox vs Expandi / Waalaxy: multi-sender, limits per account, withdrawing invites, API / webhooks, n8n integration
+- [x] HeyReach vs Aimfox vs Expandi / Waalaxy: multi-sender, limits per account, withdrawing invites, API / webhooks, n8n integration → [note](notes/2026-10-26-R5-linkedin-tools-api-limits.md) (from vendor n8n packages; Aimfox node third-party; Expandi has no package; prices only as search summary)
+- [ ] Open HeyReach API docs / pricing (DNS-blocked 2026-10-26): does `MESSAGE_REPLY_RECEIVED` fire once per lead, rate limits, webhook payload fields and signing; what `AddLeadsToCampaign` does with a lead already in the campaign
+- [ ] Pending-invite withdrawal: which tools withdraw automatically (Aimfox, HeyReach settings) and whether withdrawing frees weekly quota — no API call found in any package
+- [ ] Expandi API / webhooks (no npm package 2026-10-26)
 - [ ] Safe volume and account warm-up; renting sender profiles — risks and what practitioners report
 - [ ] Combining LinkedIn and email in one sequence: who orchestrates (sequencer, n8n, Clay), dedupe across channels
 
