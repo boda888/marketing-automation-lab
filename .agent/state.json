@@ -129,13 +129,14 @@
     "04: per-record credit budget (CreditBudget, max_cost checked before each call, shared across a record's waterfalls), ResultCache (no paid lookup twice; errors/timeouts not cached), ProviderTimeout -> outcome_unknown; coverage counts cached / unknown apart from calls (v0.0.5)",
     "Research R4 (sequencers): Smartlead / Instantly / lemlist lead push, dedupe defaults, reply webhooks, from vendor packages",
     "04: email precheck without SMTP probing (EmailPrecheck: syntax, null MX / implicit MX / NXDOMAIN / no host, DNS failure kept unknown, disposable list with parent-domain match + load_domain_list, role mailboxes, caller-known catch-all domains via catch_all_domains(checks) -> risk 0-100; never 'valid', to_check() -> EmailCheck by lab-precheck)",
-    "04: contact dedupe (dedupe_contacts: LinkedIn profile key -> email -> name + company, ambiguous same-name rows joined to neither, newest value wins with per-field provenance and conflicts, email_domain_mismatch / conflicting_linkedin_profiles -> review)"
+    "04: contact dedupe (dedupe_contacts: LinkedIn profile key -> email -> name + company, ambiguous same-name rows joined to neither, newest value wins with per-field provenance and conflicts, email_domain_mismatch / conflicting_linkedin_profiles -> review)",
+    "research R5 (LinkedIn automation): HeyReach / Aimfox / Waalaxy API surface from n8n packages — per-lead sender assignment, dedupe options, limits + warm-up, no invite-withdraw call, webhook events (note 2026-10-26)"
   ],
   "next_steps": [
     "04: Apollo / Clay request shapes as adapters (Apollo match fields first_name / last_name / domain, batches of 10, from the official apollo-mcp-plugin skills; confirm against docs.apollo.io when reachable); consume 01's needs_enrichment / missing_fields.",
     "04 v0.1: FastAPI endpoint (precheck + waterfall + ladder + dedupe over a CSV / JSON batch), synthetic .example dataset, n8n workflow 'enrich -> precheck -> verify -> dedupe' with a review branch.",
     "04: live DNS adapter for EmailPrecheck (dnspython, opt-in [live] extra, same exception mapping as 02's DnsPythonResolver); dedupe / match against existing CRM records.",
-    "06 (after 04 v0.1): sequencer push with explicit dedupe_scope mapped to Smartlead ignore_* settings / Instantly skip_if_* / lemlist deduplicate, sent / added / skipped report, idempotent retried creates (research R4 note).",
+    "06 (after 04 v0.1): sequencer push with explicit dedupe_scope mapped to Smartlead ignore_* settings / Instantly skip_if_* / lemlist deduplicate, sent / added / skipped report, idempotent retried creates (research R4 note); HeyReach push with explicit sender per lead and a GetCampaignsForLead pre-check, Waalaxy duplicate booleans in the same mapping (R5 note).",
     "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status ≥ 400 → Unknown, see research R2 note); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort (R3 note: thresholds are vendor heuristics)."
   ],
   "known_gaps": [
@@ -167,10 +168,10 @@
     "04: EmailPrecheck has only FakeResolver (no live DNS adapter) and no catch-all detection of its own (needs SMTP probing, deliberately not built); null MX / implicit MX rules from knowledge plus a web-search summary of RFC 7505 (rfc-editor.org ENOTFOUND / proxy 403, datatracker.ietf.org proxy 403 on 2026-10-25). Built-in disposable and role lists are small samples; dedupe name matching is exact after normalisation (no nicknames / fuzzy match)."
   ],
   "last_run": {
-    "date": "2026-10-25",
+    "date": "2026-10-26",
     "by": "daily agent",
-    "commits": 3,
-    "notes": "Commit budget drawn: 3, used 3 (04 precheck, 04 contact dedupe, state). Evening run, second run of the day."
+    "commits": 2,
+    "notes": "Commit budget drawn: 2, used 2 (research R5, state). Morning run: research track."
   },
   "run_log": [
     {
@@ -397,6 +398,19 @@
         "https://registry.npmjs.org/role-based-email-addresses/-/role-based-email-addresses-3.1.0.tgz"
       ],
       "research_note": "One web search (RFC 7505 null MX) used as a summary only; rfc-editor.org (proxy 403 / ENOTFOUND), datatracker.ietf.org (proxy 403) and docs.kumomta.com (ENOTFOUND) could not be opened. npm package downloaded and read, not executed."
+    },
+    {
+      "date": "2026-10-26",
+      "commits": 2,
+      "summary": "Research R5 (LinkedIn automation): HeyReach vs Aimfox vs Waalaxy over the API — sender per lead, dedupe flags (none in HeyReach, three booleans in Waalaxy), Aimfox weekly limits + warm-up ramp, no invite-withdraw call anywhere, webhook events (HeyReach first vs every reply, Aimfox account_logged_out); note + STACK rows + 3 insights + research ROADMAP + root ROADMAP 06/07 edits.",
+      "sources": [
+        "https://registry.npmjs.org/n8n-nodes-heyreach/-/n8n-nodes-heyreach-1.0.5.tgz",
+        "https://registry.npmjs.org/n8n-nodes-heyreach/latest",
+        "https://registry.npmjs.org/@waapi/n8n-nodes-waalaxy/-/n8n-nodes-waalaxy-1.2.2.tgz",
+        "https://registry.npmjs.org/n8n-nodes-aimfox/-/n8n-nodes-aimfox-1.0.21.tgz",
+        "https://registry.npmjs.org/-/v1/search?text=expandi"
+      ],
+      "research_note": "Two web searches (LinkedIn invite limits; HeyReach pricing) used as summaries only, labelled in the note. heyreach.io, aimfox.com, linkedin.com and joinvalley.co failed DNS (ENOTFOUND); packages downloaded and read, not executed."
     }
   ],
   "research": {
@@ -420,7 +434,7 @@
       },
       "R5": {
         "name": "LinkedIn automation",
-        "last_researched": null
+        "last_researched": "2026-10-26"
       },
       "R6": {
         "name": "Calls & AI voice",
