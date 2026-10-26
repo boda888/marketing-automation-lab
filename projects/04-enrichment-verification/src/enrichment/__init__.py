@@ -1,5 +1,13 @@
 """Waterfall enrichment with provenance and input gates, email verification, CRM dedupe."""
 
+from enrichment.apollo import (
+    ApolloAuthError,
+    ApolloHTTPError,
+    ApolloPeopleMatch,
+    FakeApolloTransport,
+    UrllibTransport,
+    build_match_body,
+)
 from enrichment.budget import CreditBudget, ResultCache
 from enrichment.coverage import (
     CoverageReport,
@@ -68,7 +76,7 @@ from enrichment.precheck import (
 )
 from enrichment.waterfall import Provider, Waterfall, select_inputs
 
-__version__ = "0.0.6"
+__version__ = "0.0.7"
 
 __all__ = [
     "DISPOSABLE_SAMPLE",
@@ -79,6 +87,9 @@ __all__ = [
     "RISK_WEIGHTS",
     "ROLE_LOCAL_PARTS",
     "ZEROBOUNCE_STATUS",
+    "ApolloAuthError",
+    "ApolloHTTPError",
+    "ApolloPeopleMatch",
     "Attempt",
     "AttemptStatus",
     "CheckResult",
@@ -91,6 +102,7 @@ __all__ = [
     "EmailCheck",
     "EmailPrecheck",
     "EmailStatus",
+    "FakeApolloTransport",
     "FakeProvider",
     "FakeResolver",
     "FieldValue",
@@ -112,12 +124,14 @@ __all__ = [
     "Resolver",
     "ResultCache",
     "Severity",
+    "UrllibTransport",
     "Waterfall",
     "WaterfallOutcome",
     "WaterfallStatus",
     "__version__",
     "assess_email",
     "assess_outcome",
+    "build_match_body",
     "catch_all_domains",
     "check_mappings",
     "clean",

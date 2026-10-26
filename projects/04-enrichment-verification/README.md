@@ -9,13 +9,13 @@ email. The fix is a waterfall in code: an explicit run condition, cheap
 providers first, stop at the first acceptable answer, placeholders that never
 leave the building, and a record of every attempt.
 
-v0.0.6: the provider interface, the waterfall runner, offline fakes, an
+v0.0.7: the provider interface, the waterfall runner, offline fakes, an
 input-mapping preflight, a coverage report, per-record credit budgets with a
 result cache and timeouts kept as "outcome unknown", the email status ladder
 with ZeroBounce and NeverBounce result mappings, and an email precheck without
 SMTP probing that feeds the ladder, and contact dedupe into one
-identity-consistent person record with provenance.
-Adapters and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
+identity-consistent person record with provenance, and the first real provider adapter
+(Apollo People Match). The Clay adapter and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
 
 ## Architecture
 
@@ -154,6 +154,19 @@ Placeholders never match (`"Unknown"` is not a key), duplicate `candidate_id`s r
 `person_id` is the group's first candidate in input order, and matching is union-find over
 key indexes, so 2,000 rows of one company stay fast.
 
+**Apollo adapter — `ApolloPeopleMatch(transport)`**, a `Provider` for `email` over
+`POST https://api.apollo.io/api/v1/people/match` (header `x-api-key`, JSON body).
+
+| rule | detail |
+|---|---|
+| inputs | `linkedin_url`, else `first_name` + `last_name` + `company_domain` (sent as `domain`, `www.` / URL stripped); any other field or a placeholder raises |
+| reveals | `reveal_personal_emails` and `reveal_phone_number` always `false`: work email only; a phone reveal needs a `webhook_url` and answers asynchronously |
+| old employer | Apollo matches `domain` against a current *or previous* employer; a person whose `organization.primary_domain` differs from the domain sent is no answer (`apollo:employer_mismatch:<domain>`) |
+| label | Apollo's `email_status` is kept as `provider_status` (`apollo:verified`, ...): context only, the ladder never lets the finder verify its own email |
+| no email | `person: null`, no email, a placeholder or a locked `email_not_unlocked@...` value → no value, 0 credits (`charge_on_miss=True` if your plan bills misses) |
+| errors | 401 / 403 → `ApolloAuthError`, which stops the run instead of skipping Apollo on every record; 429 / 5xx / network → `ProviderError` (next provider); timeout → `ProviderTimeout` (`outcome_unknown`, booked at `max_cost`) |
+| test data | `UrllibTransport` (stdlib, live) refuses a body on a reserved test domain before any request; `FakeApolloTransport` answers offline by LinkedIn URL or domain and records every request |
+
 `FakeProvider` answers from a lookup table, can simulate faults (`ProviderError`),
 timeouts (`ProviderTimeout`) and billing only on hits (`charge_on_miss=False`), and records every call so
 tests can assert what was — and was not — sent.
@@ -181,9 +194,14 @@ out.status, out.answered_by, out.cost  # found, 'pricey', 1.5
 
 ## Limits
 
-- No real provider adapters yet: the shapes of Clay / Apollo requests were not
-  checked against vendor docs (docs.apollo.io and university.clay.com were
-  unreachable from the run environment on 2026-10-21).
+- The Apollo request shape comes from open-source integrations of the endpoint
+  (Activepieces `@activepieces/piece-apollo` 0.2.1, Pipedream `@pipedream/apollo_io`
+  0.7.1) and Apollo's own MCP plugin skills; docs.apollo.io was unreachable from the run
+  environment (2026-10-21, 2026-10-26). The response fields read (`person.email`,
+  `email_status`, `organization.primary_domain`), the locked-email placeholder and
+  "credits only when data comes back" are from knowledge and search summaries, not a
+  page opened; `UrllibTransport` has never called Apollo. No Clay adapter yet, no bulk
+  match (`/people/bulk_match`, 10 per call).
 - `ResultCache` is in memory with no expiry: a long-lived store needs a freshness
   window (a contact's email changes when they change jobs) — not built yet.
 - The ladder consumes checks; it does not run them. No verifier adapter
