@@ -9,13 +9,13 @@ email. The fix is a waterfall in code: an explicit run condition, cheap
 providers first, stop at the first acceptable answer, placeholders that never
 leave the building, and a record of every attempt.
 
-v0.0.7: the provider interface, the waterfall runner, offline fakes, an
+v0.0.8: the provider interface, the waterfall runner, offline fakes, an
 input-mapping preflight, a coverage report, per-record credit budgets with a
 result cache and timeouts kept as "outcome unknown", the email status ladder
 with ZeroBounce and NeverBounce result mappings, and an email precheck without
 SMTP probing that feeds the ladder, and contact dedupe into one
 identity-consistent person record with provenance, and the first real provider adapter
-(Apollo People Match). The Clay adapter and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
+(Apollo People Match, single and bulk). The Clay adapter and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
 
 ## Architecture
 
@@ -167,6 +167,24 @@ key indexes, so 2,000 rows of one company stay fast.
 | errors | 401 / 403 → `ApolloAuthError`, which stops the run instead of skipping Apollo on every record; 429 / 5xx / network → `ProviderError` (next provider); timeout → `ProviderTimeout` (`outcome_unknown`, booked at `max_cost`) |
 | test data | `UrllibTransport` (stdlib, live) refuses a body on a reserved test domain before any request; `FakeApolloTransport` answers offline by LinkedIn URL or domain and records every request |
 
+**Apollo bulk — `ApolloBulkMatch(ApolloPeopleMatch(transport))`**, the same provider fed
+by `POST /api/v1/people/bulk_match` (10 people per call). `bulk.prefetch(records)` sends the
+records the waterfall would send to Apollo; `Waterfall("email", [..., bulk])` then serves
+each record its own answer, with the same rules as People Match (old employer, labels,
+credits).
+
+| rule | detail |
+|---|---|
+| what is sent | records whose field is still empty (or `run_if`), not fixtures, with a complete input set; identical inputs once; chunks of `batch_size` ≤ 10 |
+| alignment | `matches` must have one entry per detail, and every returned `linkedin_url` must equal the one sent in that slot; otherwise the whole chunk is `outcome_unknown` (it may have been billed), never a guess, so one person's email never lands on another row |
+| faults | timeout → the chunk's records `outcome_unknown` (budget booked at `max_cost` when the waterfall reaches them); 429 / 5xx → `error`, the waterfall moves on; 401 / 403 → `ApolloAuthError` stops the prefetch |
+| billing | an answer is served once with its credits; a duplicate record gets the value at 0 credits; a second `prefetch` never re-sends answered inputs |
+| not prefetched | one People Match call (`fallback=False` → `ProviderError`, no per-record calls) |
+| report | `BulkReport`: chunks (size, status), `sent` / `skipped` per record id with the reason, duplicates, credits |
+
+Prefetch only records that will reach Apollo (run the cheaper providers first, bulk the
+leftovers); otherwise credits go to records an earlier provider would have answered.
+
 `FakeProvider` answers from a lookup table, can simulate faults (`ProviderError`),
 timeouts (`ProviderTimeout`) and billing only on hits (`charge_on_miss=False`), and records every call so
 tests can assert what was — and was not — sent.
@@ -200,8 +218,11 @@ out.status, out.answered_by, out.cost  # found, 'pricey', 1.5
   environment (2026-10-21, 2026-10-26). The response fields read (`person.email`,
   `email_status`, `organization.primary_domain`), the locked-email placeholder and
   "credits only when data comes back" are from knowledge and search summaries, not a
-  page opened; `UrllibTransport` has never called Apollo. No Clay adapter yet, no bulk
-  match (`/people/bulk_match`, 10 per call).
+  page opened; `UrllibTransport` has never called Apollo. Bulk match: the 10-per-call
+  limit is from Apollo's MCP plugin skill (`sequence-load`); the `details` / `matches` shape
+  and "one entry per detail, in order, `null` for a miss" come from a search summary and a
+  third-party client (laravel-apollo), so `ApolloBulkMatch` refuses any answer it cannot
+  align. No Clay adapter yet.
 - `ResultCache` is in memory with no expiry: a long-lived store needs a freshness
   window (a contact's email changes when they change jobs) — not built yet.
 - The ladder consumes checks; it does not run them. No verifier adapter

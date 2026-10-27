@@ -8,6 +8,7 @@ from enrichment.apollo import (
     UrllibTransport,
     build_match_body,
 )
+from enrichment.apollo_bulk import ApolloBulkMatch, BulkReport
 from enrichment.budget import CreditBudget, ResultCache
 from enrichment.coverage import (
     CoverageReport,
@@ -76,7 +77,7 @@ from enrichment.precheck import (
 )
 from enrichment.waterfall import Provider, Waterfall, select_inputs
 
-__version__ = "0.0.7"
+__version__ = "0.0.8"
 
 __all__ = [
     "DISPOSABLE_SAMPLE",
@@ -88,10 +89,12 @@ __all__ = [
     "ROLE_LOCAL_PARTS",
     "ZEROBOUNCE_STATUS",
     "ApolloAuthError",
+    "ApolloBulkMatch",
     "ApolloHTTPError",
     "ApolloPeopleMatch",
     "Attempt",
     "AttemptStatus",
+    "BulkReport",
     "CheckResult",
     "ContactCandidate",
     "CoverageReport",

@@ -84,10 +84,12 @@ class UrllibTransport:
     timeout: float = 20.0
 
     def post(self, path: str, body: Mapping[str, Any]) -> Mapping[str, Any]:
-        for key in ("linkedin_url", "domain", "email"):
-            host = _host(body[key]) if isinstance(body.get(key), str) else None
-            if host and is_reserved_host(host):
-                raise ValueError(f"{key!r} is on a reserved test domain: never sent to Apollo")
+        details = body.get("details")
+        for item in details if isinstance(details, list) else [body]:
+            for key in ("linkedin_url", "domain", "email"):
+                host = _host(item[key]) if isinstance(item.get(key), str) else None
+                if host and is_reserved_host(host):
+                    raise ValueError(f"{key!r} is on a reserved test domain: never sent to Apollo")
         request = urllib.request.Request(
             self.base_url + path,
             data=json.dumps(body).encode(),
@@ -111,25 +113,40 @@ class UrllibTransport:
 
 @dataclass
 class FakeApolloTransport:
-    """Offline transport: canned bodies by LinkedIn URL or domain; records every request."""
+    """Offline transport: canned bodies by LinkedIn URL or domain; records every request.
+
+    A bulk request (``details``) answers ``{"matches": [...]}`` in request order, ``None`` for
+    a miss; a timeout or HTTP error on any detail fails the whole request. ``bulk_bodies`` are
+    returned verbatim, one per bulk request, to simulate malformed answers.
+    """
 
     answers: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     http_errors: Mapping[str, int] = field(default_factory=dict)
     timeouts: frozenset[str] = frozenset()
+    bulk_bodies: list[Mapping[str, Any]] = field(default_factory=list)
     requests: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
 
     def post(self, path: str, body: Mapping[str, Any]) -> Mapping[str, Any]:
         self.requests.append((path, dict(body)))
-        keys = [body.get("linkedin_url"), body.get("domain")]
-        for key in keys:
-            if key in self.timeouts:
-                raise TimeoutError("simulated timeout")
-            if key in self.http_errors:
-                raise ApolloHTTPError(self.http_errors[key], "simulated")
-        for key in keys:
+        details = body.get("details")
+        items = details if isinstance(details, list) else [body]
+        for item in items:
+            for key in (item.get("linkedin_url"), item.get("domain")):
+                if key in self.timeouts:
+                    raise TimeoutError("simulated timeout")
+                if key in self.http_errors:
+                    raise ApolloHTTPError(self.http_errors[key], "simulated")
+        if not isinstance(details, list):
+            return {"person": self._person(body)}
+        if self.bulk_bodies:
+            return self.bulk_bodies.pop(0)
+        return {"matches": [self._person(item) for item in details]}
+
+    def _person(self, item: Mapping[str, Any]) -> Any:
+        for key in (item.get("linkedin_url"), item.get("domain")):
             if key in self.answers:
-                return self.answers[key]
-        return {"person": None}
+                return self.answers[key].get("person")
+        return None
 
 
 def build_match_body(inputs: Mapping[str, str]) -> dict[str, Any]:
