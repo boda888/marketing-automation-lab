@@ -27,8 +27,8 @@
       "id": "04-enrichment-verification",
       "path": "projects/04-enrichment-verification",
       "status": "in_progress",
-      "summary": "LeadRecord (placeholders -> None, is_fixture on reserved test domains); Provider protocol with alternative input sets; Waterfall (explicit run_if, ordered providers, only matched inputs sent, paid providers never see fixtures, first accepted answer wins, answered_by + per-attempt log without values); FakeProvider; check_mappings() input-mapping preflight and coverage() with named denominators; email status ladder assess_email()/assess_outcome() found -> checked -> verified / invalid from dated per-address checks (freshness window, finder's label is not verification, ZeroBounce + NeverBounce result maps) + ladder_summary() over emails found; per-record CreditBudget checked against each provider's max_cost (skipped_budget / budget_spent), ResultCache (same provider + field + inputs replayed at 0 credits), ProviderTimeout -> outcome_unknown booked at max_cost; EmailPrecheck without SMTP (syntax, null / implicit MX, NXDOMAIN, DNS failure = unknown, disposable with parent-domain match, role, caller-known catch-all -> 0-100 risk; never 'valid', to_check() feeds the ladder as lab-precheck; DNS cached per domain); dedupe_contacts() LinkedIn -> email -> name + company (weak key blocked by two profiles, ambiguous_name_match), newest value wins with per-field provenance + conflicts, email_domain_mismatch / conflicting_linkedin_profiles -> review; ApolloPeopleMatch provider (reveals off, previous-employer match rejected, 401/403 stop the run) with stdlib + fake transports; 238 tests. Planned: Clay adapter, Apollo bulk match, CRM dedupe, FastAPI + n8n for v0.1.",
-      "version": "0.0.7"
+      "summary": "LeadRecord (placeholders -> None, is_fixture on reserved test domains); Provider protocol with alternative input sets; Waterfall (explicit run_if, ordered providers, only matched inputs sent, paid providers never see fixtures, first accepted answer wins, answered_by + per-attempt log without values); FakeProvider; check_mappings() input-mapping preflight and coverage() with named denominators; email status ladder assess_email()/assess_outcome() found -> checked -> verified / invalid from dated per-address checks (freshness window, finder's label is not verification, ZeroBounce + NeverBounce result maps) + ladder_summary() over emails found; per-record CreditBudget checked against each provider's max_cost (skipped_budget / budget_spent), ResultCache (same provider + field + inputs replayed at 0 credits), ProviderTimeout -> outcome_unknown booked at max_cost; EmailPrecheck without SMTP (syntax, null / implicit MX, NXDOMAIN, DNS failure = unknown, disposable with parent-domain match, role, caller-known catch-all -> 0-100 risk; never 'valid', to_check() feeds the ladder as lab-precheck; DNS cached per domain); dedupe_contacts() LinkedIn -> email -> name + company (weak key blocked by two profiles, ambiguous_name_match), newest value wins with per-field provenance + conflicts, email_domain_mismatch / conflicting_linkedin_profiles -> review; ApolloPeopleMatch provider (reveals off, previous-employer match rejected, 401/403 stop the run) with stdlib + fake transports; ApolloBulkMatch prefetch (bulk_match, 10 per call, alignment check, per-record report); 262 tests. Planned: Clay adapter, CRM dedupe, FastAPI + n8n for v0.1.",
+      "version": "0.0.8"
     },
     {
       "id": "05-ai-personalization",
@@ -131,10 +131,11 @@
     "04: email precheck without SMTP probing (EmailPrecheck: syntax, null MX / implicit MX / NXDOMAIN / no host, DNS failure kept unknown, disposable list with parent-domain match + load_domain_list, role mailboxes, caller-known catch-all domains via catch_all_domains(checks) -> risk 0-100; never 'valid', to_check() -> EmailCheck by lab-precheck)",
     "04: contact dedupe (dedupe_contacts: LinkedIn profile key -> email -> name + company, ambiguous same-name rows joined to neither, newest value wins with per-field provenance and conflicts, email_domain_mismatch / conflicting_linkedin_profiles -> review)",
     "research R5 (LinkedIn automation): HeyReach / Aimfox / Waalaxy API surface from n8n packages — per-lead sender assignment, dedupe options, limits + warm-up, no invite-withdraw call, webhook events (note 2026-10-26)",
-    "04 v0.0.7: ApolloPeopleMatch provider (POST /api/v1/people/match, x-api-key; linkedin_url or name + domain; reveals off; previous-employer match -> no answer; email_status kept as context; 401/403 -> ApolloAuthError stops the run, 429/5xx -> ProviderError, timeout -> outcome_unknown), stdlib UrllibTransport refusing reserved test domains, FakeApolloTransport; 238 tests in 04 (2026-10-26)."
+    "04 v0.0.7: ApolloPeopleMatch provider (POST /api/v1/people/match, x-api-key; linkedin_url or name + domain; reveals off; previous-employer match -> no answer; email_status kept as context; 401/403 -> ApolloAuthError stops the run, 429/5xx -> ProviderError, timeout -> outcome_unknown), stdlib UrllibTransport refusing reserved test domains, FakeApolloTransport; 238 tests in 04 (2026-10-26).",
+    "04 v0.0.8: ApolloBulkMatch (POST /api/v1/people/bulk_match, chunks of <= 10): prefetch() sends only records the waterfall would send (filled / fixture / unfeedable skipped, identical inputs once), answers served per record through the waterfall with People Match rules; answers used only when aligned (one entry per detail, linkedin_url per slot) else outcome_unknown for the chunk; timeout -> outcome_unknown, 429/5xx -> error, 401/403 stop; duplicates billed once; fallback to single match; BulkReport per record; 262 tests in 04 (2026-10-27)."
   ],
   "next_steps": [
-    "04: Clay adapter (HTTP API / webhook table shape from current docs when reachable) and Apollo bulk match (/people/bulk_match, 10 per call, per-record outcomes); confirm Apollo response fields against docs.apollo.io when reachable; consume 01's needs_enrichment / missing_fields.",
+    "04: Clay adapter (HTTP API / webhook table shape from current docs when reachable); confirm Apollo People Match and bulk_match response fields (matches order, null misses, credits) against docs.apollo.io when reachable; consume 01's needs_enrichment / missing_fields.",
     "04 v0.1: FastAPI endpoint (precheck + waterfall + ladder + dedupe over a CSV / JSON batch), synthetic .example dataset, n8n workflow 'enrich -> precheck -> verify -> dedupe' with a review branch.",
     "04: live DNS adapter for EmailPrecheck (dnspython, opt-in [live] extra, same exception mapping as 02's DnsPythonResolver); dedupe / match against existing CRM records.",
     "06 (after 04 v0.1): sequencer push with explicit dedupe_scope mapped to Smartlead ignore_* settings / Instantly skip_if_* / lemlist deduplicate, sent / added / skipped report, idempotent retried creates (research R4 note); HeyReach push with explicit sender per lead and a GetCampaignsForLead pre-check, Waalaxy duplicate booleans in the same mapping (R5 note).",
@@ -167,12 +168,13 @@
     "04: ResultCache is in-memory with no expiry; max_cost per provider is declared by the adapter, not read from vendor billing. Budget/timeout behaviour tested only with FakeProvider.",
     "Research R4: Smartlead upload settings (ignore_* flags, 400 per call) and Instantly bulk /api/v2/leads/add skip_if_* flags come from web-search summaries; smartlead.ai, developer.instantly.ai and developer.lemlist.com were rejected by the proxy on 2026-10-25.",
     "04: EmailPrecheck has only FakeResolver (no live DNS adapter) and no catch-all detection of its own (needs SMTP probing, deliberately not built); null MX / implicit MX rules from knowledge plus a web-search summary of RFC 7505 (rfc-editor.org ENOTFOUND / proxy 403, datatracker.ietf.org proxy 403 on 2026-10-25). Built-in disposable and role lists are small samples; dedupe name matching is exact after normalisation (no nicknames / fuzzy match).",
-    "04: Apollo adapter request shape from open-source integrations (Activepieces piece-apollo 0.2.1, Pipedream apollo_io 0.7.1) and Apollo's MCP plugin skills; response fields (person.email, email_status, organization.primary_domain), the email_not_unlocked placeholder and 'credits only when data is returned' from knowledge / search summaries; docs.apollo.io, knowledge.apollo.io, deepline.com, jentic.com unreachable (2026-10-26). UrllibTransport never called Apollo."
+    "04: Apollo adapter request shape from open-source integrations (Activepieces piece-apollo 0.2.1, Pipedream apollo_io 0.7.1) and Apollo's MCP plugin skills; response fields (person.email, email_status, organization.primary_domain), the email_not_unlocked placeholder and 'credits only when data is returned' from knowledge / search summaries; docs.apollo.io, knowledge.apollo.io, deepline.com, jentic.com unreachable (2026-10-26). UrllibTransport never called Apollo.",
+    "04: ApolloBulkMatch's request/response shape (details / matches, one entry per detail in order, null for a miss) comes from a web-search summary and a third-party client (laravel-apollo); the 10-per-call limit from Apollo's MCP plugin sequence-load skill. docs.apollo.io was ENOTFOUND on 2026-10-27; never called live."
   ],
   "last_run": {
-    "date": "2026-10-26",
+    "date": "2026-10-27",
     "commits": 2,
-    "notes": "Evening run, budget 2: Apollo People Match adapter for 04 + state update."
+    "notes": "Evening run, budget 2: Apollo bulk match prefetch for 04 + state update."
   },
   "run_log": [
     {
@@ -426,6 +428,19 @@
         "https://raw.githubusercontent.com/PipedreamHQ/pipedream/master/components/apollo_io/apollo_io.app.mjs",
         "https://raw.githubusercontent.com/PipedreamHQ/pipedream/master/components/apollo_io/common/constants.mjs"
       ]
+    },
+    {
+      "date": "2026-10-27",
+      "commits": 2,
+      "summary": "04-enrichment-verification v0.0.8: ApolloBulkMatch — bulk_match prefetch in chunks of <= 10 feeding the waterfall per record, alignment check (count + linkedin_url per slot) or outcome_unknown for the chunk, per-record BulkReport, duplicates billed once, single-match fallback; 262 tests in 04.",
+      "sources": [
+        "https://raw.githubusercontent.com/apolloio/apollo-mcp-plugin/main/README.md",
+        "https://raw.githubusercontent.com/apolloio/apollo-mcp-plugin/main/skills/sequence-load/SKILL.md",
+        "https://raw.githubusercontent.com/jeffersongoncalves/laravel-apollo/main/README.md",
+        "https://raw.githubusercontent.com/jeffersongoncalves/laravel-apollo/main/src/Resources/People.php",
+        "https://raw.githubusercontent.com/FromSmall2Big/Apollo-MCP/main/src/apollo_mcp_server.py"
+      ],
+      "research_note": "One web search (Apollo people/bulk_match details/matches) used as a summary only for the matches response key. docs.apollo.io failed DNS (ENOTFOUND), deepline.com proxy 403."
     }
   ],
   "research": {
