@@ -126,5 +126,5 @@ Pain: agents with no safe access to the pipeline.
 ## 14 · Calls & AI voice
 Pain: engaged leads never get a call, or the whole sequence stalls waiting for a manual call.
 - [ ] call-task engine: create a task from engagement (reply, repeated opens, site visit) without blocking the sequence; CALL / Done / Callback states
-- [ ] dialer + AI voice-agent adapters behind one interface (shapes from vendor docs), fake provider for tests
-- [ ] call outcome → sequence (pause / continue / stop) and CRM write-back; consent / do-not-call checks before any automated call
+- [ ] dialer + AI voice-agent adapters behind one interface (shapes from vendor docs: Retell / Vapi SDKs, JustCall node — research R6 note), fake provider for tests; creation with vendor retries off and an idempotency key (Retell native, else own key + lookup before any redial), timeout → `outcome_unknown`
+- [ ] call outcome → sequence (pause / continue / stop) and CRM write-back: Retell `disconnection_reason` / Vapi `endedReason` mapped onto one vocabulary (connected, no answer, busy, voicemail, callback, DNC, bad number, provider fault), cost in cents from the call object; consent / do-not-call checks before any automated call, failing closed like Vapi's pre-dial; a DNC heard on a call feeds 06 suppression

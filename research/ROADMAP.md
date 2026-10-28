@@ -47,9 +47,12 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] Combining LinkedIn and email in one sequence: who orchestrates (sequencer, n8n, Clay), dedupe across channels
 
 ## R6 · Calls & AI voice
-- [ ] Dialers and call tasks (JustCall, Aircall, Kixie…): API, click-to-call from CRM, call-state sync back to the sequence
-- [ ] AI voice agents (Vapi, Retell, Bland, Synthflow, ElevenLabs agents): outbound vs inbound qualification, latency, cost per minute, CRM write-back
-- [ ] Compliance for automated calls (TCPA / consent in the US, UK / EU rules): what an AI caller may and may not do
+- [x] Dialers and call tasks: JustCall API, AI-agent calls, Sales Dialer, call events and webhook signing → [note](notes/2026-10-28-R6-voice-agents-dialer-api.md) (from the vendor n8n node)
+- [ ] Aircall / Kixie APIs (no API client package on npm 2026-10-28): click-to-call from CRM, call-state webhooks, disposition sync back to the sequence
+- [x] AI voice agents (Vapi, Retell): outbound call creation, idempotency and retries, DNC switches, end reasons, cost per call, CRM write-back events → [note](notes/2026-10-28-R6-voice-agents-dialer-api.md) (vendor SDKs; prices only as search summary; latency not covered)
+- [ ] Bland, Synthflow and ElevenLabs agents: call creation, DNC / consent fields, end reasons, cost fields (packages found 2026-10-28, not read); open live Retell / Vapi pricing pages (blocked 2026-10-28)
+- [ ] Retell webhook signature header name and retry policy for failed webhook deliveries (not in the SDK)
+- [ ] Compliance for automated calls (TCPA / consent in the US, UK / EU rules): what an AI caller may and may not do — FCC 2024 ruling known only from search summaries; open FCC 24-17 and check whether B2B calls to business lines need written consent
 - [ ] "Call when engaged" patterns: trigger a call task from email opens / replies / site visits without blocking the sequence
 
 ## R7 · CRM, pipeline & reporting
