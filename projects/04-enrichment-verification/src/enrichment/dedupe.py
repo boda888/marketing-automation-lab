@@ -96,6 +96,15 @@ def domain_key(domain: str | None) -> str | None:
     return domain or None
 
 
+def email_matches_company(email: str | None, company_domain: str | None) -> bool | None:
+    """Is the email on the company domain or a subdomain of it? ``None`` if either is missing."""
+    email, company = email_key(email), domain_key(company_domain)
+    if not email or not company:
+        return None
+    email_domain = email.rpartition("@")[2]
+    return email_domain == company or email_domain.endswith("." + company)
+
+
 def name_key(name: str | None) -> str | None:
     """Case, accents, punctuation and spacing removed: ``"José  O'Neil"`` -> ``"jose oneil"``."""
     name = clean(name)
@@ -252,11 +261,8 @@ def _merge(
     findings = ["ambiguous_name_match"] if ambiguous else []
     if len(conflicts.get("linkedin_url", [])) > 1:
         findings.append("conflicting_linkedin_profiles")
-    email, company = email_key(fields.get("email")), domain_key(fields.get("company_domain"))
-    if email and company:
-        email_domain = email.rpartition("@")[2]
-        if email_domain != company and not email_domain.endswith("." + company):
-            findings.append("email_domain_mismatch")
+    if email_matches_company(fields.get("email"), fields.get("company_domain")) is False:
+        findings.append("email_domain_mismatch")
     return PersonRecord(
         person_id=group[0].candidate_id,
         fields=fields,

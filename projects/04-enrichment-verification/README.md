@@ -9,13 +9,15 @@ email. The fix is a waterfall in code: an explicit run condition, cheap
 providers first, stop at the first acceptable answer, placeholders that never
 leave the building, and a record of every attempt.
 
-v0.0.8: the provider interface, the waterfall runner, offline fakes, an
+v0.0.9: the provider interface, the waterfall runner, offline fakes, an
 input-mapping preflight, a coverage report, per-record credit budgets with a
 result cache and timeouts kept as "outcome unknown", the email status ladder
 with ZeroBounce and NeverBounce result mappings, and an email precheck without
 SMTP probing that feeds the ladder, and contact dedupe into one
 identity-consistent person record with provenance, and the first real provider adapter
-(Apollo People Match, single and bulk). The Clay adapter and CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
+(Apollo People Match, single and bulk), and v0.0.9's batch pipeline that runs all of it in one
+pass behind a FastAPI endpoint. The synthetic dataset, the n8n workflow, the Clay adapter and
+CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
 
 ## Architecture
 
@@ -185,6 +187,43 @@ credits).
 Prefetch only records that will reach Apollo (run the cheaper providers first, bulk the
 leftovers); otherwise credits go to records an earlier provider would have answered.
 
+**Batch pipeline — `EnrichmentPipeline(waterfall, resolver).run(candidates, checks, now=...)`.**
+Every step reads the same merged person record, so a fix in one step cannot be undone by a
+stale copy in the next:
+
+```
+candidates ─► dedupe_contacts ─► email waterfall ─► precheck ─► ladder ─► action per person
+```
+
+| step | rule |
+|---|---|
+| dedupe | `dedupe_contacts(candidates, source_priority=...)`: one `PersonRecord` per person |
+| waterfall | the `email` waterfall (a phone one is refused) on each person; runs only where the email is still empty, one `CreditBudget(budget_per_record)` per person, one `ResultCache` per batch (pass `cache=` to share answers across batches on purpose) |
+| email used | the waterfall's answer if it found one (`email_source` = provider), else the merged record's email (`email_source` = its source) |
+| identity | `email_domain_mismatch` is judged on the address actually used, *after* the waterfall (dedupe's own flag is recomputed, not copied); an address that two people ended up with → `email_shared_with_other_person` on both; a timed-out paid call → `waterfall_outcome_unknown` |
+| precheck | one `EmailPrecheck` per batch (one DNS query per domain); catch-all domains = `known_catch_all` + `catch_all_domains(checks)`, so a verifier's catch-all verdict on one colleague holds the whole domain back from `send` |
+| ladder | `assess_email` with that address's own earlier checks plus the precheck (`lab-precheck`, dated `now`) |
+
+| action | when (first rule that matches) |
+|---|---|
+| `suppress` | the ladder says invalid / do-not-mail (beats findings: never mail it) |
+| `review` | any finding (dedupe's or the pipeline's) |
+| `no_email` | no address from the record or the waterfall |
+| `send` | `verified`: a fresh, independent valid check |
+| `verify` | anything else (`found` / `checked`): run an independent verifier first |
+
+`BatchResult` carries every `PersonResult` (person, email + source, waterfall outcome,
+precheck, assessment, findings, action), counts per action, the ladder summary over
+*distinct* addresses (a shared address counts once) and the waterfall's coverage and credits.
+
+**API — `create_app(pipeline)`** (FastAPI). The caller wires providers and the resolver; the
+service never picks a paid provider or a live resolver itself.
+
+| route | detail |
+|---|---|
+| `GET /healthz` | status, version, the email providers wired, in order |
+| `POST /v1/enrich/batch` | `{candidates, checks?, now?}` → `BatchResult`; more than 500 candidates → 413; duplicate `candidate_id`, a check dated after `now`, a date without a timezone → 422 |
+
 `FakeProvider` answers from a lookup table, can simulate faults (`ProviderError`),
 timeouts (`ProviderTimeout`) and billing only on hits (`charge_on_miss=False`), and records every call so
 tests can assert what was — and was not — sent.
@@ -208,6 +247,20 @@ out = Waterfall("email", [cheap, pricey]).run(
     LeadRecord(record_id="lead-1", fields={"linkedin_url": "https://www.linkedin.com/in/ada"})
 )
 out.status, out.answered_by, out.cost  # found, 'pricey', 1.5
+```
+
+Serve the pipeline (an app module of your own wires real or fake providers):
+
+```python
+# my_app.py
+from enrichment import EnrichmentPipeline, FakeResolver, Waterfall
+from enrichment.api import create_app
+
+app = create_app(EnrichmentPipeline(Waterfall("email", [cheap, pricey]), FakeResolver({})))
+```
+
+```bash
+uvicorn my_app:app --port 8004
 ```
 
 ## Limits
@@ -236,4 +289,6 @@ out.status, out.answered_by, out.cost  # found, 'pricey', 1.5
 - Cost is reported as provider credits, not money.
 - Fixture detection looks at domain-like field values only; a fixture with no
   domain, email or URL field is not recognised.
+- The pipeline and the API are tested offline only (`FakeProvider`, `FakeResolver`,
+  FastAPI `TestClient`); no demo dataset or n8n workflow ships yet.
 - Nothing here has run against a live provider.

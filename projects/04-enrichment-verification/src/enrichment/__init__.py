@@ -28,6 +28,7 @@ from enrichment.dedupe import (
     dedupe_contacts,
     domain_key,
     email_key,
+    email_matches_company,
     linkedin_key,
     name_key,
 )
@@ -59,6 +60,7 @@ from enrichment.models import (
     clean,
     is_reserved_host,
 )
+from enrichment.pipeline import BatchResult, EnrichmentPipeline, NextAction, PersonResult
 from enrichment.precheck import (
     DISPOSABLE_SAMPLE,
     PRECHECK_CHECKER,
@@ -77,9 +79,14 @@ from enrichment.precheck import (
 )
 from enrichment.waterfall import Provider, Waterfall, select_inputs
 
-__version__ = "0.0.8"
+__version__ = "0.0.9"
 
 __all__ = [
+    "email_matches_company",
+    "PersonResult",
+    "NextAction",
+    "EnrichmentPipeline",
+    "BatchResult",
     "DISPOSABLE_SAMPLE",
     "EMAILS_FOUND",
     "NEVERBOUNCE_RESULT",
