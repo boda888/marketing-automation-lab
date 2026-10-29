@@ -56,7 +56,9 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] "Call when engaged" patterns: trigger a call task from email opens / replies / site visits without blocking the sequence
 
 ## R7 · CRM, pipeline & reporting
-- [ ] HubSpot vs Attio vs Twenty vs Pipedrive for outbound teams: custom objects, API limits, dedupe, stage design
+- [x] HubSpot vs Attio vs Twenty vs Pipedrive over the API: upsert keys, duplicate handling, partial batch failures, merges, client retries, rate limits → [note](notes/2026-10-29-R7-crm-upsert-dedupe-limits.md) (from vendor SDKs; Attio from a third-party copy of its OpenAPI; limits only as search summary)
+- [ ] Open live HubSpot / Attio / Pipedrive / Twenty docs (DNS-blocked 2026-10-29): HubSpot batch size and upsert behaviour on duplicate keys inside one batch, Attio current spec + webhook signing, Pipedrive token costs per endpoint and burst numbers, Twenty REST upsert parameter
+- [ ] Custom objects and stage design for outbound in each CRM (signals, sequences, meetings as objects vs properties); HubSpot webhooks and their retry policy
 - [ ] Funnel reporting from raw events (sent → replied → meeting → deal) by segment / signal; tools vs a sheet / Notion
 - [ ] Cost tracking: tool spend per hypothesis, cost per meeting
 
