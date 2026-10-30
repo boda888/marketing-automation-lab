@@ -1,0 +1,421 @@
+{
+  "name": "Enrich and route by action (marketing-automation-lab/04)",
+  "nodes": [
+    {
+      "id": "b4e1c7d2-0004-4a6b-8f10-000000000001",
+      "name": "Webhook: candidates + checks in",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "b4e1c7d2-0004-4a6b-8f10-0000000000aa",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "enrichment/batch",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "b4e1c7d2-0004-4a6b-8f10-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-enrichment-url",
+              "name": "enrichment_url",
+              "value": "http://enrichment:8004",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "b4e1c7d2-0004-4a6b-8f10-000000000003",
+      "name": "Enrich + precheck + verify + dedupe (one pass)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "retryOnFail": false,
+      "onError": "continueErrorOutput",
+      "notes": "No retry: this call can bill paid email finders. A timed-out batch may already be charged; re-post it on purpose, never automatically.",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.enrichment_url }}/v1/enrich/batch",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ candidates: $json.body.candidates || [], checks: $json.body.checks || [], now: $json.body.now }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "b4e1c7d2-0004-4a6b-8f10-000000000004",
+      "name": "Respond: action summary",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        700,
+        -200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ candidates_in: $json.candidates_in, people: $json.people, actions: $json.actions, cost: $json.cost }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "b4e1c7d2-0004-4a6b-8f10-000000000005",
+      "name": "Respond: enrichment failed (nothing routed)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        700,
+        260
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: 'enrichment call failed; no person was routed', detail: $json.error }) }}",
+        "options": {
+          "responseCode": 502
+        }
+      }
+    },
+    {
+      "id": "b4e1c7d2-0004-4a6b-8f10-000000000006",
+      "name": "One item per person",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        700,
+        0
+      ],
+      "parameters": {
+        "fieldToSplitOut": "results",
+        "include": "noOtherFields",
+        "options": {}
+      }
+    },
+    {
+      "id": "b4e1c7d2-0004-4a6b-8f10-000000000007",
+      "name": "Route by action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        920,
+        0
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "renameOutput": true,
+              "outputKey": "Send",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "action-send",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "send",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Verify",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "action-verify",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "verify",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Review",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "action-review",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "review",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Suppress",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "action-suppress",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "suppress",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "No email",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "action-no-email",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "no_email",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Unexpected action"
+        }
+      }
+    },
+    {
+      "id": "b4e1c7d2-0004-4a6b-8f10-000000000008",
+      "name": "Queue: sequencer (verified, no findings)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        -240
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "b4e1c7d2-0004-4a6b-8f10-000000000009",
+      "name": "Verify: independent checker, then re-post",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        -100
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "b4e1c7d2-0004-4a6b-8f10-000000000010",
+      "name": "Queue: human review (never the sequencer)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        40
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "b4e1c7d2-0004-4a6b-8f10-000000000011",
+      "name": "Suppress: never mail this address",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        180
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "b4e1c7d2-0004-4a6b-8f10-000000000012",
+      "name": "Hold: no address (other sources later)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        320
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Webhook: candidates + checks in": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Enrich + precheck + verify + dedupe (one pass)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich + precheck + verify + dedupe (one pass)": {
+      "main": [
+        [
+          {
+            "node": "Respond: action summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "One item per person",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: enrichment failed (nothing routed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per person": {
+      "main": [
+        [
+          {
+            "node": "Route by action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by action": {
+      "main": [
+        [
+          {
+            "node": "Queue: sequencer (verified, no findings)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verify: independent checker, then re-post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue: human review (never the sequencer)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Suppress: never mail this address",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hold: no address (other sources later)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue: human review (never the sequencer)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

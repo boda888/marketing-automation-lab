@@ -9,14 +9,15 @@ email. The fix is a waterfall in code: an explicit run condition, cheap
 providers first, stop at the first acceptable answer, placeholders that never
 leave the building, and a record of every attempt.
 
-v0.0.9: the provider interface, the waterfall runner, offline fakes, an
+v0.0.10: the provider interface, the waterfall runner, offline fakes, an
 input-mapping preflight, a coverage report, per-record credit budgets with a
 result cache and timeouts kept as "outcome unknown", the email status ladder
 with ZeroBounce and NeverBounce result mappings, and an email precheck without
 SMTP probing that feeds the ladder, and contact dedupe into one
 identity-consistent person record with provenance, and the first real provider adapter
 (Apollo People Match, single and bulk), and v0.0.9's batch pipeline that runs all of it in one
-pass behind a FastAPI endpoint. The synthetic dataset, the n8n workflow, the Clay adapter and
+pass behind a FastAPI endpoint, and v0.0.10's offline demo (synthetic `.example` dataset + fake
+providers) with an n8n workflow that routes each person on its action. The Clay adapter and
 CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
 
 ## Architecture
@@ -263,6 +264,42 @@ app = create_app(EnrichmentPipeline(Waterfall("email", [cheap, pricey]), FakeRes
 uvicorn my_app:app --port 8004
 ```
 
+**Offline demo.** `enrichment.demo:app` wires one free `FakeProvider` and a `FakeResolver`
+that answer [`examples/demo-batch.json`](examples/demo-batch.json): 8 candidates from three
+sources (fictional `.example` companies) and one ZeroBounce check. They become 7 people and
+every action at least once: a verified address (`send`), an address with no check and a
+found one with no check (`verify`), an old employer's address and a timed-out finder call
+(`review`), a null-MX domain (`suppress`), a person with nothing to look up (`no_email`).
+
+```bash
+uvicorn enrichment.demo:app --port 8004
+curl -s localhost:8004/v1/enrich/batch -H 'content-type: application/json' \
+  -d @examples/demo-batch.json | python -m json.tool
+```
+
+**n8n — [`n8n/enrich-and-route.json`](n8n/enrich-and-route.json).** Webhook
+(`POST enrichment/batch`, body `{candidates, checks, now}`) → Config (`enrichment_url`,
+default `http://enrichment:8004`) → HTTP Request `POST /v1/enrich/batch` → the webhook gets
+the summary (`candidates_in`, `people`, `actions`, `cost`) while Split Out sends one item per
+person into a Switch on `action`:
+
+| output | goes to |
+|---|---|
+| `send` | sequencer queue — the only path that reaches it |
+| `verify` | an independent verifier, then post the batch again with the new check |
+| `review` | human review |
+| `suppress` | suppression list |
+| `no_email` | hold until another source has an address |
+| anything else (fallback output) | human review, never the sequencer |
+
+The HTTP node has **no retry**: the endpoint can call paid finders, and a retried batch after
+a timeout buys the same lookups again (the result cache lives per batch). Its timeout is
+120 s and its error output answers the webhook with 502 and routes nobody; re-post a failed
+batch on purpose. The queue nodes are No-Ops to replace with your sequencer / CRM / sheet
+nodes. Tests check the workflow against the API (path, body fields, response fields read,
+one Switch output per `NextAction` plus a wired fallback) and push every demo person
+through the Switch to the queue for its action.
+
 ## Limits
 
 - The Apollo request shape comes from open-source integrations of the endpoint
@@ -290,5 +327,7 @@ uvicorn my_app:app --port 8004
 - Fixture detection looks at domain-like field values only; a fixture with no
   domain, email or URL field is not recognised.
 - The pipeline and the API are tested offline only (`FakeProvider`, `FakeResolver`,
-  FastAPI `TestClient`); no demo dataset or n8n workflow ships yet.
+  FastAPI `TestClient`). The n8n workflow is structure-tested against the API and n8n's
+  node source on GitHub (HTTP Request V3 options, `onError` values, Switch 3.x); it has
+  never been imported into a live n8n instance (docs.n8n.io unreachable 2026-10-30).
 - Nothing here has run against a live provider.

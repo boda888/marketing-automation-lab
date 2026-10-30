@@ -1,0 +1,92 @@
+{
+  "candidates": [
+    {
+      "candidate_id": "ada-apollo",
+      "source": "apollo",
+      "observed_at": "2026-10-29T09:00:00Z",
+      "fields": {
+        "full_name": "Ada Lindqvist",
+        "linkedin_url": "https://www.linkedin.com/in/demo-ada",
+        "company_domain": "harborline.example"
+      }
+    },
+    {
+      "candidate_id": "ada-csv",
+      "source": "event_csv",
+      "observed_at": "2026-10-20T09:00:00Z",
+      "fields": {
+        "full_name": "Ada Lindqvist",
+        "linkedin_url": "https://www.linkedin.com/in/demo-ada",
+        "title": "Head of RevOps"
+      }
+    },
+    {
+      "candidate_id": "bob-apollo",
+      "source": "apollo",
+      "observed_at": "2026-10-29T09:00:00Z",
+      "fields": {
+        "full_name": "Bob Okafor",
+        "email": "bob@harborline.example",
+        "company_domain": "harborline.example"
+      }
+    },
+    {
+      "candidate_id": "hugo-apollo",
+      "source": "apollo",
+      "observed_at": "2026-10-29T09:00:00Z",
+      "fields": {
+        "full_name": "Hugo Marsh",
+        "linkedin_url": "https://www.linkedin.com/in/demo-hugo",
+        "company_domain": "quillstone.example"
+      }
+    },
+    {
+      "candidate_id": "cara-linkedin",
+      "source": "linkedin",
+      "observed_at": "2026-10-29T09:00:00Z",
+      "fields": {
+        "full_name": "Cara Duval",
+        "linkedin_url": "https://www.linkedin.com/in/demo-cara",
+        "company_domain": "quillstone.example"
+      }
+    },
+    {
+      "candidate_id": "jo-apollo",
+      "source": "apollo",
+      "observed_at": "2026-10-29T09:00:00Z",
+      "fields": {
+        "full_name": "Jo Brandt",
+        "linkedin_url": "https://www.linkedin.com/in/demo-jo",
+        "company_domain": "harborline.example"
+      }
+    },
+    {
+      "candidate_id": "eve-csv",
+      "source": "event_csv",
+      "observed_at": "2026-10-25T09:00:00Z",
+      "fields": {
+        "full_name": "Eve Novak",
+        "email": "eve@parkedlot.example"
+      }
+    },
+    {
+      "candidate_id": "dan-csv",
+      "source": "event_csv",
+      "observed_at": "2026-10-25T09:00:00Z",
+      "fields": {
+        "full_name": "Dan Ferro",
+        "company_domain": "quillstone.example"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "email": "ada@harborline.example",
+      "checker": "zerobounce",
+      "checked_at": "2026-10-29T10:00:00Z",
+      "result": "valid",
+      "provider_status": "valid"
+    }
+  ],
+  "now": "2026-10-30T12:00:00Z"
+}

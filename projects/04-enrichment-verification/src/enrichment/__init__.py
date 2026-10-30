@@ -79,7 +79,7 @@ from enrichment.precheck import (
 )
 from enrichment.waterfall import Provider, Waterfall, select_inputs
 
-__version__ = "0.0.9"
+__version__ = "0.0.10"
 
 __all__ = [
     "email_matches_company",
