@@ -62,16 +62,16 @@ Pain: list-based outreach with 2–4% replies.
 - [x] FastAPI `POST /v1/signals/prioritise` + synthetic `.example` dataset + n8n workflow 'prioritise before research' (Switch on tier, Review → human review)
 - [x] dedupe the same event seen in several sources (source id within a source, evidence URL, subject + overlapping dates; provenance kept); `Unknown` / `Not found in sample` kept apart from "no signal"
 
-## 04 · Waterfall enrichment + email verification + CRM dedupe — v0.0.10 (2026-10-30)
+## 04 · Waterfall enrichment + email verification + CRM dedupe — v0.1.0 (2026-10-31)
 Pain: 40–60% match rates, bounces, duplicates.
 - [x] provider interface + fake providers + waterfall runner: explicit run condition, cheap first, stop at the first accepted answer, `answered_by` and per-attempt log (field names, credits), paid providers never see fixtures
-- [ ] Clay / Apollo request shapes as adapters (Apollo People Match done 2026-10-26: reveals off, previous-employer match rejected, 401/403 stop the run; Apollo bulk match done 2026-10-27: chunks of 10, answers used only when aligned to the request; Clay next); field-level merge with confidence and provenance
+- [x] Clay / Apollo request shapes as adapters (Apollo People Match 2026-10-26: reveals off, previous-employer match rejected, 401/403 stop the run; Apollo bulk match 2026-10-27: chunks of 10, answers used only when aligned to the request; Clay table 2026-10-31: row push with a `lab_ref` correlation hash, HTTP API column callback accepted only for pushed refs, pending rows `outcome_unknown` → review and never re-pushed, 50,000-submission webhook cap checked before the POST)
 - [x] cost budget per record (checked against each provider's `max_cost` before the call, shared across a record's waterfalls), result cache (same provider + inputs never paid twice), timed-out calls kept as `outcome_unknown` and booked at `max_cost`
 - [ ] consume `needs_enrichment` / `missing_fields` from 01; persistent cache with a freshness window
 - [x] verification: syntax, MX (null MX, implicit MX, NXDOMAIN; DNS failure = unknown), disposable, role-based, known catch-all domains; risk score; no SMTP probing — a precheck never yields `valid`, it feeds the ladder as `lab-precheck`
 - [x] contact dedupe LinkedIn profile → email → name + company (weak key blocked by two profiles, ambiguous rows flagged), newest value wins with per-field provenance and conflicts kept, email-domain vs company-domain identity check → review
-- [ ] dedupe / match against existing CRM records
-- [x] v0.1 pipeline + demo: one-pass batch pipeline dedupe → waterfall → precheck → ladder → action (`send` / `verify` / `review` / `suppress` / `no_email`) behind `POST /v1/enrich/batch` (2026-10-28); synthetic `.example` dataset with an offline demo app and the n8n workflow 'enrich and route by action' (Switch per action, fallback → review, no retry on the billable call, error output answers 502) (2026-10-30). v0.1 tag waits on the Clay adapter.
+- [ ] dedupe / match against existing CRM records; per-field confidence on merged values (per-field provenance exists)
+- [x] v0.1 pipeline + demo: one-pass batch pipeline dedupe → waterfall → precheck → ladder → action (`send` / `verify` / `review` / `suppress` / `no_email`) behind `POST /v1/enrich/batch` (2026-10-28); synthetic `.example` dataset with an offline demo app and the n8n workflow 'enrich and route by action' (Switch per action, fallback → review, no retry on the billable call, error output answers 502) (2026-10-30); v0.1.0 with the Clay adapter (2026-10-31).
 - [x] validate provider inputs before a run (`check_mappings`: no `"Unknown"` placeholders, empty-everywhere fields, eligibility per provider) and report coverage/cost with an explicit denominator (`coverage`)
 - [x] status ladder found → checked (provider + date) → verified (+ invalid), never promoted by arithmetic: per-address checks only, freshness window, finder's own label is not verification, `ladder_summary` over emails found; ZeroBounce and NeverBounce (name or code 0–4, disposable → do-not-mail) results mapped
 
