@@ -10,6 +10,16 @@ from enrichment.apollo import (
 )
 from enrichment.apollo_bulk import ApolloBulkMatch, BulkReport
 from enrichment.budget import CreditBudget, ResultCache
+from enrichment.clay import (
+    CallbackStatus,
+    ClayAuthError,
+    ClayEmail,
+    ClayPending,
+    ClayQuotaError,
+    FakeClayTransport,
+    check_callback_secret,
+    verify_clay_signature,
+)
 from enrichment.coverage import (
     CoverageReport,
     MappingFinding,
@@ -79,9 +89,17 @@ from enrichment.precheck import (
 )
 from enrichment.waterfall import Provider, Waterfall, select_inputs
 
-__version__ = "0.0.10"
+__version__ = "0.1.0"
 
 __all__ = [
+    "CallbackStatus",
+    "ClayAuthError",
+    "ClayEmail",
+    "ClayPending",
+    "ClayQuotaError",
+    "FakeClayTransport",
+    "check_callback_secret",
+    "verify_clay_signature",
     "email_matches_company",
     "PersonResult",
     "NextAction",

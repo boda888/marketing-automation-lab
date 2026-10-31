@@ -9,16 +9,17 @@ email. The fix is a waterfall in code: an explicit run condition, cheap
 providers first, stop at the first acceptable answer, placeholders that never
 leave the building, and a record of every attempt.
 
-v0.0.10: the provider interface, the waterfall runner, offline fakes, an
+v0.1.0: the provider interface, the waterfall runner, offline fakes, an
 input-mapping preflight, a coverage report, per-record credit budgets with a
 result cache and timeouts kept as "outcome unknown", the email status ladder
-with ZeroBounce and NeverBounce result mappings, and an email precheck without
-SMTP probing that feeds the ladder, and contact dedupe into one
-identity-consistent person record with provenance, and the first real provider adapter
-(Apollo People Match, single and bulk), and v0.0.9's batch pipeline that runs all of it in one
-pass behind a FastAPI endpoint, and v0.0.10's offline demo (synthetic `.example` dataset + fake
-providers) with an n8n workflow that routes each person on its action. The Clay adapter and
-CRM dedupe are next (see [ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
+with ZeroBounce and NeverBounce result mappings, an email precheck without
+SMTP probing that feeds the ladder, contact dedupe into one identity-consistent
+person record with provenance, provider adapters for Apollo People Match (single and
+bulk) and a Clay table (push a row, take the HTTP API column's callback), a batch
+pipeline that runs all of it in one pass behind a FastAPI endpoint, and an offline demo
+(synthetic `.example` dataset + fake providers) with an n8n workflow that routes each person
+on its action. Matching against existing CRM records is next (see
+[ROADMAP](../../ROADMAP.md#04--waterfall-enrichment--email-verification--crm-dedupe)).
 
 ## Architecture
 
@@ -188,6 +189,30 @@ credits).
 Prefetch only records that will reach Apollo (run the cheaper providers first, bulk the
 leftovers); otherwise credits go to records an earlier provider would have answered.
 
+**Clay adapter — `ClayEmail(transport, clock)`**, a `Provider` for `email` backed by a Clay
+table. Clay answers by callback, not in the response, so the waterfall runs twice:
+
+```
+run 1: lookup ─► POST row {linkedin_url, company_domain, lab_ref} to the table webhook
+                 ─► ClayPending (outcome_unknown → pipeline: review), credits booked once
+Clay:  table enrichments ─► HTTP API column POSTs {lab_ref, work_email, company_domain, ...}
+lab:   check_callback_secret(headers) ─► clay.receive(body) ─► accepted / duplicate / unknown_ref / malformed
+run 2: lookup ─► the stored answer (found, answered_by = clay, 0 credits)
+```
+
+| rule | detail |
+|---|---|
+| input sets | `linkedin_url + company_domain` → `first_name + last_name + company_domain` → `linkedin_url`; only the matched set is sent, placeholders refused |
+| correlation | `lab_ref` = hash of exactly the inputs sent; a callback for a ref the lab did not push (or no longer waits on) is `unknown_ref` and writes nothing |
+| once only | the same inputs are pushed once; waiting (`pending`), a push that timed out (`push_timeout`, counted: the row may have landed) and no callback after `callback_timeout` (`no_callback`) are all `ClayPending`, never a re-push and never a free miss; `forget(ref)` re-pushes on purpose |
+| answer checks | company domain in the callback ≠ the one sent → `clay:employer_mismatch:<domain>`, no value; an email cell holding error text, `"null"` or an object → `clay:no_email`; first callback wins, a forced re-run of the column is `duplicate` |
+| quota | a webhook takes 50,000 submissions in its lifetime (deleting rows does not give them back): `ClayQuotaError` before the POST that would pass it; set `submitted` to the count Clay shows |
+| faults | 401 / 403 / 404 (bad token, deleted webhook) → `ClayAuthError` stops the run; 429 / 5xx → `ProviderError`, not counted, the waterfall moves on |
+| auth | the live `UrllibTransport` sends the webhook token as `x-clay-webhook-auth` and refuses reserved test domains before any request; HTTP API column callbacks are unsigned, so put a shared secret header in the column and check it with `check_callback_secret` (constant time); Clay's signed webhooks are checked with `verify_clay_signature` (`X-Clay-Signature: sha256=<hex HMAC-SHA256 of the raw body>`) |
+
+The provider's pending / results maps live in memory; keep the `ClayEmail` object (or persist
+both maps) between the push run and the callback run.
+
 **Batch pipeline — `EnrichmentPipeline(waterfall, resolver).run(candidates, checks, now=...)`.**
 Every step reads the same merged person record, so a fix in one step cannot be undone by a
 stale copy in the next:
@@ -312,7 +337,16 @@ through the Switch to the queue for its action.
   limit is from Apollo's MCP plugin skill (`sequence-load`); the `details` / `matches` shape
   and "one entry per detail, in order, `null` for a miss" come from a search summary and a
   third-party client (laravel-apollo), so `ApolloBulkMatch` refuses any answer it cannot
-  align. No Clay adapter yet.
+  align.
+- The Clay adapter's shapes come from search summaries, not pages opened: Clay University /
+  developers.clay.com, community.clay.com and every other Clay host were unreachable from the
+  run environment (2026-10-31: DNS not allowed / proxy 403). Taken from those summaries: the
+  50,000 lifetime submissions per webhook source, the `x-clay-webhook-auth` header (one
+  community answer), the HTTP API column posting a configured JSON body, and
+  `X-Clay-Signature` = `sha256=` + HMAC-SHA256 hex of the raw body for routine-run webhooks.
+  The callback body is the lab's own contract (you configure the column), and
+  `UrllibTransport` has never called Clay. The 404-means-deleted-webhook mapping is an
+  assumption.
 - `ResultCache` is in memory with no expiry: a long-lived store needs a freshness
   window (a contact's email changes when they change jobs) — not built yet.
 - The ladder consumes checks; it does not run them. No verifier adapter
