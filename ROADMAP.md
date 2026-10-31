@@ -122,7 +122,7 @@ Pain: hand-set weights drift.
 
 ## 13 · GTM MCP server
 Pain: agents with no safe access to the pipeline.
-- [ ] expose score, enrich, preflight, classify as MCP tools with input validation and dry-run; every tool declares an effect class (`read` / `spends_credits` with an estimate / `outbound`) and non-read tools need explicit confirm, mirroring the effect table in Apollo's official MCP README ([R1 note](research/notes/2026-10-22-R1-sourcing-mcp-servers.md)); `.example` fixtures never reach paid tools
+- [ ] expose score, enrich, preflight, classify as MCP tools with input validation and dry-run; every tool declares an effect class (`read` / `spends_credits` with an estimate / `outbound`) and non-read tools need explicit confirm, mirroring the effect table in Apollo's official MCP README ([R1 note](research/notes/2026-10-22-R1-sourcing-mcp-servers.md)); `.example` fixtures never reach paid tools; effect class enforced server-side (a read-only mode does not register write tools — annotations are hints by spec), writes are upserts by person key returning per-row `created / updated / failed` (never drop failed rows the way HubSpot's MCP drops a 207's `errors[]`), and the HTTP transport refuses to start without auth (n8n's MCP Server Trigger defaults to none) ([R8 note](research/notes/2026-10-31-R8-gtm-mcp-servers-write-safety.md))
 
 ## 14 · Calls & AI voice
 Pain: engaged leads never get a call, or the whole sequence stalls waiting for a manual call.

@@ -63,7 +63,9 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] Cost tracking: tool spend per hypothesis, cost per meeting
 
 ## R8 · AI agents & MCP over the stack
-- [ ] Which GTM tools ship MCP servers (Clay, HubSpot, Apollo, Smartlead, Airtable…); what an agent can safely do with them
+- [x] Which GTM tools ship MCP servers (Clay, HubSpot, Apollo, Smartlead, Airtable…); what an agent can safely do with them → [note](notes/2026-10-31-R8-gtm-mcp-servers-write-safety.md) (sourcing tools in the R1 note)
+- [ ] HubSpot's remote MCP server (used by Claude's connector): open the vendor docs when reachable — tool list per scope, whether writes are upserts, how partial failures and the per-write confirmation work
+- [ ] Clay as an MCP / connector: confirm on clay.com or docs.clay.com what an agent can do (read tables, run enrichments, spend credits) and how credits are capped per call
 - [ ] Claude skills / agents for research, first lines and reply drafting: guardrails, review steps, eval practice
 - [ ] Agent-run workflows vs n8n: when each is the right tool
 
