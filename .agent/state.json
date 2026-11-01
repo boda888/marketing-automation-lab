@@ -138,7 +138,8 @@
     "research R7 (CRM): HubSpot / Attio / Pipedrive / Twenty write semantics from vendor SDK packages — HubSpot batch upsert on idProperty with _new and 207 partial failures resolved as success, SDK retries on every request (create can duplicate); Attio assert on a unique attribute + record.merged; Pipedrive no upsert, Basic-auth webhooks, token budget; Twenty duplicateCriteria + UPSERTED events (note 2026-10-29)",
     "04 v0.0.10: offline demo (enrichment.demo:app — free FakeProvider + FakeResolver) answering examples/demo-batch.json (8 candidates, 3 sources, fictional .example companies -> 7 people, every action at least once) and n8n/enrich-and-route.json: webhook -> HTTP POST /v1/enrich/batch (no retry: the call can bill paid finders; 120 s timeout; error output -> 502, nobody routed) -> summary response + Split Out -> Switch on action (send -> sequencer only, verify, review, suppress, no_email, fallback -> review); tests check the workflow against the API and route every demo person; 293 tests in 04 (2026-10-30).",
     "research R8 (AI agents & MCP): first-party MCP servers for CRM / ops / orchestration from the MCP registry (only Airtable has a vendor-namespace entry; HubSpot, Attio, Pipedrive, Clay, Smartlead, Instantly community-only there), HubSpot's npm MCP 0.4.0 read from source (create-only writes, idempotentHint false, 207 errors[] dropped, text-only guardrail), n8n MCP Server Trigger auth default none and MCP Client Tool tools default All, MCP spec: annotations untrusted (note 2026-10-31)",
-    "04 v0.1.0: Clay table adapter ClayEmail — row push to the table webhook with a lab_ref correlation hash of the inputs sent, HTTP API column callback accepted only for pushed refs (first wins, employer-domain mismatch and junk cells give no value), pending / push-timeout / no-callback raise ClayPending (outcome_unknown, never cached, never re-pushed, credits once), 50,000 lifetime submissions checked before the POST, 401/403/404 stop the run, check_callback_secret + verify_clay_signature; root README row -> v0.1 (2026-10-31)"
+    "04 v0.1.0: Clay table adapter ClayEmail — row push to the table webhook with a lab_ref correlation hash of the inputs sent, HTTP API column callback accepted only for pushed refs (first wins, employer-domain mismatch and junk cells give no value), pending / push-timeout / no-callback raise ClayPending (outcome_unknown, never cached, never re-pushed, credits once), 50,000 lifetime submissions checked before the POST, 401/403/404 stop the run, check_callback_secret + verify_clay_signature; root README row -> v0.1 (2026-10-31)",
+    "research R9 (orchestration & reliability): n8n reliability features read from source — Retry On Fail re-runs the whole node with all items (2–5 tries, ≤ 5 s fixed wait), Remove Duplicates 'processed in previous executions' records keys before downstream and errors at a full history (default 10,000), error workflow only on failed production executions with no item data, concurrency limit per instance and not for sub-workflows (note 2026-11-01)"
   ],
   "next_steps": [
     "06: sequencer push with explicit dedupe_scope mapped to Smartlead ignore_* settings / Instantly skip_if_* / lemlist deduplicate, sent / added / skipped report, idempotent retried creates (research R4 note); HeyReach push with explicit sender per lead and a GetCampaignsForLead pre-check, Waalaxy duplicate booleans in the same mapping (R5 note). 04 is v0.1, so 06 is the next project.",
@@ -146,6 +147,7 @@
     "04: live DNS adapter for EmailPrecheck (dnspython, opt-in [live] extra, same exception mapping as 02's DnsPythonResolver).",
     "08 (after 06): CRM sync adapter upsert(person_key) -> created / updated / failed per row: HubSpot batch upsert (207 split per row), Attio assert, Pipedrive cached search + create behind one writer; retries only on idempotent calls; merge events remap stored ids (research R7 note).",
     "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status ≥ 400 → Unknown, see research R2 note); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort (R3 note: thresholds are vendor heuristics).",
+    "09 (after 06/08): reliability kit per R9 note — per-item retry with exponential backoff + Retry-After for idempotent calls only, dedupe store with reserve -> commit after downstream success, DLQ intake from node error outputs, error-workflow alert template, rate budget per vendor key; later confirm the source reading on a dockerised n8n (11).",
     "13 (later): GTM MCP server design rules from R8 — server-side read-only mode, upsert writes with per-row created / updated / failed, HTTP transport refuses to start without auth; ship an n8n MCP Server Trigger example with Bearer auth."
   ],
   "known_gaps": [
@@ -180,12 +182,13 @@
     "Research R6: Retell / Vapi / JustCall shapes come from vendor packages (retell-sdk 6.2.14, @vapi-ai/server-sdk 3.0.0, n8n-nodes-justcall 1.0.4), not live docs — docs.vapi.ai / docs.retellai.com ENOTFOUND and other vendor hosts proxy 403 on 2026-10-28; prices and the FCC 2024 AI-voice ruling only as search summaries; B2B consent rule, Retell signature header name, Aircall / Kixie, Bland / Synthflow / ElevenLabs not researched.",
     "04: EnrichmentPipeline / API tested offline only (FakeProvider, FakeResolver, FastAPI TestClient); only the email waterfall is wired (no phone); the service has no auth and no persistent cache; Clay HTTP-API row flow (async waterfall, Respond to Webhook) known only from a web-search summary — community.clay.com / moderninbound.com / fastapi.tiangolo.com not opened (ENOTFOUND on 2026-10-28).",
     "Research R7: CRM facts from vendor packages (@hubspot/api-client 14.1.2, pipedrive 36.1.0, twenty-client-sdk / twenty-sdk 2.51.3) and, for Attio, a third-party copy of its OpenAPI (attio-js 0.1.1, April 2025, may be stale); HubSpot / Attio / Pipedrive / Twenty doc hosts ENOTFOUND on 2026-10-29; rate limits only as search summaries; HubSpot batch size, duplicate keys inside one batch, Twenty REST upsert parameter and CRM webhook signing not confirmed.",
-    "04: n8n workflow enrich-and-route is structure-tested only (against the API models and n8n node source on GitHub); never imported into a live n8n instance; docs.n8n.io unreachable 2026-10-30."
+    "04: n8n workflow enrich-and-route is structure-tested only (against the API models and n8n node source on GitHub); never imported into a live n8n instance; docs.n8n.io unreachable 2026-10-30.",
+    "Research R9: n8n behaviour (retry re-run of all items, Remove Duplicates at full history, error-workflow payload) read from master source on GitHub, not observed on a live instance; practitioner templates and Make / Zapier / Clay comparisons not yet researched."
   ],
   "last_run": {
-    "date": "2026-10-31",
-    "commits": 3,
-    "notes": "Two runs today: morning research R8 (1 commit); evening run budget 2: Clay adapter -> 04 v0.1.0, then this state update."
+    "date": "2026-11-01",
+    "commits": 1,
+    "notes": "Morning run, budget 1: research R9 with the state update folded in."
   },
   "run_log": [
     {
@@ -519,6 +522,24 @@
       "summary": "04-enrichment-verification v0.1.0: Clay table adapter ClayEmail (async push + HTTP API column callback with lab_ref correlation, ClayPending -> outcome_unknown -> review, 50,000-submission webhook cap, auth/secret/signature checks); 27 new tests, 320 in 04; root README row and ROADMAP to v0.1.",
       "sources": [],
       "research_note": "Web searches (search summaries only, labelled in the README limits): Clay webhook source 50,000 lifetime submissions (university.clay.com/docs/webhook-integration-docs), HTTP API column -> n8n round trip (community.clay.com threads), x-clay-webhook-auth (community answer), X-Clay-Signature sha256= HMAC of raw body (developers.clay.com/public-api/webhooks), HTTP API column rate-limit settings. Fetch attempts failed: university.clay.com, www.cleanlist.ai, community.clay.com, developers.clay.com (ENOTFOUND / proxy 403), so no source URL was opened and none is recorded in sources."
+    },
+    {
+      "date": "2026-11-01",
+      "commits": 1,
+      "summary": "Research R9 (orchestration & reliability): n8n retries, cross-run dedupe, error workflows and concurrency read from n8n master source + docs repo; note + STACK n8n row + 3 insights + research ROADMAP (1 ticked, 2 new) + root ROADMAP 09 edit + next_steps.",
+      "sources": [
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/core/src/execution-engine/workflow-execute.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Transform/RemoveDuplicates/v2/RemoveDuplicatesV2.description.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Transform/RemoveDuplicates/v2/RemoveDuplicatesV2.node.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/cli/src/deduplication/deduplication-helper.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Transform/RemoveDuplicates/v2/test/RemoveDuplicates.test.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/SplitInBatches/v3/SplitInBatchesV3.node.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/ErrorTrigger/ErrorTrigger.node.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/cli/src/execution-lifecycle/execute-error-workflow.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/cli/src/execution-lifecycle/execution-lifecycle-hooks.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n-docs/main/docs/deploy/host-n8n/configure-n8n/scaling/control-concurrency.md"
+      ],
+      "research_note": "GitHub code search used to locate files; behaviour is a reading of source, not run on a live n8n."
     }
   ],
   "research": {
@@ -558,7 +579,7 @@
       },
       "R9": {
         "name": "Orchestration & reliability",
-        "last_researched": null
+        "last_researched": "2026-11-01"
       }
     }
   }

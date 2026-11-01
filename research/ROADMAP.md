@@ -70,6 +70,8 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] Agent-run workflows vs n8n: when each is the right tool
 
 ## R9 · Orchestration & reliability
-- [ ] n8n patterns used in real outbound stacks: queues, per-item loops, error workflows, idempotency, rate limits
+- [x] n8n patterns used in real outbound stacks: queues, per-item loops, error workflows, idempotency, rate limits → [note](notes/2026-11-01-R9-n8n-retry-dedupe-error-workflow.md) (from n8n source; behaviour read, not run)
+- [ ] Confirm on a live n8n (docker) what the source reading predicts: Remove Duplicates failing at a full history, Retry On Fail re-sending earlier items, error workflow payload with execution data saving off
+- [ ] How practitioners rate-limit vendor calls in n8n (HTTP Request batching, Wait, Redis / Postgres counters) and run queue mode for outbound volumes; published n8n outbound templates and what they skip
 - [ ] Make / Zapier / Clay native automations vs n8n: cost and failure modes at 2,000+ records
 - [ ] End-to-end reference architectures practitioners publish (diagrams, templates) — what they skip
