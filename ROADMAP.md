@@ -83,13 +83,14 @@ Pain: one bad model response ships to the whole list.
 - [ ] eval set and scorer (groundedness, length, banned phrases)
 - [ ] prompt ↔ JSON-schema consistency check; campaign geography passed explicitly, never inferred from HQ or contact location
 
-## 06 · Sequencer sync
+## 06 · Sequencer sync — v0.0.2 (2026-11-01)
 Pain: leads pushed twice, unsubscribed people re-contacted.
-- [ ] Instantly / Smartlead / HeyReach adapters (shapes from current vendor docs), custom variables
-- [ ] suppression list, idempotent pushes, rate limits, mocked HTTP tests
-- [ ] resolve campaign by explicit name (missing/duplicate → loud error); campaign-level dedup separate from global suppression; update rows by person key, never by company
-- [ ] explicit `dedupe_scope` (campaign / other campaigns / workspace) mapped to each vendor's flag (Smartlead `ignore_*` settings, Instantly `skip_if_*`, lemlist `deduplicate`, Waalaxy duplicate booleans; HeyReach has none → `GetCampaignsForLead` pre-check) — never the vendor default; push report `sent` / `added` / `skipped` per campaign (research R4 2026-10-25, R5 2026-10-26)
-- [ ] LinkedIn pushes take an explicit sender account per lead (HeyReach `accountLeadPairs`) with a weekly invite budget per sender; never the tool's choice (research R5 2026-10-26)
+- [ ] Instantly / Smartlead / HeyReach adapters (shapes from current vendor docs), custom variables (Smartlead `/campaigns/{id}/leads`, Instantly `/leads/add`, lemlist per-lead create with paid lookups forced off done 2026-11-01, shapes from vendor npm packages / n8n source, not live-tested; HeyReach, a real HTTP transport and member read-back calls next)
+- [x] suppression list, idempotent pushes, rate limits, mocked HTTP tests (2026-11-01: addresses + domains; reserve → commit push log; 429 retried with Retry-After, 5xx / timeout kept `outcome_unknown` and never re-POSTed)
+- [x] resolve campaign by explicit name (missing/duplicate → loud error); campaign-level dedup separate from global suppression; update rows by person key, never by company (2026-11-01)
+- [x] explicit `dedupe_scope` (campaign / all campaigns / workspace) mapped to each vendor's flag (Smartlead `ignore_*` settings, Instantly `skip_if_*`, lemlist `deduplicate`) — never the vendor default, requested vs effective scope reported; push report `sent` / `added` / `skipped_by_vendor` per campaign from `reconcile()` (research R4 2026-10-25; done 2026-11-01)
+- [ ] LinkedIn pushes take an explicit sender account per lead (HeyReach `accountLeadPairs`) with a weekly invite budget per sender; never the tool's choice; HeyReach has no dedupe flag → `GetCampaignsForLead` pre-check, Waalaxy duplicate booleans in the same `dedupe_scope` mapping (research R5 2026-10-26)
+- [ ] FastAPI push endpoint + n8n workflow (one lead per item, stable ids, duplicate = skip + log, campaign by name) + synthetic `.example` demo
 
 ## 07 · Reply intent classification & routing
 Pain: replies triaged by hand, hot leads go cold.

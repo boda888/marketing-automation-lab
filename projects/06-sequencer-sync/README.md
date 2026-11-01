@@ -105,7 +105,7 @@ plan.summary()
   found); `added` / `skipped_by_vendor` come only from `reconcile()` with a member read-back.
 - HeyReach / LinkedIn pushes (explicit sender per lead), a real HTTP transport, the
   member read-back calls and an n8n workflow come next
-  (see [ROADMAP](../../ROADMAP.md#06--sequencer-sync)).
+  (see [ROADMAP](../../ROADMAP.md)).
 - `InMemoryPushLog` is per process; a persistent store is needed for real runs.
 - Membership sets (`in_campaign`, …) are only as fresh as the caller's last read; the
   vendor's own flag must stay on as the second line of defence.
