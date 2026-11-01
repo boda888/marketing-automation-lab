@@ -8,7 +8,10 @@ campaign dedupe and global suppression were the same switch; and every sequencer
 to "insert", with its cross-campaign check named differently (Smartlead `ignore_*`
 settings, Instantly `skip_if_*`, lemlist `deduplicate`; research R4, 2026-10-25).
 
-v0.0.1: the planning layer that runs before any HTTP call.
+v0.0.2: the planning layer that runs before any HTTP call, request builders for
+Smartlead, Instantly and lemlist that map one dedupe scope onto each vendor's own flags,
+and a push executor with a retry rule that cannot create a lead twice, plus a
+read-back reconciliation that reports *sent* vs *added* vs *skipped by the vendor*.
 
 ## Architecture
 
@@ -31,6 +34,31 @@ plan_push(vendor, campaign, leads, dedupe_scope=…)       dedupe_scope has no d
    ▼
 PushPlan(to_send=[PlannedLead(lead, idempotency_key)], skipped=[Skipped(reason, detail)])
 ```
+
+```
+execute_plan(plan, adapter, transport, push_log)         reserve keys → batches → commit / release
+   │   2xx            accepted          keys committed
+   │   429            retried           Retry-After (seconds or HTTP-date), capped; then rate_limited
+   │   4xx            rejected          keys released, error text kept
+   │   5xx / timeout  outcome_unknown   NOT retried; keys stay reserved
+   ▼
+reconcile(report, push_log, members_after, members_before)
+       outcome_unknown present → committed, absent → released (safe next run)
+       added = new in campaign; skipped_by_vendor = accepted but absent
+```
+
+| scope | Smartlead `settings` | Instantly `/leads/add` | lemlist |
+|---|---|---|---|
+| `campaign` | `ignore_duplicate_leads_in_other_campaign: true` | `skip_if_in_campaign: true`, `skip_if_in_workspace: false` | `deduplicate=false` |
+| `all_campaigns` | `…_in_other_campaign: false` | `skip_if_in_workspace: true` (no narrower flag → effective `workspace`) | `deduplicate=true` |
+| `workspace` | `…_in_other_campaign: false` (no list scope → effective `all_campaigns`; the lab's own `in_workspace` check still applies) | `skip_if_in_workspace: true` | `deduplicate=true` (effective `all_campaigns`) |
+
+Smartlead also always sends `ignore_global_block_list`, `ignore_unsubscribe_list` and
+`ignore_community_bounce_list` as `false` (block lists stay on). lemlist pushes always send
+`findEmail`, `findPhone`, `verifyEmail`, `linkedinEnrichment` as `false`, so a push never
+starts paid lookups; a custom variable that would shadow a lemlist field is refused. The
+report carries `requested_scope` and `effective_scope`, and URLs with the Smartlead
+`api_key` query parameter are masked.
 
 - **Dedupe scope** (`campaign`, `all_campaigns`, `workspace`) is a required argument;
   vendor adapters map it to each tool's own flag instead of trusting the tool's default.
@@ -65,7 +93,18 @@ plan.summary()
 ```
 
 ## Limits
-- No vendor calls yet: adapters (request shapes per vendor, batching, retries) come next
+- Request shapes are taken from vendor-published packages read on 2026-11-01 and
+  2026-10-25 (`@smartlead/cli` 0.1.0, `instantly-cli` 0.1.22, n8n's built-in lemlist
+  node) — not from the vendors' API reference pages, which were unreachable from the run
+  environment. Smartlead's `settings` flag names and its 400-lead and Instantly's
+  1,000-lead batch limits come from web-search summaries (research R4). Nothing here was
+  run against a live Smartlead, Instantly or lemlist account; tests use `FakeTransport`.
+- Whether a vendor itself refuses a lead already in the *same* campaign is not verified;
+  the push log and `in_campaign` keep the lab from re-pushing either way.
+- No vendor response bodies are parsed for counts (no first-party schema for them was
+  found); `added` / `skipped_by_vendor` come only from `reconcile()` with a member read-back.
+- HeyReach / LinkedIn pushes (explicit sender per lead), a real HTTP transport, the
+  member read-back calls and an n8n workflow come next
   (see [ROADMAP](../../ROADMAP.md#06--sequencer-sync)).
 - `InMemoryPushLog` is per process; a persistent store is needed for real runs.
 - Membership sets (`in_campaign`, …) are only as fresh as the caller's last read; the

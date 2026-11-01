@@ -1,5 +1,6 @@
 """06 · Sequencer sync: idempotent, suppression-aware lead pushes."""
 
+from .adapters import HttpRequest, InstantlyAdapter, LemlistAdapter, SmartleadAdapter
 from .campaigns import AmbiguousCampaign, CampaignError, CampaignNotFound, resolve_campaign
 from .models import Campaign, DedupeScope, SequencerLead, idempotency_key
 from .plan import (
@@ -11,9 +12,33 @@ from .plan import (
     SkipReason,
     plan_push,
 )
+from .push import (
+    BatchResult,
+    BatchStatus,
+    HttpResponse,
+    PushReport,
+    Transport,
+    TransportError,
+    execute_plan,
+    reconcile,
+    retry_after_seconds,
+)
 from .suppression import SuppressionHit, SuppressionList, SuppressionReason
 
 __all__ = [
+    "BatchResult",
+    "BatchStatus",
+    "HttpRequest",
+    "HttpResponse",
+    "InstantlyAdapter",
+    "LemlistAdapter",
+    "PushReport",
+    "SmartleadAdapter",
+    "Transport",
+    "TransportError",
+    "execute_plan",
+    "reconcile",
+    "retry_after_seconds",
     "AmbiguousCampaign",
     "Campaign",
     "CampaignError",
