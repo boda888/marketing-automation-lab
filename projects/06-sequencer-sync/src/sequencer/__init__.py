@@ -2,6 +2,16 @@
 
 from .adapters import HttpRequest, InstantlyAdapter, LemlistAdapter, SmartleadAdapter
 from .campaigns import AmbiguousCampaign, CampaignError, CampaignNotFound, resolve_campaign
+from .linkedin import (
+    Held,
+    HeyReachAdapter,
+    SenderAccount,
+    SenderAssignment,
+    SenderPair,
+    Unassigned,
+    assign_senders,
+    normalise_linkedin_url,
+)
 from .models import Campaign, DedupeScope, SequencerLead, idempotency_key
 from .plan import (
     InMemoryPushLog,
@@ -26,6 +36,14 @@ from .push import (
 from .suppression import SuppressionHit, SuppressionList, SuppressionReason
 
 __all__ = [
+    "HeyReachAdapter",
+    "Held",
+    "SenderAccount",
+    "SenderAssignment",
+    "SenderPair",
+    "Unassigned",
+    "assign_senders",
+    "normalise_linkedin_url",
     "BatchResult",
     "BatchStatus",
     "HttpRequest",

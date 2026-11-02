@@ -70,6 +70,29 @@ report carries `requested_scope` and `effective_scope`, and URLs with the Smartl
   push and *committed* once the vendor confirmed it; a reserved key on the next run means
   "outcome unknown" and the lead waits for reconciliation instead of being pushed again.
 
+### LinkedIn (HeyReach): person key, sender per lead, pre-check
+
+LinkedIn tools key a person by profile URL, and HeyReach's `AddLeadsToCampaign` makes the
+caller pair every lead with a sending account and has no dedupe flag (research R5).
+`sequencer.linkedin` makes those choices explicit:
+
+```
+normalise_linkedin_url(url)            https://www.linkedin.com/in/<slug>; company / Sales Nav → None
+   │
+assign_senders(leads, senders, owners=, in_campaign=)
+   │   no_profile_url / duplicate_profile / already_in_campaign (GetCampaignsForLead read)
+   │   pinned owner → only that sender: unknown_owner / owner_over_budget, never reassigned
+   │   otherwise the active sender with most weekly budget left (ties: lowest id)
+   │   no_sender_budget → held, never pushed over a cap
+   ▼
+HeyReachAdapter.add_leads(campaign, pairs)   ≤ 100 pairs per call, linkedInAccountId per lead
+HeyReachAdapter.campaigns_for_lead(url)      membership pre-check (paged, limit 100)
+```
+
+Weekly budgets are your own caps per sender (LinkedIn publishes none); an inactive
+(logged-out) sender gets nothing. These builders are not yet wired into `plan_push` /
+`execute_plan`, whose person key is the email address.
+
 ## Run it
 
 ```bash
@@ -103,8 +126,11 @@ plan.summary()
   the push log and `in_campaign` keep the lab from re-pushing either way.
 - No vendor response bodies are parsed for counts (no first-party schema for them was
   found); `added` / `skipped_by_vendor` come only from `reconcile()` with a member read-back.
-- HeyReach / LinkedIn pushes (explicit sender per lead), a real HTTP transport, the
-  member read-back calls and an n8n workflow come next
+- HeyReach shapes (`AddLeadsToCampaign`, `GetCampaignsForLead`, `X-N8N-KEY`, 100 per
+  page) come from HeyReach's n8n package `n8n-nodes-heyreach` 1.0.5, read 2026-11-02; the
+  100-pair batch size for adds is the lab's own choice (no limit found). Not run live.
+- Wiring LinkedIn pairs into the push log / `execute_plan` (profile URL as the key), a
+  real HTTP transport, the member read-back calls and an n8n workflow come next
   (see [ROADMAP](../../ROADMAP.md)).
 - `InMemoryPushLog` is per process; a persistent store is needed for real runs.
 - Membership sets (`in_campaign`, …) are only as fresh as the caller's last read; the
