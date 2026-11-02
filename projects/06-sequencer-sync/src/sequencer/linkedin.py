@@ -358,6 +358,21 @@ class HeyReachAdapter:
             for chunk in chunks
         ]
 
+    def campaign_leads(self, campaign: Campaign, *, offset: int = 0) -> HttpRequest:
+        """``GetLeadsFromCampaign`` page (limit 100) for the reconcile read-back.
+
+        The vendor node does not show the response shape, so the caller extracts the
+        profile URLs; ``reconcile`` accepts them in any LinkedIn form.
+        """
+        if offset < 0:
+            raise ValueError("offset must be >= 0")
+        return HttpRequest(
+            "POST",
+            f"{self.base_url}/campaign/GetLeadsFromCampaign",
+            headers=self._headers(),
+            json={"campaignId": self._campaign_id(campaign), "offset": offset, "limit": 100},
+        )
+
     def campaigns_for_lead(self, profile_url: str, *, offset: int = 0) -> HttpRequest:
         """``GetCampaignsForLead`` by profile URL: the pre-check HeyReach does not do itself.
 

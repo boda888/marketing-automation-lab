@@ -70,6 +70,22 @@ report carries `requested_scope` and `effective_scope`, and URLs with the Smartl
   push and *committed* once the vendor confirmed it; a reserved key on the next run means
   "outcome unknown" and the lead waits for reconciliation instead of being pushed again.
 
+### Member read-back (feeds `plan_push(in_campaign=…)` and `reconcile`)
+
+`reconcile` releases every `outcome_unknown` key whose lead is missing from the read, so a
+truncated member list would let the next run push leads that already exist.
+`read_members(reader, campaign, transport)` reads every page or raises `IncompleteRead`:
+
+| reader | request | pages | guard |
+|---|---|---|---|
+| `SmartleadMembers` | `GET /campaigns/{id}/leads?offset&limit=100` | offset until a short page or `total_leads` | bare-list body also accepted |
+| `InstantlyMembers` | `POST /leads/list {campaign, limit: 100, starting_after}` | `next_starting_after` until an empty page | items naming another `campaign` are dropped (`dropped` count) |
+| HeyReach | `HeyReachAdapter.campaign_leads(campaign, offset=)` → `GetLeadsFromCampaign` | caller pages | response shape unknown; caller extracts profile URLs |
+
+Reads are idempotent, so 429 (Retry-After), 5xx and timeouts are retried there (never for
+a push); a 4xx, an odd body, a repeated cursor or more than `max_pages` raise instead of
+returning a partial set. lemlist read-back is not built yet.
+
 ### LinkedIn (HeyReach): person key, sender per lead, pre-check
 
 LinkedIn tools key a person by profile URL, and HeyReach's `AddLeadsToCampaign` makes the
