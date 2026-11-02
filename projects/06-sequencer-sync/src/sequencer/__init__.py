@@ -11,6 +11,7 @@ from .linkedin import (
     Unassigned,
     assign_senders,
     normalise_linkedin_url,
+    plan_linkedin_push,
 )
 from .models import Campaign, DedupeScope, SequencerLead, idempotency_key
 from .plan import (
@@ -44,6 +45,7 @@ __all__ = [
     "Unassigned",
     "assign_senders",
     "normalise_linkedin_url",
+    "plan_linkedin_push",
     "BatchResult",
     "BatchStatus",
     "HttpRequest",

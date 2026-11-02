@@ -16,6 +16,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from .adapters import HttpRequest, ScopeMapping
+from .models import normalise_linkedin_url
 from .plan import PlannedLead, PushLog, PushPlan
 
 
@@ -63,6 +64,7 @@ class PushReport:
     requested_scope: str
     effective_scope: str
     skipped_before_send: dict[str, int]
+    person_key: str = "email"  # what reconcile() matches member lists on
     batches: list[BatchResult] = field(default_factory=list)
     added: int | None = None  # set by reconcile() with a before-snapshot
     skipped_by_vendor: int | None = None  # accepted but absent afterwards
@@ -90,6 +92,7 @@ class PushReport:
             "campaign_id": self.campaign_id,
             "requested_scope": self.requested_scope,
             "effective_scope": self.effective_scope,
+            "person_key": self.person_key,
             "skipped_before_send": self.skipped_before_send,
             "sent": self.sent,
             "outcome_unknown": self.unknown,
@@ -152,6 +155,7 @@ def execute_plan(
         requested_scope=plan.dedupe_scope.value,
         effective_scope=adapter.effective_scope(plan.dedupe_scope).value,
         skipped_before_send=plan.skipped_by_reason,
+        person_key=plan.person_key,
     )
     # Reserve first: a concurrent run holding a key keeps that lead out of this push.
     ready = [p for p in plan.to_send if push_log.reserve(p.key)]
@@ -214,37 +218,49 @@ def _send(
         return BatchResult(status, url, request.leads, code, attempts, _error_text(response.body))
 
 
+def _member_key(person_key: str) -> Callable[[str], str | None]:
+    if person_key == "linkedin_url":
+        return normalise_linkedin_url
+    return lambda value: value.strip().lower() or None
+
+
 def reconcile(
     report: PushReport,
     push_log: PushLog,
     members_after: Iterable[str],
     members_before: Iterable[str] | None = None,
 ) -> PushReport:
-    """Settle the report against the campaign's member emails read back from the vendor.
+    """Settle the report against the campaign's members read back from the vendor.
 
-    ``outcome_unknown`` leads present afterwards are committed (they were created); absent
-    ones are released so the next run may push them. With ``members_before`` (read before
-    the push), ``added`` counts leads that are new in the campaign, and
-    ``skipped_by_vendor`` counts accepted leads the vendor did not keep (its own dedupe or
-    block lists) — the "sent vs added" gap that is otherwise invisible.
+    Members are emails, or profile URLs in any LinkedIn form when the report's
+    ``person_key`` is ``linkedin_url``. ``outcome_unknown`` leads present afterwards are
+    committed (they were created); absent ones are released so the next run may push them.
+    With ``members_before`` (read before the push), ``added`` counts leads that are new in
+    the campaign, and ``skipped_by_vendor`` counts accepted leads the vendor did not keep
+    (its own dedupe or block lists) — the "sent vs added" gap that is otherwise invisible.
     """
-    after = {e.strip().lower() for e in members_after}
-    before = None if members_before is None else {e.strip().lower() for e in members_before}
+    key = _member_key(report.person_key)
+
+    def members(values: Iterable[str]) -> set[str]:
+        return {k for k in (key(v) for v in values) if k}
+
+    after = members(members_after)
+    before = None if members_before is None else members(members_before)
     accepted: list[str] = []
     for batch in report.batches:
         for planned in batch.leads:
-            email = planned.lead.email or ""
+            member = key(planned.member) or ""
             if batch.status is BatchStatus.ACCEPTED:
-                accepted.append(email)
+                accepted.append(member)
             elif batch.status is BatchStatus.OUTCOME_UNKNOWN:
-                if email in after:
+                if member in after:
                     push_log.commit(planned.key)
                     report.confirmed_unknown += 1
-                    accepted.append(email)
+                    accepted.append(member)
                 else:
                     push_log.release(planned.key)
                     report.cleared_unknown += 1
-    report.skipped_by_vendor = sum(1 for e in accepted if e not in after)
+    report.skipped_by_vendor = sum(1 for m in accepted if m not in after)
     if before is not None:
-        report.added = sum(1 for e in accepted if e in after and e not in before)
+        report.added = sum(1 for m in accepted if m in after and m not in before)
     return report

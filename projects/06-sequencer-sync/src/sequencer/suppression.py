@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from .models import normalise_email
+from .models import normalise_email, normalise_linkedin_url
 
 
 class SuppressionReason(StrEnum):
@@ -30,10 +30,13 @@ class SuppressionHit:
 
 @dataclass
 class SuppressionList:
-    """Exact addresses plus whole domains (a domain entry also covers its subdomains)."""
+    """Exact addresses, whole domains (a domain entry also covers its subdomains) and
+    LinkedIn profiles, so a person who opted out by email or on LinkedIn stays out of
+    LinkedIn campaigns too, even when the lead row carries no email."""
 
     emails: dict[str, SuppressionReason] = field(default_factory=dict)
     domains: dict[str, SuppressionReason] = field(default_factory=dict)
+    profiles: dict[str, SuppressionReason] = field(default_factory=dict)
 
     def add_email(self, email: str, reason: SuppressionReason) -> None:
         normalised = normalise_email(email)
@@ -46,6 +49,18 @@ class SuppressionList:
         if not host or "." not in host or "@" in host:
             raise ValueError(f"not a domain: {domain!r}")
         self.domains.setdefault(host, reason)
+
+    def add_profile(self, url: str, reason: SuppressionReason) -> None:
+        normalised = normalise_linkedin_url(url)
+        if normalised is None:
+            raise ValueError(f"not a LinkedIn member profile URL: {url!r}")
+        self.profiles.setdefault(normalised, reason)
+
+    def check_profile(self, url: str | None) -> SuppressionHit | None:
+        normalised = normalise_linkedin_url(url)
+        if normalised is None or normalised not in self.profiles:
+            return None
+        return SuppressionHit(self.profiles[normalised], normalised)
 
     def check(self, email: str | None) -> SuppressionHit | None:
         normalised = normalise_email(email)
@@ -62,4 +77,4 @@ class SuppressionList:
         return None
 
     def __len__(self) -> int:
-        return len(self.emails) + len(self.domains)
+        return len(self.emails) + len(self.domains) + len(self.profiles)

@@ -23,6 +23,12 @@ class SkipReason(StrEnum):
     IN_OTHER_CAMPAIGN = "in_other_campaign"
     IN_WORKSPACE = "in_workspace"
     MISSING_VARIABLES = "missing_variables"
+    # LinkedIn pushes (person key = profile URL, one sender per lead)
+    NO_PROFILE_URL = "no_profile_url"
+    MEMBERSHIP_UNCHECKED = "membership_unchecked"  # no GetCampaignsForLead read for this person
+    UNKNOWN_OWNER = "unknown_owner"
+    OWNER_OVER_BUDGET = "owner_over_budget"
+    NO_SENDER_BUDGET = "no_sender_budget"
 
 
 class PushState(StrEnum):
@@ -76,7 +82,14 @@ class Skipped:
 @dataclass(frozen=True)
 class PlannedLead:
     lead: SequencerLead
-    key: str  # idempotency key for (vendor, campaign, email)
+    key: str  # idempotency key for (vendor, campaign, person key)
+    person_key: str | None = None  # canonical profile URL for LinkedIn; None = the email
+    sender_id: int | None = None  # LinkedIn sending account chosen for this lead
+
+    @property
+    def member(self) -> str:
+        """The value the vendor's member list is matched on during reconcile."""
+        return self.person_key or self.lead.email or ""
 
 
 @dataclass
@@ -86,6 +99,7 @@ class PushPlan:
     dedupe_scope: DedupeScope
     to_send: list[PlannedLead] = field(default_factory=list)
     skipped: list[Skipped] = field(default_factory=list)
+    person_key: str = "email"  # "email" or "linkedin_url": what reconcile matches on
 
     @property
     def skipped_by_reason(self) -> dict[str, int]:
@@ -97,6 +111,7 @@ class PushPlan:
             "campaign_id": self.campaign.campaign_id,
             "campaign_name": self.campaign.name,
             "dedupe_scope": self.dedupe_scope.value,
+            "person_key": self.person_key,
             "input": len(self.to_send) + len(self.skipped),
             "to_send": len(self.to_send),
             "skipped": self.skipped_by_reason,

@@ -20,46 +20,21 @@ companyName, position, emailAddress, customUserFields: [{name, value}]}}]``, hea
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from urllib.parse import unquote, urlsplit
 
 from .adapters import HttpRequest
-from .models import Campaign, SequencerLead
-
-_SLUG = re.compile(r"^[a-z0-9\-_%.]{3,100}$")
-
-
-def normalise_linkedin_url(value: object) -> str | None:
-    """Canonical member profile URL, or ``None`` for blanks, company pages and non-profiles.
-
-    Accepts ``http(s)``, missing scheme, country / mobile subdomains (``de.``, ``m.``),
-    query strings, fragments, trailing slashes and extra path parts after the slug
-    (``/in/ana-lopez/details/``); the slug is lower-cased and percent-decoded.
-    """
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    if "://" not in text:
-        text = "https://" + text
-    try:
-        parts = urlsplit(text)
-    except ValueError:
-        return None
-    host = (parts.hostname or "").lower()
-    if host != "linkedin.com" and not host.endswith(".linkedin.com"):
-        return None
-    segments = [s for s in parts.path.split("/") if s]
-    if len(segments) < 2 or segments[0].lower() != "in":
-        return None  # /company/…, /sales/…, /pub/… and bare hosts are not a member key
-    slug = unquote(segments[1]).strip().lower()
-    if not _SLUG.match(slug):
-        return None
-    return f"https://www.linkedin.com/in/{slug}"
+from .models import (
+    Campaign,
+    DedupeScope,
+    SequencerLead,
+    idempotency_key,
+    normalise_linkedin_url,
+    stricter_or_equal,
+)
+from .plan import PlannedLead, PushLog, PushPlan, PushState, Skipped, SkipReason
+from .suppression import SuppressionList
 
 
 @dataclass(frozen=True)
@@ -181,6 +156,112 @@ def assign_senders(
     return out
 
 
+_HELD_TO_SKIP = {
+    Unassigned.UNKNOWN_OWNER: SkipReason.UNKNOWN_OWNER,
+    Unassigned.OWNER_OVER_BUDGET: SkipReason.OWNER_OVER_BUDGET,
+    Unassigned.NO_SENDER_BUDGET: SkipReason.NO_SENDER_BUDGET,
+}
+
+
+def plan_linkedin_push(
+    campaign: Campaign,
+    leads: Iterable[SequencerLead],
+    senders: Sequence[SenderAccount],
+    *,
+    dedupe_scope: DedupeScope,
+    memberships: Mapping[str, Iterable[str]],
+    suppression: SuppressionList | None = None,
+    push_log: PushLog | None = None,
+    owners: Mapping[str, int] | None = None,
+    required_variables: Iterable[str] = (),
+    allow_fixtures: bool = False,
+    vendor: str = "heyreach",
+) -> PushPlan:
+    """``plan_push`` for LinkedIn: profile URL as the person key, then one sender per lead.
+
+    ``memberships`` maps profile URL (any form) → campaign ids the person is already in,
+    read with ``GetCampaignsForLead`` (every page). HeyReach has no dedupe flag on import,
+    so this read *is* the dedupe: a person with no entry is held as
+    ``membership_unchecked`` instead of being pushed blind. Checks, first match wins: no
+    profile URL, fixture email, suppression (email, domain or profile), same profile
+    earlier in the batch, push log, already in this campaign, in another campaign (scope ≥
+    ``all_campaigns``), blank required merge tags; survivors then get a sender from
+    ``assign_senders``, so held leads never use up a sender's weekly budget.
+    """
+    required = frozenset(required_variables)
+    read: dict[str, set[str]] = {}
+    for raw, campaign_ids in memberships.items():
+        url = normalise_linkedin_url(raw)
+        if url is not None:
+            read.setdefault(url, set()).update(str(c) for c in campaign_ids)
+    plan = PushPlan(
+        vendor=vendor, campaign=campaign, dedupe_scope=dedupe_scope, person_key="linkedin_url"
+    )
+    seen: dict[str, str] = {}
+    keys: dict[str, tuple[str, str]] = {}  # lead_id -> (profile url, idempotency key)
+    survivors: list[SequencerLead] = []
+
+    for lead in leads:
+
+        def skip(reason: SkipReason, detail: str = "", _lead: SequencerLead = lead) -> None:
+            plan.skipped.append(Skipped(_lead.lead_id, _lead.email, reason, detail))
+
+        url = normalise_linkedin_url(lead.linkedin_url)
+        if url is None:
+            skip(SkipReason.NO_PROFILE_URL)
+            continue
+        if lead.is_fixture and not allow_fixtures:
+            skip(SkipReason.FIXTURE, "reserved test domain")
+            continue
+        hit = (
+            (suppression.check_profile(url) or suppression.check(lead.email))
+            if suppression
+            else None
+        )
+        if hit:
+            skip(SkipReason.SUPPRESSED, f"{hit.reason.value}: {hit.matched}")
+            continue
+        if url in seen:
+            skip(SkipReason.DUPLICATE_IN_BATCH, f"same profile as {seen[url]}")
+            continue
+        seen[url] = lead.lead_id
+        key = idempotency_key(vendor, campaign.campaign_id, url)
+        state = push_log.state(key) if push_log else None
+        if state is PushState.COMMITTED:
+            skip(SkipReason.ALREADY_PUSHED)
+            continue
+        if state is PushState.RESERVED:
+            skip(SkipReason.PUSH_PENDING, "earlier push outcome unknown; reconcile first")
+            continue
+        if url not in read:
+            skip(SkipReason.MEMBERSHIP_UNCHECKED, "read GetCampaignsForLead first")
+            continue
+        if campaign.campaign_id in read[url]:
+            skip(SkipReason.ALREADY_IN_CAMPAIGN)
+            continue
+        if stricter_or_equal(dedupe_scope, DedupeScope.ALL_CAMPAIGNS) and read[url]:
+            skip(SkipReason.IN_OTHER_CAMPAIGN, ", ".join(sorted(read[url])))
+            continue
+        missing = lead.missing_variables(required)
+        if missing:
+            skip(SkipReason.MISSING_VARIABLES, ", ".join(missing))
+            continue
+        keys[lead.lead_id] = (url, key)
+        survivors.append(lead)
+
+    assignment = assign_senders(survivors, senders, owners=owners)
+    for held in assignment.held:
+        plan.skipped.append(
+            Skipped(held.lead.lead_id, held.lead.email, _HELD_TO_SKIP[held.reason], held.detail)
+        )
+    for pair in assignment.pairs:
+        url, key = keys[pair.lead.lead_id]
+        plan.to_send.append(
+            PlannedLead(pair.lead, key, person_key=url, sender_id=pair.sender.account_id)
+        )
+    return plan
+
+
 @dataclass(frozen=True)
 class HeyReachAdapter:
     api_key: str = field(repr=False)
@@ -193,12 +274,25 @@ class HeyReachAdapter:
     def _headers(self) -> dict[str, str]:
         return {"X-N8N-KEY": self.api_key}
 
+    @staticmethod
+    def _campaign_id(campaign: Campaign) -> int:
+        if not campaign.campaign_id.isdigit():
+            raise ValueError(f"HeyReach campaign ids are numeric, got {campaign.campaign_id!r}")
+        return int(campaign.campaign_id)
+
+    def effective_scope(self, scope: DedupeScope) -> DedupeScope:
+        # HeyReach applies no dedupe on import; the scope is enforced by
+        # plan_linkedin_push from GetCampaignsForLead, which sees campaigns, not lists.
+        return DedupeScope.CAMPAIGN if scope is DedupeScope.CAMPAIGN else DedupeScope.ALL_CAMPAIGNS
+
     def lead_payload(self, pair: SenderPair) -> dict[str, object]:
-        lead = pair.lead
+        return self._payload(pair.lead, pair.profile_url)
+
+    def _payload(self, lead: SequencerLead, profile_url: str) -> dict[str, object]:
         body: dict[str, object] = {
             k: v
             for k, v in {
-                "profileUrl": pair.profile_url,
+                "profileUrl": profile_url,
                 "firstName": lead.first_name,
                 "lastName": lead.last_name,
                 "companyName": lead.company_name,
@@ -214,15 +308,14 @@ class HeyReachAdapter:
 
     def add_leads(self, campaign: Campaign, pairs: Sequence[SenderPair]) -> list[HttpRequest]:
         """``AddLeadsToCampaign`` requests; every lead carries its own sender id."""
-        if not campaign.campaign_id.isdigit():
-            raise ValueError(f"HeyReach campaign ids are numeric, got {campaign.campaign_id!r}")
+        campaign_id = self._campaign_id(campaign)
         return [
             HttpRequest(
                 "POST",
                 f"{self.base_url}/campaign/AddLeadsToCampaign",
                 headers=self._headers(),
                 json={
-                    "campaignId": int(campaign.campaign_id),
+                    "campaignId": campaign_id,
                     "accountLeadPairs": [
                         {"linkedInAccountId": p.sender.account_id, "lead": self.lead_payload(p)}
                         for p in pairs[i : i + self.max_batch]
@@ -230,6 +323,39 @@ class HeyReachAdapter:
                 },
             )
             for i in range(0, len(pairs), self.max_batch)
+        ]
+
+    def build(
+        self, campaign: Campaign, leads: Sequence[PlannedLead], scope: DedupeScope
+    ) -> list[HttpRequest]:
+        """Requests for ``execute_plan``: planned leads from ``plan_linkedin_push`` only."""
+        campaign_id = self._campaign_id(campaign)
+        for p in leads:
+            if p.person_key is None or p.sender_id is None:
+                raise ValueError(
+                    f"lead {p.lead.lead_id} has no profile URL or sender; use plan_linkedin_push"
+                )
+        chunks = [
+            tuple(leads[i : i + self.max_batch]) for i in range(0, len(leads), self.max_batch)
+        ]
+        return [
+            HttpRequest(
+                "POST",
+                f"{self.base_url}/campaign/AddLeadsToCampaign",
+                headers=self._headers(),
+                json={
+                    "campaignId": campaign_id,
+                    "accountLeadPairs": [
+                        {
+                            "linkedInAccountId": p.sender_id,
+                            "lead": self._payload(p.lead, p.person_key or ""),
+                        }
+                        for p in chunk
+                    ],
+                },
+                leads=chunk,
+            )
+            for chunk in chunks
         ]
 
     def campaigns_for_lead(self, profile_url: str, *, offset: int = 0) -> HttpRequest:

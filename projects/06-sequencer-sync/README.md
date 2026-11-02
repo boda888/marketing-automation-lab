@@ -90,8 +90,28 @@ HeyReachAdapter.campaigns_for_lead(url)      membership pre-check (paged, limit 
 ```
 
 Weekly budgets are your own caps per sender (LinkedIn publishes none); an inactive
-(logged-out) sender gets nothing. These builders are not yet wired into `plan_push` /
-`execute_plan`, whose person key is the email address.
+(logged-out) sender gets nothing.
+
+`plan_linkedin_push` runs the same pipeline as `plan_push` with the profile URL as the
+person key, so `execute_plan` and `reconcile` work unchanged for HeyReach:
+
+```
+plan_linkedin_push(campaign, leads, senders, dedupe_scope=…, memberships={url: [campaign ids]})
+   │   no_profile_url → fixture → suppressed (profile, email or domain) → duplicate_in_batch
+   │   → already_pushed / push_pending (key = sha256(vendor, campaign, profile URL))
+   │   → membership_unchecked (no GetCampaignsForLead read: HeyReach has no dedupe flag,
+   │     so an unread person is held, never pushed blind) → already_in_campaign
+   │   → in_other_campaign (scope ≥ all_campaigns) → missing_variables
+   │   → assign_senders on the survivors only (skipped leads never spend a sender's budget)
+   ▼
+PushPlan(person_key="linkedin_url", to_send=[PlannedLead(…, person_key=url, sender_id=…)])
+execute_plan(plan, HeyReachAdapter(key), transport, log)   linkedInAccountId per lead
+reconcile(report, log, members_after=[profile URLs in any form])
+```
+
+`SuppressionList.add_profile()` blocks a person by LinkedIn profile, for rows that carry
+no email. HeyReach lead lists are not campaigns, so `workspace` is enforced as
+`all_campaigns` (`effective_scope` says so in the report).
 
 ## Run it
 
