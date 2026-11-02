@@ -107,6 +107,7 @@ Pain: CRM no longer matches reality.
 Pain: branches that fail silently.
 - [ ] error workflow, retries/backoff, idempotency keys, dead-letter-queue service, alerts: per-item retries with exponential backoff + `Retry-After` for idempotent calls only (n8n Retry On Fail re-runs the whole node, 2–5 tries, ≤ 5 s fixed wait); dedupe store that commits a key only after the downstream step succeeds (n8n Remove Duplicates records on read and errors at a full history); DLQ intake per item from error outputs, error workflow for alerts only (its payload carries no items); rate budget per vendor key, not `N8N_CONCURRENCY_PRODUCTION_LIMIT` ([R9 note](research/notes/2026-11-01-R9-n8n-retry-dedupe-error-workflow.md))
 - [ ] one item per lead through fan-out lookups; duplicate / not-ready = skip + log, not Stop and Error; only fully-ready rows trigger hand-off
+- [ ] ops-table writer (Airtable / sheet): batch upsert ≤ 10 rows per call on a plain-text merge key, pre-flight duplicate-key check that refuses the batch and lists clashing rows (one duplicate fails a whole Airtable upsert call; n8n's node silently updates the first match), created / updated per row, 429 → wait ≥ 30 s, one requests-per-second budget per base shared by all writers ([R1 note](research/notes/2026-11-02-R1-airtable-ops-db-sync.md))
 
 ## 10 · Reporting that reconciles
 Pain: dashboard numbers nobody trusts.

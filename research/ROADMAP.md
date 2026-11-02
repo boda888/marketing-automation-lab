@@ -11,7 +11,9 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] Does Clay ship a first-party MCP server or agent API (not found in the MCP registry on 2026-10-22); check Clay docs when reachable
 - [ ] Apollo credits per MCP tool call (search vs match vs bulk match) and whether MCP calls count against API rate limits
 - [ ] Lookalike sourcing from best customers: how tools do it, input format, quality checks
-- [ ] Airtable (or Postgres / Supabase) as the ops database behind Clay: sync patterns, record limits, automations
+- [x] Airtable as the ops database behind Clay: API limits, upsert on duplicate keys, n8n node batching / polling, client retries → [note](notes/2026-11-02-R1-airtable-ops-db-sync.md) (behaviour from n8n + airtable.js source; limits only as search summary)
+- [ ] Open Airtable's own API reference (blocked 2026-11-02): confirm 5 req/s per base, 30 s penalty, `performUpsert` multiple-match error text, records per base per plan, and what Airtable automations count against
+- [ ] Postgres / Supabase instead of Airtable as the ops DB: when practitioners switch (row counts, cost, concurrency), and how Clay writes to it (HTTP API column vs Supabase integration)
 
 ## R2 · Signals & research
 - [x] Apify actors for jobs, LinkedIn posts / reactions, company pages: cost per 1,000 results (pricing models + max charge; per-Actor prices only as search summary) → [note](notes/2026-10-23-R2-firecrawl-apify-signal-costs.md)
