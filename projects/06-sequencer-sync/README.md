@@ -8,7 +8,7 @@ campaign dedupe and global suppression were the same switch; and every sequencer
 to "insert", with its cross-campaign check named differently (Smartlead `ignore_*`
 settings, Instantly `skip_if_*`, lemlist `deduplicate`; research R4, 2026-10-25).
 
-v0.0.2: the planning layer that runs before any HTTP call, request builders for
+v0.0.3: the planning layer that runs before any HTTP call, request builders for
 Smartlead, Instantly and lemlist that map one dedupe scope onto each vendor's own flags,
 and a push executor with a retry rule that cannot create a lead twice, plus a
 read-back reconciliation that reports *sent* vs *added* vs *skipped by the vendor*.

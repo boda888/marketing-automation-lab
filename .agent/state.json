@@ -40,8 +40,8 @@
       "id": "06-sequencer-sync",
       "path": "projects/06-sequencer-sync",
       "status": "in_progress",
-      "summary": "SequencerLead (email = person key, placeholders -> None, fixtures flagged); resolve_campaign by explicit name (missing / duplicate -> error); SuppressionList (addresses + domains) separate from campaign dedupe; plan_push with required dedupe_scope and one skip reason per lead; push log reserve -> commit; Smartlead / Instantly / lemlist request builders (explicit flags, requested vs effective scope, lemlist paid lookups off, keys masked); execute_plan (429-only retries with Retry-After, 5xx / timeout -> outcome_unknown, keys kept reserved); reconcile -> sent / added / skipped_by_vendor; FakeTransport; LinkedIn person key (normalise_linkedin_url), assign_senders (pinned owner kept, weekly budget per sender, never over a cap) and HeyReach AddLeadsToCampaign / GetCampaignsForLead builders, not yet wired into plan_push / execute_plan; 66 tests.",
-      "version": "0.0.2"
+      "summary": "SequencerLead (email = person key, placeholders -> None, fixtures flagged); resolve_campaign by explicit name (missing / duplicate -> error); SuppressionList (addresses + domains) separate from campaign dedupe; plan_push with required dedupe_scope and one skip reason per lead; push log reserve -> commit; Smartlead / Instantly / lemlist request builders (explicit flags, requested vs effective scope, lemlist paid lookups off, keys masked); execute_plan (429-only retries with Retry-After, 5xx / timeout -> outcome_unknown, keys kept reserved); reconcile -> sent / added / skipped_by_vendor; FakeTransport; LinkedIn person key (normalise_linkedin_url), assign_senders (pinned owner kept, weekly budget per sender, never over a cap) and HeyReach AddLeadsToCampaign / GetCampaignsForLead / GetLeadsFromCampaign builders; plan_linkedin_push (profile URL = person + idempotency key, no GetCampaignsForLead read -> membership_unchecked, profile suppression, senders assigned to survivors only) running through execute_plan / reconcile; read_members for Smartlead / Instantly (all pages or IncompleteRead, idempotent read retries, foreign-campaign items dropped); 83 tests.",
+      "version": "0.0.3"
     },
     {
       "id": "07-reply-routing",
@@ -144,11 +144,12 @@
     "06: push planning — SequencerLead (email person key), resolve_campaign by explicit name, SuppressionList separate from campaign dedupe, plan_push with required dedupe_scope and per-lead skip reasons, reserve -> commit push log (2026-11-01)",
     "06: Smartlead / Instantly / lemlist push adapters mapping dedupe_scope onto vendor flags, execute_plan with 429-only retries and outcome_unknown for 5xx / timeouts, reconcile() -> sent / added / skipped_by_vendor (2026-11-01)",
     "06: LinkedIn profile-URL person key, sender assignment with weekly invite budgets (owner pinned, held reasons) and HeyReach AddLeadsToCampaign / GetCampaignsForLead request builders from n8n-nodes-heyreach 1.0.5 (2026-11-02)",
-    "Research R1: Airtable as ops database behind Clay / n8n — upsert on duplicate keys, n8n node batching and polling, airtable.js 429 retries (2026-11-02)"
+    "Research R1: Airtable as ops database behind Clay / n8n — upsert on duplicate keys, n8n node batching and polling, airtable.js 429 retries (2026-11-02)",
+    "06 v0.0.3: LinkedIn (HeyReach) pushes through plan_linkedin_push -> execute_plan -> reconcile keyed by canonical profile URL; SuppressionList profile entries; paged member read-back read_members (Smartlead offset / total_leads, Instantly cursor) that never returns a partial set (2026-11-02)"
   ],
   "next_steps": [
-    "06: wire LinkedIn pairs into the push log / execute_plan with the profile URL as the idempotency key (HeyReach has no dedupe flag; GetCampaignsForLead pages feed in_campaign); Waalaxy duplicate booleans in the same dedupe_scope mapping. Sender assignment + HeyReach builders done 2026-11-02.",
-    "06: member read-back per vendor (campaign lead lists) feeding plan_push in_campaign and reconcile(); a real HTTP transport (timeouts mapped to TransportError(reached_vendor=...)); persistent push log (SQLite / Postgres) with the same reserve -> commit contract; then v0.1: FastAPI POST /v1/push with a fake-transport demo, synthetic .example dataset and an n8n workflow (one lead per item, campaign by name, duplicate = skip + log, outcome_unknown -> reconcile branch).",
+    "06: Waalaxy duplicate booleans in the same dedupe_scope mapping; HeyReach GetCampaignsForLead / GetLeadsFromCampaign response parsing once a real response shape is seen (vendor node does not show it); lemlist member read-back.",
+    "06: a real HTTP transport (timeouts mapped to TransportError(reached_vendor=...)); persistent push log (SQLite / Postgres) with the same reserve -> commit contract; then v0.1: FastAPI POST /v1/push with a fake-transport demo, synthetic .example dataset and an n8n workflow (one lead per item, campaign by name, duplicate = skip + log, outcome_unknown -> read_members -> reconcile branch).",
     "04 follow-ups: match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; confirm Apollo People Match / bulk_match and Clay webhook shapes against vendor docs when reachable.",
     "04: live DNS adapter for EmailPrecheck (dnspython, opt-in [live] extra, same exception mapping as 02's DnsPythonResolver).",
     "08 (after 06): CRM sync adapter upsert(person_key) -> created / updated / failed per row: HubSpot batch upsert (207 split per row), Attio assert, Pipedrive cached search + create behind one writer; retries only on idempotent calls; merge events remap stored ids (research R7 note).",
@@ -191,12 +192,13 @@
     "04: n8n workflow enrich-and-route is structure-tested only (against the API models and n8n node source on GitHub); never imported into a live n8n instance; docs.n8n.io unreachable 2026-10-30.",
     "Research R9: n8n behaviour (retry re-run of all items, Remove Duplicates at full history, error-workflow payload) read from master source on GitHub, not observed on a live instance; practitioner templates and Make / Zapier / Clay comparisons not yet researched.",
     "06: request shapes from vendor-published npm packages (instantly-cli 0.1.22, @smartlead/cli 0.1.0) and n8n's lemlist node source, not the vendors' API reference pages (api.smartlead.ai, developer.instantly.ai, developer.lemlist.com: proxy 403 on 2026-11-01); Smartlead settings flag names and the 400 / 1,000 lead batch limits from web-search summaries only (R4). Never run against a live Smartlead, Instantly or lemlist account; whether a vendor refuses a lead already in the same campaign is unverified.",
-    "06: HeyReach request shapes from the vendor's n8n package only (n8n-nodes-heyreach 1.0.5); api.heyreach.io docs never opened; 100 pairs per AddLeadsToCampaign is the lab's own batch size; sender weekly budgets are owner-set caps, no LinkedIn-published limit."
+    "06: HeyReach request shapes from the vendor's n8n package only (n8n-nodes-heyreach 1.0.5); api.heyreach.io docs never opened; 100 pairs per AddLeadsToCampaign is the lab's own batch size; sender weekly budgets are owner-set caps, no LinkedIn-published limit.",
+    "06: member read-back shapes from vendor-side packages only (Smartlead: @smartlead/cli 0.1.0 CampaignLeadsSchema, whose own auto-pager expects a bare list instead; Instantly: instantly-cli 0.1.22 sends campaign_id, Activepieces piece 0.2.2 sends campaign — the lab sends campaign and drops items naming another campaign, but items without a campaign field are kept). HeyReach GetLeadsFromCampaign / GetCampaignsForLead response shapes unknown; never read from a live account."
   ],
   "last_run": {
     "date": "2026-11-02",
     "commits": 3,
-    "notes": "Morning run, budget 3: research R1 (Airtable as ops DB), 06 LinkedIn sender assignment + HeyReach builders, state update."
+    "notes": "Evening run, budget 4 (3 used): 06 LinkedIn push-log wiring, member read-back, state update."
   },
   "run_log": [
     {
@@ -580,6 +582,16 @@
         "https://registry.npmjs.org/n8n-nodes-heyreach/-/n8n-nodes-heyreach-1.0.5.tgz"
       ],
       "research_note": "airtable.com / support.airtable.com: ENOTFOUND / proxy 403; Airtable rate limits (5 req/s per base, 50 req/s per token, 30 s after 429) and performUpsert multiple-match behaviour only as web-search summaries, labelled in the note. HeyReach package re-read (already used in R5) for exact field names and the 100-per-page limit."
+    },
+    {
+      "date": "2026-11-02",
+      "commits": 3,
+      "summary": "06-sequencer-sync v0.0.3: plan_linkedin_push wires HeyReach into execute_plan / reconcile with the profile URL as person and idempotency key (unread GetCampaignsForLead -> held, profile suppression, budgets spent only on survivors); read_members for Smartlead / Instantly reads every page or raises IncompleteRead so reconcile never releases keys from a truncated list; HeyReach GetLeadsFromCampaign builder; 17 new tests, 83 in 06.",
+      "sources": [
+        "https://registry.npmjs.org/@smartlead/cli/latest",
+        "https://registry.npmjs.org/@smartlead/cli/-/cli-0.1.0.tgz"
+      ],
+      "research_note": "Re-read (already recorded): n8n-nodes-heyreach 1.0.5 (GetLeadsFromCampaign offset / limit <= 100, GetCampaignsForLead by profileUrl / email / linkedinId; no response shapes), instantly-cli 0.1.22 (POST /leads/list, campaign_id in body, items / next_starting_after), Activepieces Instantly piece 0.2.2 (leads/list with campaign in body; sample lead item carries a campaign field). New: @smartlead/cli 0.1.0 CampaignLeadsSchema {total_leads, data[{lead{email}}]} for GET /campaigns/{id}/leads, limit 1-100; its paginateOffset expects a bare array. help.heyreach.io and documenter.getpostman.com: proxy 403, not opened."
     }
   ],
   "research": {
