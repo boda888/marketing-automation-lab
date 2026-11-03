@@ -145,7 +145,8 @@
     "06: Smartlead / Instantly / lemlist push adapters mapping dedupe_scope onto vendor flags, execute_plan with 429-only retries and outcome_unknown for 5xx / timeouts, reconcile() -> sent / added / skipped_by_vendor (2026-11-01)",
     "06: LinkedIn profile-URL person key, sender assignment with weekly invite budgets (owner pinned, held reasons) and HeyReach AddLeadsToCampaign / GetCampaignsForLead request builders from n8n-nodes-heyreach 1.0.5 (2026-11-02)",
     "Research R1: Airtable as ops database behind Clay / n8n — upsert on duplicate keys, n8n node batching and polling, airtable.js 429 retries (2026-11-02)",
-    "06 v0.0.3: LinkedIn (HeyReach) pushes through plan_linkedin_push -> execute_plan -> reconcile keyed by canonical profile URL; SuppressionList profile entries; paged member read-back read_members (Smartlead offset / total_leads, Instantly cursor) that never returns a partial set (2026-11-02)"
+    "06 v0.0.3: LinkedIn (HeyReach) pushes through plan_linkedin_push -> execute_plan -> reconcile keyed by canonical profile URL; SuppressionList profile entries; paged member read-back read_members (Smartlead offset / total_leads, Instantly cursor) that never returns a partial set (2026-11-02)",
+    "Research R2: Firecrawl /monitor vs n8n Cron + changeTracking for weekly site-change signals — same credits per page, webhook gaps (no statusCode / removed, silent out-of-credit skips), search monitors dedupe per URL not per event (2026-11-03)"
   ],
   "next_steps": [
     "06: Waalaxy duplicate booleans in the same dedupe_scope mapping; HeyReach GetCampaignsForLead / GetLeadsFromCampaign response parsing once a real response shape is seen (vendor node does not show it); lemlist member read-back.",
@@ -153,8 +154,8 @@
     "04 follow-ups: match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; confirm Apollo People Match / bulk_match and Clay webhook shapes against vendor docs when reachable.",
     "04: live DNS adapter for EmailPrecheck (dnspython, opt-in [live] extra, same exception mapping as 02's DnsPythonResolver).",
     "08 (after 06): CRM sync adapter upsert(person_key) -> created / updated / failed per row: HubSpot batch upsert (207 split per row), Attio assert, Pipedrive cached search + create behind one writer; retries only on idempotent calls; merge events remap stored ids (research R7 note).",
-    "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status ≥ 400 → Unknown, see research R2 note); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort (R3 note: thresholds are vendor heuristics).",
-    "09 (after 06/08): reliability kit per R9 note — per-item retry with exponential backoff + Retry-After for idempotent calls only, dedupe store with reserve -> commit after downstream success (06's PushLog already has that contract; generalise it), DLQ intake from node error outputs, error-workflow alert template, rate budget per vendor key; later confirm the source reading on a dockerised n8n (11); ops-table writer for Airtable / sheets (≤ 10-row upserts on a plain-text key, duplicate-key pre-flight, created / updated per row, 429 → ≥ 30 s wait, one rate budget per base; R1 2026-11-02 note).",
+    "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status ≥ 400 → Unknown; accept a changeTracking scrape item and a Firecrawl /monitor page event, whose missing statusCode stays Unknown until the check API confirms it; dedupe search-monitor hits per event — R2 notes 2026-10-23, 2026-11-03); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort (R3 note: thresholds are vendor heuristics).",
+    "09 (after 06/08): reliability kit per R9 note — per-item retry with exponential backoff + Retry-After for idempotent calls only, dedupe store with reserve -> commit after downstream success (06's PushLog already has that contract; generalise it), DLQ intake from node error outputs, error-workflow alert template, silent-schedule watchdog (no event / check within the expected interval → alert; Firecrawl skipped_no_credits sends no webhook, R2 2026-11-03), rate budget per vendor key; later confirm the source reading on a dockerised n8n (11); ops-table writer for Airtable / sheets (≤ 10-row upserts on a plain-text key, duplicate-key pre-flight, created / updated per row, 429 → ≥ 30 s wait, one rate budget per base; R1 2026-11-02 note).",
     "13 (later): GTM MCP server design rules from R8 — server-side read-only mode, upsert writes with per-row created / updated / failed, HTTP transport refuses to start without auth; ship an n8n MCP Server Trigger example with Bearer auth."
   ],
   "known_gaps": [
@@ -193,12 +194,13 @@
     "Research R9: n8n behaviour (retry re-run of all items, Remove Duplicates at full history, error-workflow payload) read from master source on GitHub, not observed on a live instance; practitioner templates and Make / Zapier / Clay comparisons not yet researched.",
     "06: request shapes from vendor-published npm packages (instantly-cli 0.1.22, @smartlead/cli 0.1.0) and n8n's lemlist node source, not the vendors' API reference pages (api.smartlead.ai, developer.instantly.ai, developer.lemlist.com: proxy 403 on 2026-11-01); Smartlead settings flag names and the 400 / 1,000 lead batch limits from web-search summaries only (R4). Never run against a live Smartlead, Instantly or lemlist account; whether a vendor refuses a lead already in the same campaign is unverified.",
     "06: HeyReach request shapes from the vendor's n8n package only (n8n-nodes-heyreach 1.0.5); api.heyreach.io docs never opened; 100 pairs per AddLeadsToCampaign is the lab's own batch size; sender weekly budgets are owner-set caps, no LinkedIn-published limit.",
-    "06: member read-back shapes from vendor-side packages only (Smartlead: @smartlead/cli 0.1.0 CampaignLeadsSchema, whose own auto-pager expects a bare list instead; Instantly: instantly-cli 0.1.22 sends campaign_id, Activepieces piece 0.2.2 sends campaign — the lab sends campaign and drops items naming another campaign, but items without a campaign field are kept). HeyReach GetLeadsFromCampaign / GetCampaignsForLead response shapes unknown; never read from a live account."
+    "06: member read-back shapes from vendor-side packages only (Smartlead: @smartlead/cli 0.1.0 CampaignLeadsSchema, whose own auto-pager expects a bare list instead; Instantly: instantly-cli 0.1.22 sends campaign_id, Activepieces piece 0.2.2 sends campaign — the lab sends campaign and drops items naming another campaign, but items without a campaign field are kept). HeyReach GetLeadsFromCampaign / GetCampaignsForLead response shapes unknown; never read from a live account.",
+    "R2 2026-11-03: Firecrawl /monitor behaviour read from firecrawl-docs (9842574) and its OpenAPI files only — docs site and api.firecrawl.dev blocked; never run live. What a monitored 404 page reports (changed vs error) and whether monitor.page events can be delivered twice are unconfirmed. RB2B (visitor ID) known only from a search summary."
   ],
   "last_run": {
-    "date": "2026-11-02",
-    "commits": 3,
-    "notes": "Evening run, budget 4 (3 used): 06 LinkedIn push-log wiring, member read-back, state update."
+    "date": "2026-11-03",
+    "commits": 2,
+    "notes": "Morning run, budget 2: research R2 (Firecrawl monitor vs n8n Cron + changeTracking), state update."
   },
   "run_log": [
     {
@@ -592,6 +594,25 @@
         "https://registry.npmjs.org/@smartlead/cli/-/cli-0.1.0.tgz"
       ],
       "research_note": "Re-read (already recorded): n8n-nodes-heyreach 1.0.5 (GetLeadsFromCampaign offset / limit <= 100, GetCampaignsForLead by profileUrl / email / linkedinId; no response shapes), instantly-cli 0.1.22 (POST /leads/list, campaign_id in body, items / next_starting_after), Activepieces Instantly piece 0.2.2 (leads/list with campaign in body; sample lead item carries a campaign field). New: @smartlead/cli 0.1.0 CampaignLeadsSchema {total_leads, data[{lead{email}}]} for GET /campaigns/{id}/leads, limit 1-100; its paginateOffset expects a bare array. help.heyreach.io and documenter.getpostman.com: proxy 403, not opened."
+    },
+    {
+      "date": "2026-11-03",
+      "commits": 2,
+      "summary": "Research R2: Firecrawl /monitor vs n8n Cron + changeTracking scrape for weekly site-change signals. Same 1 credit per page (~1,300 credits / month for 100 accounts x 3 pages weekly); /monitor page webhook has no statusCode, no removed status and no targetId; skipped_no_credits checks send no webhook and never pause the monitor; search monitors dedupe per canonical URL, not per event; changeTracking baseline is shared team-wide unless tagged; vendor n8n node 2.2.0 has no monitor operations. Note, 3 insights, STACK rows (Firecrawl, RB2B), root ROADMAP 03 item edited. All project tests green (34/279/126/320/83).",
+      "sources": [
+        "https://github.com/firecrawl/firecrawl-docs/blob/98425740e69a81817131f7227abadf550cc3fbcc/features/monitoring.mdx",
+        "https://github.com/firecrawl/firecrawl-docs/blob/98425740e69a81817131f7227abadf550cc3fbcc/features/monitoring-page.mdx",
+        "https://github.com/firecrawl/firecrawl-docs/blob/98425740e69a81817131f7227abadf550cc3fbcc/features/monitoring-website.mdx",
+        "https://github.com/firecrawl/firecrawl-docs/blob/98425740e69a81817131f7227abadf550cc3fbcc/features/monitoring-web-scale.mdx",
+        "https://github.com/firecrawl/firecrawl-docs/blob/98425740e69a81817131f7227abadf550cc3fbcc/features/change-tracking.mdx",
+        "https://github.com/firecrawl/firecrawl-docs/blob/98425740e69a81817131f7227abadf550cc3fbcc/api-reference/v2-openapi.json",
+        "https://github.com/firecrawl/firecrawl-docs/blob/98425740e69a81817131f7227abadf550cc3fbcc/api-reference/webhooks-openapi.json",
+        "https://github.com/firecrawl/firecrawl-docs/blob/98425740e69a81817131f7227abadf550cc3fbcc/webhooks/overview.mdx",
+        "https://github.com/firecrawl/firecrawl-docs/blob/98425740e69a81817131f7227abadf550cc3fbcc/webhooks/security.mdx",
+        "https://github.com/firecrawl/firecrawl-docs/blob/98425740e69a81817131f7227abadf550cc3fbcc/mcp-server/tools.mdx",
+        "https://registry.npmjs.org/@mendable/n8n-nodes-firecrawl/-/n8n-nodes-firecrawl-2.2.0.tgz"
+      ],
+      "research_note": "research/notes/2026-11-03-R2-firecrawl-monitor-vs-n8n-cron.md. Blocked: support.rb2b.com (DNS), www.rb2b.com, docs.firecrawl.dev (proxy). RB2B webhook/API scope only as search summary (support.rb2b.com article 8976614, reply.io/blog/rb2b-api), not opened."
     }
   ],
   "research": {
@@ -603,7 +624,7 @@
       },
       "R2": {
         "name": "Signals & research",
-        "last_researched": "2026-10-23"
+        "last_researched": "2026-11-03"
       },
       "R3": {
         "name": "Enrichment & verification",
