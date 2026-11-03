@@ -19,9 +19,10 @@ can apply, a catalogue row, or a lab roadmap item.
 - [x] Apify actors for jobs, LinkedIn posts / reactions, company pages: cost per 1,000 results (pricing models + max charge; per-Actor prices only as search summary) → [note](notes/2026-10-23-R2-firecrawl-apify-signal-costs.md)
 - [ ] Apify Actor reliability and ToS risk for LinkedIn posts / reactions / company pages; open live Store pages (apify.com blocked 2026-10-23) to confirm per-1,000 prices and whether platform usage is included
 - [x] Firecrawl / site crawling for ICP and signal research: crawl vs scrape, cost, output shape for LLM prompts → [note](notes/2026-10-23-R2-firecrawl-apify-signal-costs.md)
-- [ ] Firecrawl `/monitor` vs n8n Cron + scrape with `changeTracking` for weekly site-change signals: credits per 100 accounts per month, webhook payload into n8n
+- [x] Firecrawl `/monitor` vs n8n Cron + scrape with `changeTracking` for weekly site-change signals: credits per 100 accounts per month, webhook payload into n8n → [note](notes/2026-11-03-R2-firecrawl-monitor-vs-n8n-cron.md) (from firecrawl-docs + OpenAPI; not run live)
+- [ ] Confirm on the live Firecrawl API what a `/monitor` page with HTTP 404 reports (`changed` vs `error`) and whether `monitor.page` events can arrive twice for one check (no event id dedupe documented)
 - [ ] LinkedIn profile / company data per URL: Firecrawl provider routing (FullEnrich 5 … Apollo 30 credits) vs Apify Actors vs HarvestAPI — cost per 1,000 and freshness
-- [ ] Website-visitor identification (RB2B and similar): how it works, match rates claimed vs observed, privacy limits (US-only, GDPR)
+- [ ] Website-visitor identification (RB2B and similar): how it works, match rates claimed vs observed, privacy limits (US-only, GDPR) — RB2B webhook fields / API scope only as search summary 2026-11-03 (support site DNS-blocked)
 - [ ] Hiring, funding, tech-change and "new leader" signals: which sources are fresh enough to act on within a week
 
 ## R3 · Enrichment & verification
