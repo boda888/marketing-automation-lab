@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "current_project": "06-sequencer-sync",
+  "current_project": "08-crm-sync",
   "projects": [
     {
       "id": "01-icp-scoring",
@@ -39,9 +39,9 @@
     {
       "id": "06-sequencer-sync",
       "path": "projects/06-sequencer-sync",
-      "status": "in_progress",
-      "summary": "SequencerLead (email = person key, placeholders -> None, fixtures flagged); resolve_campaign by explicit name (missing / duplicate -> error); SuppressionList (addresses + domains) separate from campaign dedupe; plan_push with required dedupe_scope and one skip reason per lead; push log reserve -> commit; Smartlead / Instantly / lemlist request builders (explicit flags, requested vs effective scope, lemlist paid lookups off, keys masked); execute_plan (429-only retries with Retry-After, 5xx / timeout -> outcome_unknown, keys kept reserved); reconcile -> sent / added / skipped_by_vendor; FakeTransport; LinkedIn person key (normalise_linkedin_url), assign_senders (pinned owner kept, weekly budget per sender, never over a cap) and HeyReach AddLeadsToCampaign / GetCampaignsForLead / GetLeadsFromCampaign builders; plan_linkedin_push (profile URL = person + idempotency key, no GetCampaignsForLead read -> membership_unchecked, profile suppression, senders assigned to survivors only) running through execute_plan / reconcile; read_members for Smartlead / Instantly (all pages or IncompleteRead, idempotent read retries, foreign-campaign items dropped); 83 tests.",
-      "version": "0.0.3"
+      "status": "done",
+      "summary": "SequencerLead (email = person key, placeholders -> None, fixtures flagged); resolve_campaign by explicit name (missing / duplicate -> error); SuppressionList (addresses + domains) separate from campaign dedupe; plan_push with required dedupe_scope and one skip reason per lead; push log reserve -> commit; Smartlead / Instantly / lemlist request builders (explicit flags, requested vs effective scope, lemlist paid lookups off, keys masked); execute_plan (429-only retries with Retry-After, 5xx / timeout -> outcome_unknown, keys kept reserved); reconcile -> sent / added / skipped_by_vendor; FakeTransport; LinkedIn person key (normalise_linkedin_url), assign_senders (pinned owner kept, weekly budget per sender, never over a cap) and HeyReach AddLeadsToCampaign / GetCampaignsForLead / GetLeadsFromCampaign builders; plan_linkedin_push (profile URL = person + idempotency key, no GetCampaignsForLead read -> membership_unchecked, profile suppression, senders assigned to survivors only) running through execute_plan / reconcile; read_members for Smartlead / Instantly (all pages or IncompleteRead, idempotent read retries, foreign-campaign items dropped); 83 tests; UrllibTransport (stdlib, redirects returned not followed, reached_vendor only False for DNS / refused / TLS); SqlitePushLog (INSERT OR IGNORE reserve, survives restarts, pending(older_than)); FastAPI /v1/push (campaign by name, member read first, one outcome per lead) + stateless /v1/reconcile, optional bearer token; n8n push-and-reconcile workflow; offline demo with a stateful fake Smartlead; 120 tests.",
+      "version": "0.1.0"
     },
     {
       "id": "07-reply-routing",
@@ -147,16 +147,15 @@
     "Research R1: Airtable as ops database behind Clay / n8n — upsert on duplicate keys, n8n node batching and polling, airtable.js 429 retries (2026-11-02)",
     "06 v0.0.3: LinkedIn (HeyReach) pushes through plan_linkedin_push -> execute_plan -> reconcile keyed by canonical profile URL; SuppressionList profile entries; paged member read-back read_members (Smartlead offset / total_leads, Instantly cursor) that never returns a partial set (2026-11-02)",
     "Research R2: Firecrawl /monitor vs n8n Cron + changeTracking for weekly site-change signals — same credits per page, webhook gaps (no statusCode / removed, silent out-of-credit skips), search monitors dedupe per URL not per event (2026-11-03)",
-    "Research R3 2026-11-04: phone validation before calling — Trestle n8n node (phone_intel / real_contact, item replaced by response, empty phone throws) vs Twilio Lookup v2 (per-package error_code, batch correlation_id, valid = numbering-plan only); note, STACK Trestle + Twilio Lookup rows, 3 insights, root ROADMAP 04 phone-ladder item."
+    "Research R3 2026-11-04: phone validation before calling — Trestle n8n node (phone_intel / real_contact, item replaced by response, empty phone throws) vs Twilio Lookup v2 (per-package error_code, batch correlation_id, valid = numbering-plan only); note, STACK Trestle + Twilio Lookup rows, 3 insights, root ROADMAP 04 phone-ladder item.",
+    "06-sequencer-sync v0.1.0 (2026-11-04): stdlib HTTP transport that never follows redirects (urllib turns a redirected POST into a body-less GET) with reached_vendor mapping and 3xx on a push -> outcome_unknown; SQLite push log with the reserve -> commit contract (racing writers, restarts, stale-reservation listing); FastAPI /v1/push + stateless /v1/reconcile, n8n push -> route by outcome -> wait -> reconcile workflow, offline demo dataset; 37 new tests, 120 in 06."
   ],
   "next_steps": [
-    "06: Waalaxy duplicate booleans in the same dedupe_scope mapping; HeyReach GetCampaignsForLead / GetLeadsFromCampaign response parsing once a real response shape is seen (vendor node does not show it); lemlist member read-back.",
-    "06: a real HTTP transport (timeouts mapped to TransportError(reached_vendor=...)); persistent push log (SQLite / Postgres) with the same reserve -> commit contract; then v0.1: FastAPI POST /v1/push with a fake-transport demo, synthetic .example dataset and an n8n workflow (one lead per item, campaign by name, duplicate = skip + log, outcome_unknown -> read_members -> reconcile branch).",
-    "04 follow-ups: match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; confirm Apollo People Match / bulk_match and Clay webhook shapes against vendor docs when reachable; phone ladder found → checked → callable with Trestle / Twilio Lookup mappers (activity 50 / is_valid null = unknown; R3 note 2026-11-04).",
-    "04: live DNS adapter for EmailPrecheck (dnspython, opt-in [live] extra, same exception mapping as 02's DnsPythonResolver).",
-    "08 (after 06): CRM sync adapter upsert(person_key) -> created / updated / failed per row: HubSpot batch upsert (207 split per row), Attio assert, Pipedrive cached search + create behind one writer; retries only on idempotent calls; merge events remap stored ids (research R7 note).",
-    "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status ≥ 400 → Unknown; accept a changeTracking scrape item and a Firecrawl /monitor page event, whose missing statusCode stays Unknown until the check API confirms it; dedupe search-monitor hits per event — R2 notes 2026-10-23, 2026-11-03); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort (R3 note: thresholds are vendor heuristics).",
-    "09 (after 06/08): reliability kit per R9 note — per-item retry with exponential backoff + Retry-After for idempotent calls only, dedupe store with reserve -> commit after downstream success (06's PushLog already has that contract; generalise it), DLQ intake from node error outputs, error-workflow alert template, silent-schedule watchdog (no event / check within the expected interval → alert; Firecrawl skipped_no_credits sends no webhook, R2 2026-11-03), rate budget per vendor key; later confirm the source reading on a dockerised n8n (11); ops-table writer for Airtable / sheets (≤ 10-row upserts on a plain-text key, duplicate-key pre-flight, created / updated per row, 429 → ≥ 30 s wait, one rate budget per base; R1 2026-11-02 note).",
+    "08: CRM sync adapter upsert(person_key) -> created / updated / failed per row: HubSpot batch upsert (207 split per row), Attio assert, Pipedrive cached search + create behind one writer; retries only on idempotent calls; merge events remap stored ids (research R7 note). Reuse 06's UrllibTransport / reached_vendor rule and the SqlitePushLog contract instead of new copies.",
+    "06 follow-ups: lemlist member read-back (then /v1/reconcile for lemlist); Instantly / HeyReach wiring in the API (HeyReach needs memberships per profile, plan_linkedin_push); push-log rows scoped by (vendor, campaign) so a watchdog can alert per campaign; Waalaxy duplicate booleans in the dedupe_scope mapping; HeyReach response parsing once a real shape is seen.",
+    "04 follow-ups: match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; phone ladder found -> checked -> callable with Trestle / Twilio Lookup mappers (activity 50 / is_valid null = unknown; R3 note 2026-11-04); live DNS adapter for EmailPrecheck (opt-in [live] extra).",
+    "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status >= 400 -> Unknown; changeTracking scrape item and Firecrawl /monitor page event, missing statusCode stays Unknown; dedupe search-monitor hits per event — R2 notes 2026-10-23, 2026-11-03); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort.",
+    "09 (after 08): reliability kit per R9 note — per-item retry with backoff + Retry-After for idempotent calls only, generalise 06's SqlitePushLog reserve -> commit into a shared dedupe store, DLQ intake from node error outputs, error-workflow alert template, silent-schedule watchdog (incl. 06 pending(older_than) and Firecrawl skipped_no_credits), rate budget per vendor key; ops-table writer for Airtable / sheets (R1 2026-11-02 note).",
     "13 (later): GTM MCP server design rules from R8 — server-side read-only mode, upsert writes with per-row created / updated / failed, HTTP transport refuses to start without auth; ship an n8n MCP Server Trigger example with Bearer auth."
   ],
   "known_gaps": [
@@ -196,12 +195,13 @@
     "06: request shapes from vendor-published npm packages (instantly-cli 0.1.22, @smartlead/cli 0.1.0) and n8n's lemlist node source, not the vendors' API reference pages (api.smartlead.ai, developer.instantly.ai, developer.lemlist.com: proxy 403 on 2026-11-01); Smartlead settings flag names and the 400 / 1,000 lead batch limits from web-search summaries only (R4). Never run against a live Smartlead, Instantly or lemlist account; whether a vendor refuses a lead already in the same campaign is unverified.",
     "06: HeyReach request shapes from the vendor's n8n package only (n8n-nodes-heyreach 1.0.5); api.heyreach.io docs never opened; 100 pairs per AddLeadsToCampaign is the lab's own batch size; sender weekly budgets are owner-set caps, no LinkedIn-published limit.",
     "06: member read-back shapes from vendor-side packages only (Smartlead: @smartlead/cli 0.1.0 CampaignLeadsSchema, whose own auto-pager expects a bare list instead; Instantly: instantly-cli 0.1.22 sends campaign_id, Activepieces piece 0.2.2 sends campaign — the lab sends campaign and drops items naming another campaign, but items without a campaign field are kept). HeyReach GetLeadsFromCampaign / GetCampaignsForLead response shapes unknown; never read from a live account.",
-    "R2 2026-11-03: Firecrawl /monitor behaviour read from firecrawl-docs (9842574) and its OpenAPI files only — docs site and api.firecrawl.dev blocked; never run live. What a monitored 404 page reports (changed vs error) and whether monitor.page events can be delivered twice are unconfirmed. RB2B (visitor ID) known only from a search summary."
+    "R2 2026-11-03: Firecrawl /monitor behaviour read from firecrawl-docs (9842574) and its OpenAPI files only — docs site and api.firecrawl.dev blocked; never run live. What a monitored 404 page reports (changed vs error) and whether monitor.page events can be delivered twice are unconfirmed. RB2B (visitor ID) known only from a search summary.",
+    "06 v0.1.0: UrllibTransport tested only against a local http.server (127.0.0.1); redirect behaviour read from CPython Lib/urllib/request.py on GitHub (docs.python.org and sqlite.org ENOTFOUND 2026-11-04); a connect timeout is treated as reached_vendor=True because urllib wraps connect and send errors alike. SqlitePushLog tested on SQLite 3.45 only, one host. API + n8n workflow run only against the demo's FakeSmartlead / FakeTransport; workflow never imported into a live n8n; Wait / Aggregate / Switch parameters from n8n master source. Push-log rows carry no (vendor, campaign) column, so pending() cannot be filtered per campaign."
   ],
   "last_run": {
     "date": "2026-11-04",
-    "commits": 1,
-    "notes": "Morning run, budget 2: research R3 (phone validation: Trestle n8n node vs Twilio Lookup v2) with the state update folded in; no code step fits a second meaningful commit in this run."
+    "commits": 4,
+    "notes": "Evening run, budget 4: 06 HTTP transport, SQLite push log, FastAPI + n8n + demo (v0.1.0), state update. current_project -> 08-crm-sync."
   },
   "run_log": [
     {
@@ -624,6 +624,18 @@
         "https://registry.npmjs.org/twilio/-/twilio-6.2.0.tgz"
       ],
       "research_note": "research/notes/2026-11-04-R3-phone-validation-trestle-twilio.md. Blocked: trestle-api.redoc.ly, docs.trestleiq.com (ENOTFOUND); trestleiq.com, twilio.com, activeprospect.com, deepline.com, github.com/TrestleIQ (proxy 403). Trestle field meanings, Twilio prices, Clay phone billing only as search summaries."
+    },
+    {
+      "date": "2026-11-04",
+      "commits": 4,
+      "summary": "06-sequencer-sync v0.1.0: UrllibTransport (stdlib; redirects returned, not followed, since urllib re-sends a redirected POST as a body-less GET; DNS / refused / TLS = reached_vendor False, everything else True; 3xx push -> outcome_unknown); SqlitePushLog (INSERT OR IGNORE reserve, 8 racing writers one winner, crash leaves keys push_pending, pending(older_than)); FastAPI /v1/push (campaign by name 404/409, member read first, partial read 502, one outcome per lead) + stateless /v1/reconcile (keys recomputed), bearer token; n8n push-and-reconcile workflow; offline demo with stateful FakeSmartlead and 7-lead .example dataset (also run via uvicorn + curl). 37 new tests, 120 in 06. Doc hosts docs.python.org / sqlite.org unreachable.",
+      "sources": [
+        "https://raw.githubusercontent.com/python/cpython/3.13/Lib/urllib/request.py",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Transform/Aggregate/Aggregate.node.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Wait/Wait.node.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/HttpRequest/V3/Description.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Transform/SplitOut/SplitOut.node.ts"
+      ]
     }
   ],
   "research": {
