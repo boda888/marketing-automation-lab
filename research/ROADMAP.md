@@ -31,7 +31,9 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] Measured waterfall on a 100-contact sample of the owner's own ICP (run outside the repo): hits, false positives (bounces) and cost per verified email per provider — no independent benchmark exists
 - [ ] MillionVerifier API docs (blocked 2026-10-24): result codes, whether catch_all / unknown are free on the API, rate limits; Icypeas API statuses and billing
 - [ ] Catch-all scoring (ZeroBounce AI scoring, activity data, LeadMagic / others): what the score predicts and what it costs per 1,000
-- [ ] Phone enrichment and validation: mobile vs direct vs main line, cost per valid number, when it pays off
+- [x] Phone enrichment and validation: mobile vs direct vs main line, cost per valid number, when it pays off → [note](notes/2026-11-04-R3-phone-validation-trestle-twilio.md) (request shapes first-party from vendor packages; field meanings and prices only search summaries; no measured cost per callable number)
+- [ ] Trestle `phone_intel` response and price first-party (docs hosts blocked 2026-11-04): full `line_type` enum, `warnings`, billing per call vs per valid result, rate limits
+- [ ] Connect rate by activity-score band on the owner's own calling list (run outside the repo) to set the call / unknown / drop cut-offs
 
 ## R4 · Email infrastructure & sequencers
 - [ ] Mailbox infrastructure (Zapmail-style Google / Microsoft inbox providers): domains per mailbox, warm-up time, cost per inbox

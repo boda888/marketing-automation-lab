@@ -146,12 +146,13 @@
     "06: LinkedIn profile-URL person key, sender assignment with weekly invite budgets (owner pinned, held reasons) and HeyReach AddLeadsToCampaign / GetCampaignsForLead request builders from n8n-nodes-heyreach 1.0.5 (2026-11-02)",
     "Research R1: Airtable as ops database behind Clay / n8n — upsert on duplicate keys, n8n node batching and polling, airtable.js 429 retries (2026-11-02)",
     "06 v0.0.3: LinkedIn (HeyReach) pushes through plan_linkedin_push -> execute_plan -> reconcile keyed by canonical profile URL; SuppressionList profile entries; paged member read-back read_members (Smartlead offset / total_leads, Instantly cursor) that never returns a partial set (2026-11-02)",
-    "Research R2: Firecrawl /monitor vs n8n Cron + changeTracking for weekly site-change signals — same credits per page, webhook gaps (no statusCode / removed, silent out-of-credit skips), search monitors dedupe per URL not per event (2026-11-03)"
+    "Research R2: Firecrawl /monitor vs n8n Cron + changeTracking for weekly site-change signals — same credits per page, webhook gaps (no statusCode / removed, silent out-of-credit skips), search monitors dedupe per URL not per event (2026-11-03)",
+    "Research R3 2026-11-04: phone validation before calling — Trestle n8n node (phone_intel / real_contact, item replaced by response, empty phone throws) vs Twilio Lookup v2 (per-package error_code, batch correlation_id, valid = numbering-plan only); note, STACK Trestle + Twilio Lookup rows, 3 insights, root ROADMAP 04 phone-ladder item."
   ],
   "next_steps": [
     "06: Waalaxy duplicate booleans in the same dedupe_scope mapping; HeyReach GetCampaignsForLead / GetLeadsFromCampaign response parsing once a real response shape is seen (vendor node does not show it); lemlist member read-back.",
     "06: a real HTTP transport (timeouts mapped to TransportError(reached_vendor=...)); persistent push log (SQLite / Postgres) with the same reserve -> commit contract; then v0.1: FastAPI POST /v1/push with a fake-transport demo, synthetic .example dataset and an n8n workflow (one lead per item, campaign by name, duplicate = skip + log, outcome_unknown -> read_members -> reconcile branch).",
-    "04 follow-ups: match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; confirm Apollo People Match / bulk_match and Clay webhook shapes against vendor docs when reachable.",
+    "04 follow-ups: match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; confirm Apollo People Match / bulk_match and Clay webhook shapes against vendor docs when reachable; phone ladder found → checked → callable with Trestle / Twilio Lookup mappers (activity 50 / is_valid null = unknown; R3 note 2026-11-04).",
     "04: live DNS adapter for EmailPrecheck (dnspython, opt-in [live] extra, same exception mapping as 02's DnsPythonResolver).",
     "08 (after 06): CRM sync adapter upsert(person_key) -> created / updated / failed per row: HubSpot batch upsert (207 split per row), Attio assert, Pipedrive cached search + create behind one writer; retries only on idempotent calls; merge events remap stored ids (research R7 note).",
     "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status ≥ 400 → Unknown; accept a changeTracking scrape item and a Firecrawl /monitor page event, whose missing statusCode stays Unknown until the check API confirms it; dedupe search-monitor hits per event — R2 notes 2026-10-23, 2026-11-03); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort (R3 note: thresholds are vendor heuristics).",
@@ -198,9 +199,9 @@
     "R2 2026-11-03: Firecrawl /monitor behaviour read from firecrawl-docs (9842574) and its OpenAPI files only — docs site and api.firecrawl.dev blocked; never run live. What a monitored 404 page reports (changed vs error) and whether monitor.page events can be delivered twice are unconfirmed. RB2B (visitor ID) known only from a search summary."
   ],
   "last_run": {
-    "date": "2026-11-03",
-    "commits": 2,
-    "notes": "Morning run, budget 2: research R2 (Firecrawl monitor vs n8n Cron + changeTracking), state update."
+    "date": "2026-11-04",
+    "commits": 1,
+    "notes": "Morning run, budget 2: research R3 (phone validation: Trestle n8n node vs Twilio Lookup v2) with the state update folded in; no code step fits a second meaningful commit in this run."
   },
   "run_log": [
     {
@@ -613,6 +614,16 @@
         "https://registry.npmjs.org/@mendable/n8n-nodes-firecrawl/-/n8n-nodes-firecrawl-2.2.0.tgz"
       ],
       "research_note": "research/notes/2026-11-03-R2-firecrawl-monitor-vs-n8n-cron.md. Blocked: support.rb2b.com (DNS), www.rb2b.com, docs.firecrawl.dev (proxy). RB2B webhook/API scope only as search summary (support.rb2b.com article 8976614, reply.io/blog/rb2b-api), not opened."
+    },
+    {
+      "date": "2026-11-04",
+      "commits": 1,
+      "summary": "Research R3: phone validation for calling lists. Trestle vendor n8n node 0.2.8 (GET /3.0/phone_intel, POST /1.1/real_contact, x-api-key; node replaces the item with the response, throws on empty phone, credential test spends a lookup) and Twilio Lookup v2 from twilio 6.2.0 (Fields packages, per-package error_code, batch /v2/batch/query with correlation_id, valid = numbering-plan validity, 429 auto-retry off). activity_score semantics (50 = not enough signals) and prices only as search summaries. Note, STACK rows, 3 insights, research ROADMAP 1 ticked + 2 new, root ROADMAP 04 phone-ladder item.",
+      "sources": [
+        "https://registry.npmjs.org/n8n-nodes-trestle/-/n8n-nodes-trestle-0.2.8.tgz",
+        "https://registry.npmjs.org/twilio/-/twilio-6.2.0.tgz"
+      ],
+      "research_note": "research/notes/2026-11-04-R3-phone-validation-trestle-twilio.md. Blocked: trestle-api.redoc.ly, docs.trestleiq.com (ENOTFOUND); trestleiq.com, twilio.com, activeprospect.com, deepline.com, github.com/TrestleIQ (proxy 403). Trestle field meanings, Twilio prices, Clay phone billing only as search summaries."
     }
   ],
   "research": {
@@ -628,7 +639,7 @@
       },
       "R3": {
         "name": "Enrichment & verification",
-        "last_researched": "2026-10-24"
+        "last_researched": "2026-11-04"
       },
       "R4": {
         "name": "Email infrastructure & sequencers",
