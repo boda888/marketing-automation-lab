@@ -43,6 +43,7 @@ from .readback import (
     read_members,
 )
 from .suppression import SuppressionHit, SuppressionList, SuppressionReason
+from .transport import UrllibTransport
 
 __all__ = [
     "IncompleteRead",
@@ -70,6 +71,7 @@ __all__ = [
     "SmartleadAdapter",
     "Transport",
     "TransportError",
+    "UrllibTransport",
     "execute_plan",
     "reconcile",
     "retry_after_seconds",

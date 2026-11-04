@@ -70,6 +70,23 @@ report carries `requested_scope` and `effective_scope`, and URLs with the Smartl
   push and *committed* once the vendor confirmed it; a reserved key on the next run means
   "outcome unknown" and the lead waits for reconciliation instead of being pushed again.
 
+### HTTP transport (`UrllibTransport`, standard library only)
+
+```
+UrllibTransport(timeout=30).send(HttpRequest)  →  HttpResponse(status, body, headers)
+   2xx / 4xx / 5xx        a response (HTTPError unwrapped: 429 Retry-After still read)
+   3xx                    returned, never followed → push: outcome_unknown, read: IncompleteRead
+   DNS / refused / TLS    TransportError(reached_vendor=False) → not_sent, keys released
+   timeout / reset        TransportError(reached_vendor=True)  → outcome_unknown, keys kept
+```
+
+Redirects are off on purpose: `urllib` re-sends a redirected POST (301 / 302 / 303) as a
+body-less GET, which can return 200 while no lead was created (CPython
+`Lib/urllib/request.py`, `redirect_request`, read 2026-11-04). A connect timeout counts as
+"may have reached the vendor" because `urllib` reports connect and send errors the same
+way; reconcile settles it. Error texts carry the redacted URL only. Proxy settings come
+from the environment (`HTTPS_PROXY`); bodies over 10 MB raise.
+
 ### Member read-back (feeds `plan_push(in_campaign=…)` and `reconcile`)
 
 `reconcile` releases every `outcome_unknown` key whose lead is missing from the read, so a
@@ -165,8 +182,8 @@ plan.summary()
 - HeyReach shapes (`AddLeadsToCampaign`, `GetCampaignsForLead`, `X-N8N-KEY`, 100 per
   page) come from HeyReach's n8n package `n8n-nodes-heyreach` 1.0.5, read 2026-11-02; the
   100-pair batch size for adds is the lab's own choice (no limit found). Not run live.
-- Wiring LinkedIn pairs into the push log / `execute_plan` (profile URL as the key), a
-  real HTTP transport, the member read-back calls and an n8n workflow come next
+- `UrllibTransport` is tested against a local `http.server` on 127.0.0.1 only; it has
+  never called a vendor host. An n8n workflow and an HTTP API come next
   (see [ROADMAP](../../ROADMAP.md)).
 - `InMemoryPushLog` is per process; a persistent store is needed for real runs.
 - Membership sets (`in_campaign`, …) are only as fresh as the caller's last read; the

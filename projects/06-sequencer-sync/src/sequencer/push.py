@@ -44,7 +44,7 @@ class BatchStatus(StrEnum):
     REJECTED = "rejected"  # 4xx except 429: our request is wrong; keys released
     RATE_LIMITED = "rate_limited"  # 429 after the retries: nothing processed; keys released
     NOT_SENT = "not_sent"  # transport failed before the request left; keys released
-    OUTCOME_UNKNOWN = "outcome_unknown"  # 5xx / timeout: keys stay reserved, reconcile
+    OUTCOME_UNKNOWN = "outcome_unknown"  # 5xx / 3xx / timeout: keys stay reserved
 
 
 @dataclass
@@ -214,7 +214,9 @@ def _send(
                 attempts,
                 _error_text(response.body),
             )
-        status = BatchStatus.OUTCOME_UNKNOWN if code >= 500 else BatchStatus.REJECTED
+        # 5xx may have created the leads; a 3xx (never followed) may follow a processed POST.
+        unknown = code >= 500 or 300 <= code < 400
+        status = BatchStatus.OUTCOME_UNKNOWN if unknown else BatchStatus.REJECTED
         return BatchResult(status, url, request.leads, code, attempts, _error_text(response.body))
 
 
