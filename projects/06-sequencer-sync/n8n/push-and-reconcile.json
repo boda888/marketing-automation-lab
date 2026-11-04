@@ -1,0 +1,483 @@
+{
+  "name": "Push leads, route outcomes, reconcile unknowns (marketing-automation-lab/06)",
+  "nodes": [
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000001",
+      "name": "Webhook: ready leads in",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "b4e1c7d2-0006-4a6b-8f10-0000000000aa",
+      "notes": "Send only fully-ready rows (never a half-filled sheet row): body {leads: [...]}.",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sequencer/push",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ],
+      "notes": "Campaign by exact name, never a hard-coded id: missing -> 404, duplicate name -> 409. dedupe_scope has no default on purpose.",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-url",
+              "name": "sequencer_url",
+              "value": "http://sequencer:8006",
+              "type": "string"
+            },
+            {
+              "id": "cfg-vendor",
+              "name": "vendor",
+              "value": "smartlead",
+              "type": "string"
+            },
+            {
+              "id": "cfg-campaign",
+              "name": "campaign_name",
+              "value": "Q4 Logistics DE",
+              "type": "string"
+            },
+            {
+              "id": "cfg-scope",
+              "name": "dedupe_scope",
+              "value": "campaign",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000003",
+      "name": "Push batch (no retry: creates leads)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "retryOnFail": false,
+      "onError": "continueErrorOutput",
+      "notes": "No n8n retry: a retried POST can create leads twice. The service holds unknown outcomes itself (reserved keys) and reports them per lead.",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.sequencer_url }}/v1/push",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ vendor: $json.vendor, campaign_name: $json.campaign_name, dedupe_scope: $json.dedupe_scope, leads: $json.body.leads || [], required_variables: $json.body.required_variables || [] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000004",
+      "name": "Respond: push summary",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        700,
+        -200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ campaign: $json.campaign, summary: $json.summary }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000005",
+      "name": "Respond: push refused (nothing sent)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        700,
+        200
+      ],
+      "notes": "404 / 409 campaign, 422 request, 502 partial member read: nothing was pushed.",
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: $json.error }) }}",
+        "options": {
+          "responseCode": 502
+        }
+      }
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000006",
+      "name": "One item per lead",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        700,
+        0
+      ],
+      "parameters": {
+        "fieldToSplitOut": "leads",
+        "include": "noOtherFields",
+        "options": {}
+      }
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000007",
+      "name": "Route by outcome",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        920,
+        0
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "renameOutput": true,
+              "outputKey": "Sent",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "outcome-sent",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "sent",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Skipped",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "outcome-skipped",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "skipped",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Outcome unknown",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "outcome-outcome_unknown",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "outcome_unknown",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Failed"
+        }
+      }
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000008",
+      "name": "Log: sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        -300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000009",
+      "name": "Skip + log (duplicate / suppressed / not ready)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        -120
+      ],
+      "notes": "A duplicate or not-ready lead is skipped and logged with its reason; never Stop and Error on it.",
+      "parameters": {}
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000010",
+      "name": "DLQ: failed (rejected / rate limited / not sent)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        300
+      ],
+      "notes": "Keys were released: fix the cause, then re-post these leads.",
+      "parameters": {}
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000011",
+      "name": "Wait for the vendor (60 s)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1160,
+        100
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 60,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000012",
+      "name": "Collect unknown leads",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1380,
+        100
+      ],
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "leads",
+        "options": {}
+      }
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000013",
+      "name": "Reconcile from member read-back",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "notes": "Safe to retry: it only reads members and commits / releases keys.",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.sequencer_url }}/v1/reconcile",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ vendor: $('Config').first().json.vendor, campaign_name: $('Config').first().json.campaign_name, leads: $json.leads.map(l => ({ lead_id: l.lead_id, email: l.email })) }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000014",
+      "name": "Log: confirmed / cleared",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "notes": "confirmed = in the campaign (committed); cleared = absent (released, re-post on the next run).",
+      "parameters": {}
+    },
+    {
+      "id": "b4e1c7d2-0006-4a6b-8f10-000000000015",
+      "name": "Alert: reconcile failed (keys stay reserved)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        200
+      ],
+      "notes": "Leads stay push_pending; the next run will not push them twice. Wire Slack / Telegram here.",
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Webhook: ready leads in": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Push batch (no retry: creates leads)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push batch (no retry: creates leads)": {
+      "main": [
+        [
+          {
+            "node": "Respond: push summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "One item per lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: push refused (nothing sent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per lead": {
+      "main": [
+        [
+          {
+            "node": "Route by outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by outcome": {
+      "main": [
+        [
+          {
+            "node": "Log: sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip + log (duplicate / suppressed / not ready)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for the vendor (60 s)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DLQ: failed (rejected / rate limited / not sent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for the vendor (60 s)": {
+      "main": [
+        [
+          {
+            "node": "Collect unknown leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect unknown leads": {
+      "main": [
+        [
+          {
+            "node": "Reconcile from member read-back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reconcile from member read-back": {
+      "main": [
+        [
+          {
+            "node": "Log: confirmed / cleared",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert: reconcile failed (keys stay reserved)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

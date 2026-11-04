@@ -84,14 +84,14 @@ Pain: one bad model response ships to the whole list.
 - [ ] eval set and scorer (groundedness, length, banned phrases)
 - [ ] prompt ↔ JSON-schema consistency check; campaign geography passed explicitly, never inferred from HQ or contact location
 
-## 06 · Sequencer sync — v0.0.3 (2026-11-02)
+## 06 · Sequencer sync — v0.1.0 (2026-11-04)
 Pain: leads pushed twice, unsubscribed people re-contacted.
-- [ ] Instantly / Smartlead / HeyReach adapters (shapes from current vendor docs), custom variables (Smartlead `/campaigns/{id}/leads`, Instantly `/leads/add`, lemlist per-lead create with paid lookups forced off done 2026-11-01, shapes from vendor npm packages / n8n source, not live-tested; HeyReach AddLeadsToCampaign wired into execute_plan and paged member read-back (Smartlead, Instantly; HeyReach request only) done 2026-11-02; lemlist read-back and a real HTTP transport next)
+- [ ] Instantly / Smartlead / HeyReach adapters (shapes from current vendor docs), custom variables (Smartlead `/campaigns/{id}/leads`, Instantly `/leads/add`, lemlist per-lead create with paid lookups forced off done 2026-11-01, shapes from vendor npm packages / n8n source, not live-tested; HeyReach AddLeadsToCampaign wired into execute_plan and paged member read-back (Smartlead, Instantly; HeyReach request only) done 2026-11-02; stdlib HTTP transport (no redirects followed, reached_vendor mapping) done 2026-11-04; lemlist read-back next)
 - [x] suppression list, idempotent pushes, rate limits, mocked HTTP tests (2026-11-01: addresses + domains; reserve → commit push log; 429 retried with Retry-After, 5xx / timeout kept `outcome_unknown` and never re-POSTed)
 - [x] resolve campaign by explicit name (missing/duplicate → loud error); campaign-level dedup separate from global suppression; update rows by person key, never by company (2026-11-01)
 - [x] explicit `dedupe_scope` (campaign / all campaigns / workspace) mapped to each vendor's flag (Smartlead `ignore_*` settings, Instantly `skip_if_*`, lemlist `deduplicate`) — never the vendor default, requested vs effective scope reported; push report `sent` / `added` / `skipped_by_vendor` per campaign from `reconcile()` (research R4 2026-10-25; done 2026-11-01)
 - [ ] LinkedIn pushes take an explicit sender account per lead (HeyReach `accountLeadPairs`) with a weekly invite budget per sender; never the tool's choice; HeyReach has no dedupe flag → `GetCampaignsForLead` pre-check, Waalaxy duplicate booleans in the same `dedupe_scope` mapping (research R5 2026-10-26) — sender assignment with weekly budgets, profile-URL key and HeyReach builders done 2026-11-02; push-log wiring (profile URL as idempotency key, unread membership held, profile suppression) done 2026-11-02; Waalaxy next
-- [ ] FastAPI push endpoint + n8n workflow (one lead per item, stable ids, duplicate = skip + log, campaign by name) + synthetic `.example` demo
+- [x] FastAPI push endpoint + n8n workflow (one lead per item, stable ids, duplicate = skip + log, campaign by name) + synthetic `.example` demo (2026-11-04: `/v1/push` + stateless `/v1/reconcile`, SQLite push log, n8n push → route by outcome → wait → reconcile; structure-tested, not imported into a live n8n)
 
 ## 07 · Reply intent classification & routing
 Pain: replies triaged by hand, hot leads go cold.

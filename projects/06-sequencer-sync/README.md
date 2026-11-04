@@ -8,10 +8,12 @@ campaign dedupe and global suppression were the same switch; and every sequencer
 to "insert", with its cross-campaign check named differently (Smartlead `ignore_*`
 settings, Instantly `skip_if_*`, lemlist `deduplicate`; research R4, 2026-10-25).
 
-v0.0.3: the planning layer that runs before any HTTP call, request builders for
+v0.1.0: the planning layer that runs before any HTTP call, request builders for
 Smartlead, Instantly and lemlist that map one dedupe scope onto each vendor's own flags,
-and a push executor with a retry rule that cannot create a lead twice, plus a
-read-back reconciliation that reports *sent* vs *added* vs *skipped by the vendor*.
+a push executor with a retry rule that cannot create a lead twice, a read-back
+reconciliation that reports *sent* vs *added* vs *skipped by the vendor*, a stdlib HTTP
+transport, a SQLite push log, and a FastAPI service with an n8n workflow and an offline
+demo (fake Smartlead) on top.
 
 ## Architecture
 
@@ -162,12 +164,54 @@ reconcile(report, log, members_after=[profile URLs in any form])
 no email. HeyReach lead lists are not campaigns, so `workspace` is enforced as
 `all_campaigns` (`effective_scope` says so in the report).
 
+## Service and n8n workflow
+
+```
+POST /v1/push       {vendor, campaign_name, dedupe_scope, leads, required_variables}
+   campaign by exact name (missing 404, duplicate name 409) → member read (partial → 502,
+   nothing pushed) → plan_push → execute_plan → one outcome per lead:
+   sent | skipped (reason) | outcome_unknown | failed
+POST /v1/reconcile  {vendor, campaign_name, leads: the outcome_unknown ones}
+   member read → found: committed (confirmed) / absent: released (cleared) / no reserved
+   key: not_pending. Keys are recomputed from (vendor, campaign id, email): no server-side
+   report has to survive between the calls.
+GET  /healthz
+```
+
+`create_app(service, api_token=...)` requires `Authorization: Bearer <token>` on `/v1`.
+lemlist has no member reader yet: its pushes run without a membership read
+(`membership_checked: false`) and `/v1/reconcile` answers 501.
+
+[`n8n/push-and-reconcile.json`](n8n/push-and-reconcile.json):
+
+```
+Webhook (ready rows only) → Config (vendor, campaign_name, dedupe_scope — no ids)
+  → Push batch (no n8n retry) ─┬→ Respond: summary
+                               ├→ One item per lead → Route by outcome
+                               │     sent → log · skipped → skip + log (never Stop and Error)
+                               │     failed / anything new → DLQ
+                               │     outcome_unknown → Wait 60 s → Collect → Reconcile
+                               │        (retried: reads only) → log / alert (keys stay reserved)
+                               └→ (error output) Respond 502: nothing sent
+```
+
+The workflow is structure-tested against the API models (`tests/test_n8n.py`); it was
+not imported into a live n8n instance.
+
 ## Run it
 
 ```bash
 python -m pip install -e ".[dev]"
 python -m pytest -q
+uvicorn sequencer.demo:app --port 8006      # offline demo: fake Smartlead, in-memory log
+curl -s localhost:8006/v1/push -H 'content-type: application/json' \
+     -d @examples/demo-push.json
 ```
+
+The demo batch has 7 leads: 2 sent, 1 duplicate, 2 suppressed (unsubscribed address,
+do-not-contact domain), 1 with a blank required `first_line`, 1 placeholder email; posting
+it again skips all as `already_pushed`. Emails starting `lost+` / `down+` trigger a lost
+response / a 503 to show the `outcome_unknown` → reconcile path.
 
 ```python
 from sequencer import Campaign, DedupeScope, SequencerLead, SuppressionList, plan_push
@@ -190,7 +234,8 @@ plan.summary()
   node) — not from the vendors' API reference pages, which were unreachable from the run
   environment. Smartlead's `settings` flag names and its 400-lead and Instantly's
   1,000-lead batch limits come from web-search summaries (research R4). Nothing here was
-  run against a live Smartlead, Instantly or lemlist account; tests use `FakeTransport`.
+  run against a live Smartlead, Instantly or lemlist account; tests use `FakeTransport`,
+  the demo's `FakeSmartlead` and a local `http.server`.
 - Whether a vendor itself refuses a lead already in the *same* campaign is not verified;
   the push log and `in_campaign` keep the lab from re-pushing either way.
 - No vendor response bodies are parsed for counts (no first-party schema for them was

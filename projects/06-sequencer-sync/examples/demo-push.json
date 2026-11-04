@@ -1,0 +1,51 @@
+{
+  "vendor": "smartlead",
+  "campaign_name": "Q4 Logistics DE",
+  "dedupe_scope": "campaign",
+  "required_variables": ["first_line"],
+  "leads": [
+    {
+      "lead_id": "lead-001",
+      "email": "Ana.Ruiz@northwind.example",
+      "first_name": "Ana",
+      "company_name": "Northwind Freight",
+      "custom_variables": {"first_line": "Saw the new Leipzig cross-dock on your careers page."}
+    },
+    {
+      "lead_id": "lead-002",
+      "email": "ben.okafor@contoso.example",
+      "first_name": "Ben",
+      "company_name": "Contoso Logistics",
+      "custom_variables": {"first_line": "Your three open dispatcher roles in Hamburg caught my eye."}
+    },
+    {
+      "lead_id": "lead-003",
+      "email": "ana.ruiz@northwind.example",
+      "first_name": "Ana",
+      "custom_variables": {"first_line": "Same person from a second source."}
+    },
+    {
+      "lead_id": "lead-004",
+      "email": "former.customer@fabrikam.example",
+      "first_name": "Kim",
+      "custom_variables": {"first_line": "Unsubscribed last quarter."}
+    },
+    {
+      "lead_id": "lead-005",
+      "email": "sales@competitor.example",
+      "custom_variables": {"first_line": "Domain is on the do-not-contact list."}
+    },
+    {
+      "lead_id": "lead-006",
+      "email": "dana@tailspin.example",
+      "first_name": "Dana",
+      "custom_variables": {"first_line": ""}
+    },
+    {
+      "lead_id": "lead-007",
+      "email": "Unknown",
+      "first_name": "Lee",
+      "custom_variables": {"first_line": "Placeholder email from a provider column."}
+    }
+  ]
+}
