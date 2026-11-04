@@ -87,6 +87,22 @@ body-less GET, which can return 200 while no lead was created (CPython
 way; reconcile settles it. Error texts carry the redacted URL only. Proxy settings come
 from the environment (`HTTPS_PROXY`); bodies over 10 MB raise.
 
+### Persistent push log (`SqlitePushLog`)
+
+```python
+with SqlitePushLog("push-log.sqlite") as log:  # one file, WAL, autocommit
+    plan = plan_push(..., push_log=log)  # reserved key → push_pending
+    report = execute_plan(plan, adapter, UrllibTransport(), log)
+    log.pending(older_than=3600)  # outcome_unknown > 1 h → alert
+```
+
+`reserve` is a single `INSERT OR IGNORE` on the key, so two runs with their own
+connections can never both win one lead (tested with 8 racing writers); a crash after a
+5xx leaves the keys reserved on disk and the next run skips those leads as `push_pending`
+until `reconcile` settles them. Only sha256 keys are stored, no emails or profile URLs.
+Tested on SQLite 3.45 (Python's bundled build); a Postgres store with the same contract is
+not built.
+
 ### Member read-back (feeds `plan_push(in_campaign=…)` and `reconcile`)
 
 `reconcile` releases every `outcome_unknown` key whose lead is missing from the read, so a
@@ -185,6 +201,7 @@ plan.summary()
 - `UrllibTransport` is tested against a local `http.server` on 127.0.0.1 only; it has
   never called a vendor host. An n8n workflow and an HTTP API come next
   (see [ROADMAP](../../ROADMAP.md)).
-- `InMemoryPushLog` is per process; a persistent store is needed for real runs.
+- `InMemoryPushLog` is per process; use `SqlitePushLog` for real runs (one host; several
+  hosts need a shared database store, not built).
 - Membership sets (`in_campaign`, …) are only as fresh as the caller's last read; the
   vendor's own flag must stay on as the second line of defence.

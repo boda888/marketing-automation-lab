@@ -42,6 +42,7 @@ from .readback import (
     SmartleadMembers,
     read_members,
 )
+from .store import PendingKey, SqlitePushLog
 from .suppression import SuppressionHit, SuppressionList, SuppressionReason
 from .transport import UrllibTransport
 
@@ -85,6 +86,8 @@ __all__ = [
     "PushPlan",
     "PushState",
     "SequencerLead",
+    "SqlitePushLog",
+    "PendingKey",
     "SkipReason",
     "Skipped",
     "SuppressionHit",
