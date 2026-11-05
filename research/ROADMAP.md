@@ -40,8 +40,10 @@ can apply, a catalogue row, or a lab roadmap item.
 - [x] Smartlead vs Instantly vs Lemlist: APIs, webhooks, custom variables, campaign-level vs global dedupe → [note](notes/2026-10-25-R4-sequencer-dedupe-webhooks.md) (from vendor packages; upload-setting defaults only as search summary)
 - [ ] Open the live Smartlead / Instantly API references (blocked 2026-10-25): placement and defaults of Smartlead `settings` ignore_* flags and Instantly `skip_if_*`, webhook payload fields, rate limits per plan; pricing tiers and subsequences
 - [ ] Inbox placement testing and warm-up: what is measurable, what is vendor theatre
-- [ ] Reply handling: webhook payload fields per vendor and how to push replies to CRM / Slack / Telegram (event names, replay and inbox APIs covered in the 2026-10-25 note)
-- [ ] lemlist MCP server (`app.lemlist.com/mcp`, found in the official CLI config): which tools it exposes and which can start sending
+- [x] Reply handling: webhook payload fields per vendor, authenticity, dedupe key, receiver-down behaviour → [note](notes/2026-11-05-R4-reply-webhook-payloads.md) (from integration packages; event names, replay and inbox APIs in the 2026-10-25 note)
+- [ ] Smartlead webhook event names first-party (`EMAIL_REPLY` in Activepieces 0.2.0 vs `EMAIL_REPLIED` in a third-party n8n node) and the reply payload: does it carry the reply body / message id; open api.smartlead.ai/api-reference/webhooks/events (blocked 2026-11-05)
+- [ ] Instantly `reply_received` payload fields and the failure count that auto-disables a webhook; whether retries happen before disable (no package documents either)
+- [ ] lemlist MCP server (`app.lemlist.com/mcp`, found in the official CLI config): which tools it exposes and which can start sending — not in CLI 0.4.0 nor the MCP registry (2026-11-05); only third-party wrappers listed in search
 
 ## R5 · LinkedIn automation
 - [x] HeyReach vs Aimfox vs Expandi / Waalaxy: multi-sender, limits per account, withdrawing invites, API / webhooks, n8n integration → [note](notes/2026-10-26-R5-linkedin-tools-api-limits.md) (from vendor n8n packages; Aimfox node third-party; Expandi has no package; prices only as search summary)

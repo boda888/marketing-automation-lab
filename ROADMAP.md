@@ -97,7 +97,7 @@ Pain: leads pushed twice, unsubscribed people re-contacted.
 Pain: replies triaged by hand, hot leads go cold.
 - [ ] classes: interested, objection, referral, OOO + return date, unsubscribe, bounce, wrong person, no meaningful reply; sequencer's own label is context only
 - [ ] routing + suppression actions, eval set
-- [ ] event dedupe before classification (vendors replay failed webhooks; lemlist fires per occurrence), shared-secret check on inbound hooks; Instantly numeric interest codes (OOO = 0) mapped as context (research R4 2026-10-25); LinkedIn reply events (HeyReach first vs every reply, Aimfox reply variants) through the same dedupe, sender `account_logged_out` routed as an alert (R5 2026-10-26)
+- [ ] event dedupe before classification (vendors replay failed webhooks; lemlist fires per occurrence), shared-secret check on inbound hooks; Instantly numeric interest codes (OOO = 0) mapped as context (research R4 2026-10-25); per-vendor event keys (lemlist activity `_id`, derived keys for Smartlead / Instantly, which send none), lemlist body `secret` compared in constant time then stripped, path token for unsigned vendors, stale-event cut-off, both Smartlead event-name spellings and all five lemlist unsubscribe types mapped, unknown event type → alert (R4 2026-11-05); LinkedIn reply events (HeyReach first vs every reply, Aimfox reply variants) through the same dedupe, sender `account_logged_out` routed as an alert (R5 2026-10-26)
 
 ## 08 · CRM sync
 Pain: CRM no longer matches reality.
