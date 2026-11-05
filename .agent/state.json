@@ -52,8 +52,9 @@
     {
       "id": "08-crm-sync",
       "path": "projects/08-crm-sync",
-      "status": "planned",
-      "summary": "HubSpot / Pipedrive / Attio upsert, lifecycle stages, assignment rules, field-level ownership."
+      "status": "in_progress",
+      "summary": "crmsync 0.0.1: CrmRow / RowOutcome (created / updated / upserted / failed / skipped, retryable only where a re-send cannot duplicate); plan_upserts for HubSpot contacts batch upsert (email or custom unique id_property, <= 100 inputs, objectWriteTraceId = hash(key), blanks / placeholders never sent, fixture / duplicate-key / bad-property-name skips); parse_upsert_response (results by trace id, errors by context values, missing rows failed not_in_response, non-COMPLETE batch status, 429 / 5xx retryable, other 4xx not); 22 tests. Planned: transport, Attio assert, Pipedrive cached search + single writer, merge remap, lifecycle / ownership rules.",
+      "version": "0.0.1"
     },
     {
       "id": "09-n8n-reliability",
@@ -148,10 +149,11 @@
     "06 v0.0.3: LinkedIn (HeyReach) pushes through plan_linkedin_push -> execute_plan -> reconcile keyed by canonical profile URL; SuppressionList profile entries; paged member read-back read_members (Smartlead offset / total_leads, Instantly cursor) that never returns a partial set (2026-11-02)",
     "Research R2: Firecrawl /monitor vs n8n Cron + changeTracking for weekly site-change signals — same credits per page, webhook gaps (no statusCode / removed, silent out-of-credit skips), search monitors dedupe per URL not per event (2026-11-03)",
     "Research R3 2026-11-04: phone validation before calling — Trestle n8n node (phone_intel / real_contact, item replaced by response, empty phone throws) vs Twilio Lookup v2 (per-package error_code, batch correlation_id, valid = numbering-plan only); note, STACK Trestle + Twilio Lookup rows, 3 insights, root ROADMAP 04 phone-ladder item.",
-    "06-sequencer-sync v0.1.0 (2026-11-04): stdlib HTTP transport that never follows redirects (urllib turns a redirected POST into a body-less GET) with reached_vendor mapping and 3xx on a push -> outcome_unknown; SQLite push log with the reserve -> commit contract (racing writers, restarts, stale-reservation listing); FastAPI /v1/push + stateless /v1/reconcile, n8n push -> route by outcome -> wait -> reconcile workflow, offline demo dataset; 37 new tests, 120 in 06."
+    "06-sequencer-sync v0.1.0 (2026-11-04): stdlib HTTP transport that never follows redirects (urllib turns a redirected POST into a body-less GET) with reached_vendor mapping and 3xx on a push -> outcome_unknown; SQLite push log with the reserve -> commit contract (racing writers, restarts, stale-reservation listing); FastAPI /v1/push + stateless /v1/reconcile, n8n push -> route by outcome -> wait -> reconcile workflow, offline demo dataset; 37 new tests, 120 in 06.",
+    "08-crm-sync 0.0.1 started: HubSpot batch-upsert planner and per-row 200 / 207 response parser (no row counted as written unless it is in results), 22 tests."
   ],
   "next_steps": [
-    "08: CRM sync adapter upsert(person_key) -> created / updated / failed per row: HubSpot batch upsert (207 split per row), Attio assert, Pipedrive cached search + create behind one writer; retries only on idempotent calls; merge events remap stored ids (research R7 note). Reuse 06's UrllibTransport / reached_vendor rule and the SqlitePushLog contract instead of new copies.",
+    "08: HubSpot upsert executor over a transport (reuse 06's UrllibTransport / reached_vendor rule by copy or shared package decision), retry only retryable rows with a rate budget per portal; Attio assert (PUT /v2/objects/{object}/records?matching_attribute) and Pipedrive cached search + create behind one writer onto the same RowOutcome; merge events (HubSpot merge, Attio record.merged) remap stored ids (research R7 note); then FastAPI route + n8n workflow + offline demo for v0.1.",
     "06 follow-ups: lemlist member read-back (then /v1/reconcile for lemlist); Instantly / HeyReach wiring in the API (HeyReach needs memberships per profile, plan_linkedin_push); push-log rows scoped by (vendor, campaign) so a watchdog can alert per campaign; Waalaxy duplicate booleans in the dedupe_scope mapping; HeyReach response parsing once a real shape is seen.",
     "04 follow-ups: match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; phone ladder found -> checked -> callable with Trestle / Twilio Lookup mappers (activity 50 / is_valid null = unknown; R3 note 2026-11-04); live DNS adapter for EmailPrecheck (opt-in [live] extra).",
     "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status >= 400 -> Unknown; changeTracking scrape item and Firecrawl /monitor page event, missing statusCode stays Unknown; dedupe search-monitor hits per event — R2 notes 2026-10-23, 2026-11-03); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort.",
@@ -197,12 +199,13 @@
     "06: member read-back shapes from vendor-side packages only (Smartlead: @smartlead/cli 0.1.0 CampaignLeadsSchema, whose own auto-pager expects a bare list instead; Instantly: instantly-cli 0.1.22 sends campaign_id, Activepieces piece 0.2.2 sends campaign — the lab sends campaign and drops items naming another campaign, but items without a campaign field are kept). HeyReach GetLeadsFromCampaign / GetCampaignsForLead response shapes unknown; never read from a live account.",
     "R2 2026-11-03: Firecrawl /monitor behaviour read from firecrawl-docs (9842574) and its OpenAPI files only — docs site and api.firecrawl.dev blocked; never run live. What a monitored 404 page reports (changed vs error) and whether monitor.page events can be delivered twice are unconfirmed. RB2B (visitor ID) known only from a search summary.",
     "06 v0.1.0: UrllibTransport tested only against a local http.server (127.0.0.1); redirect behaviour read from CPython Lib/urllib/request.py on GitHub (docs.python.org and sqlite.org ENOTFOUND 2026-11-04); a connect timeout is treated as reached_vendor=True because urllib wraps connect and send errors alike. SqlitePushLog tested on SQLite 3.45 only, one host. API + n8n workflow run only against the demo's FakeSmartlead / FakeTransport; workflow never imported into a live n8n; Wait / Aggregate / Switch parameters from n8n master source. Push-log rows carry no (vendor, campaign) column, so pending() cannot be filtered per campaign.",
-    "R4 2026-11-05: reply-webhook payloads, secrets and event names read from integration packages only (Activepieces Smartlead 0.2.0 / lemlist 0.2.2 / Instantly 0.2.3, instantly-cli 0.1.22, Pipedream Instantly 0.1.2); vendor API references blocked. Smartlead event names conflict between integrations (EMAIL_REPLY vs EMAIL_REPLIED); Instantly reply_received fields and auto-disable threshold unknown; no webhook ever received from a live account."
+    "R4 2026-11-05: reply-webhook payloads, secrets and event names read from integration packages only (Activepieces Smartlead 0.2.0 / lemlist 0.2.2 / Instantly 0.2.3, instantly-cli 0.1.22, Pipedream Instantly 0.1.2); vendor API references blocked. Smartlead event names conflict between integrations (EMAIL_REPLY vs EMAIL_REPLIED); Instantly reply_received fields and auto-disable threshold unknown; no webhook ever received from a live account.",
+    "08: HubSpot batch-upsert shape taken from @hubspot/api-client 14.1.2 models only; the 100-input limit and 'no partial upserts with idProperty=email' are search summaries (developers.hubspot.com ENOTFOUND 2026-11-05); keys of StandardError.context unspecified, so error-to-row matching is by value; never run against a live portal."
   ],
   "last_run": {
     "date": "2026-11-05",
     "commits": 1,
-    "notes": "Morning research run, budget 1: R4 reply webhooks (payload fields, authenticity, dedupe keys, receiver-down behaviour) folded with the state update."
+    "notes": "Evening build run, budget 1: started 08-crm-sync (HubSpot batch-upsert planner + per-row 207 parser) folded with the state update."
   },
   "run_log": [
     {
@@ -651,6 +654,14 @@
         "https://registry.modelcontextprotocol.io/v0/servers?search=lemlist"
       ],
       "research_note": "research/notes/2026-11-05-R4-reply-webhook-payloads.md. Re-read (already recorded): instantly-cli 0.1.22 (webhooks / webhook-events / client retries newly read). Blocked: api.smartlead.ai, developer.instantly.ai, developer.lemlist.com, app.lemlist.com, help.instantly.ai, vendor sites (proxy), hookdeck.com (DNS). Smartlead LEAD_CATEGORY_UPDATED payload, Instantly unsigned / auto-disable and third-party lemlist MCP wrappers only as search summaries."
+    },
+    {
+      "date": "2026-11-05",
+      "commits": 1,
+      "summary": "08-crm-sync 0.0.1: plan_upserts (HubSpot contacts batch upsert, <= 100 inputs, objectWriteTraceId per key, blank / placeholder values dropped, fixture / duplicate-key / invalid-property skips, email or custom unique id_property) and parse_upsert_response (one created / updated / upserted / failed outcome per row from the body, not the status; 207 errors matched via context values; rows missing from results failed + retryable since upsert is idempotent; 429 / 5xx retryable, other 4xx not). 22 tests. Docs hosts developers.hubspot.com and deepline.com unreachable.",
+      "sources": [
+        "https://registry.npmjs.org/@hubspot/api-client/-/api-client-14.1.2.tgz"
+      ]
     }
   ],
   "research": {

@@ -101,7 +101,7 @@ Pain: replies triaged by hand, hot leads go cold.
 
 ## 08 · CRM sync
 Pain: CRM no longer matches reality.
-- [ ] HubSpot / Pipedrive / Attio upsert with idempotency keys, dedupe, field mapping, dry-run: one `upsert(person_key)` → created / updated / failed per row; HubSpot batch upsert with 207 split per row (never reported as success), Attio assert on a unique attribute, Pipedrive cached search + create behind a single writer; retries only on idempotent calls; merge events (HubSpot merge, Attio `record.merged`) remap stored ids; rate budget per account, not per process (research R7 note)
+- [ ] HubSpot / Pipedrive / Attio upsert with idempotency keys, dedupe, field mapping, dry-run: one `upsert(person_key)` → created / updated / failed per row; HubSpot batch upsert with 207 split per row (never reported as success), Attio assert on a unique attribute, Pipedrive cached search + create behind a single writer; retries only on idempotent calls; merge events (HubSpot merge, Attio `record.merged`) remap stored ids; rate budget per account, not per process (research R7 note); started 2026-11-05: HubSpot batch-upsert planner + per-row 207 parser in `crmsync` 0.0.1
 - [ ] lifecycle stages, assignment/territory rules, field-level ownership; mocked HTTP tests
 
 ## 09 · n8n reliability kit
