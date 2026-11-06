@@ -82,6 +82,7 @@ class HubSpotBatch:
 class UpsertPlan:
     batches: list[HubSpotBatch] = field(default_factory=list)
     skipped: list[RowOutcome] = field(default_factory=list)
+    row_order: list[str] = field(default_factory=list)  # input row ids, in input order
 
 
 def _row_key(row: CrmRow, id_property: str) -> str | None:
@@ -111,7 +112,12 @@ def plan_upserts(
     plan = UpsertPlan()
     seen: dict[str, str] = {}
     ready: list[PlannedRow] = []
+    row_ids: set[str] = set()
     for row in rows:
+        if row.row_id in row_ids:
+            raise ValueError(f"row_id {row.row_id!r} is not unique: outcomes are keyed by it")
+        row_ids.add(row.row_id)
+        plan.row_order.append(row.row_id)
         key = _row_key(row, id_property)
 
         def skip(reason: str, row: CrmRow = row, key: str | None = key) -> None:
