@@ -47,11 +47,12 @@ can apply, a catalogue row, or a lab roadmap item.
 
 ## R5 · LinkedIn automation
 - [x] HeyReach vs Aimfox vs Expandi / Waalaxy: multi-sender, limits per account, withdrawing invites, API / webhooks, n8n integration → [note](notes/2026-10-26-R5-linkedin-tools-api-limits.md) (from vendor n8n packages; Aimfox node third-party; Expandi has no package; prices only as search summary)
-- [ ] Open HeyReach API docs / pricing (DNS-blocked 2026-10-26): does `MESSAGE_REPLY_RECEIVED` fire once per lead, rate limits, webhook payload fields and signing; what `AddLeadsToCampaign` does with a lead already in the campaign
+- [ ] Open HeyReach API docs / pricing (DNS-blocked 2026-10-26, Postman documenter blocked 2026-11-06): does `MESSAGE_REPLY_RECEIVED` fire once per lead, webhook payload fields and signing; whether a lead already in the campaign counts as `updatedLeadsCount` in `AddLeadsToCampaignV2` (300 req/min and the V2 counts seen in a third-party CLI 2026-11-06)
+- [ ] Smartlead ↔ HeyReach / Instantly ↔ HeyReach native integrations: open the Smartlead help-center guide and check whether a reply on one channel pauses the other (vendor pages claim it, agency guides say no; all blocked 2026-11-06)
 - [ ] Pending-invite withdrawal: which tools withdraw automatically (Aimfox, HeyReach settings) and whether withdrawing frees weekly quota — no API call found in any package
 - [ ] Expandi API / webhooks (no npm package 2026-10-26)
 - [ ] Safe volume and account warm-up; renting sender profiles — risks and what practitioners report
-- [ ] Combining LinkedIn and email in one sequence: who orchestrates (sequencer, n8n, Clay), dedupe across channels
+- [x] Combining LinkedIn and email in one sequence: who orchestrates (sequencer, n8n, Clay), dedupe across channels → [note](notes/2026-11-06-R5-heyreach-public-api-cross-channel.md) (native sync moves leads, not reply stops — search summary only; HeyReach campaign-level exclusions from a third-party CLI)
 
 ## R6 · Calls & AI voice
 - [x] Dialers and call tasks: JustCall API, AI-agent calls, Sales Dialer, call events and webhook signing → [note](notes/2026-10-28-R6-voice-agents-dialer-api.md) (from the vendor n8n node)
