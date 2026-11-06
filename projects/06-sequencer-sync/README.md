@@ -160,6 +160,15 @@ execute_plan(plan, HeyReachAdapter(key), transport, log)   linkedInAccountId per
 reconcile(report, log, members_after=[profile URLs in any form])
 ```
 
+**Public API (`HeyReachAdapter.public(key)`).** Same pairs, sent to
+`api/public/campaign/AddLeadsToCampaignV2` with `X-API-KEY` and `resumeFinishedCampaign` /
+`resumePausedCampaign` set to `false` (a push never restarts a stopped campaign). V2 answers
+only `{addedLeadsCount, updatedLeadsCount, failedLeadsCount}`, so a 2xx batch is accepted
+only when `failed == 0` and `added + updated` equals the leads sent (`updated` = already in
+the campaign). Any failed count, a short or excess total, or a body without counts makes the
+batch `outcome_unknown`: keys stay reserved and `reconcile()` settles which leads landed —
+the answer never says which one failed. Counts land in `batches[].detail`.
+
 `SuppressionList.add_profile()` blocks a person by LinkedIn profile, for rows that carry
 no email. HeyReach lead lists are not campaigns, so `workspace` is enforced as
 `all_campaigns` (`effective_scope` says so in the report).
@@ -238,8 +247,13 @@ plan.summary()
   the demo's `FakeSmartlead` and a local `http.server`.
 - Whether a vendor itself refuses a lead already in the *same* campaign is not verified;
   the push log and `in_campaign` keep the lab from re-pushing either way.
-- No vendor response bodies are parsed for counts (no first-party schema for them was
-  found); `added` / `skipped_by_vendor` come only from `reconcile()` with a member read-back.
+- Vendor response bodies are parsed for counts only for HeyReach V2, and only to *refuse*
+  confirmation (failed / missing counts → `outcome_unknown`); `added` / `skipped_by_vendor`
+  still come only from `reconcile()` with a member read-back.
+- HeyReach public-API shapes (`api/public`, `X-API-KEY`, `AddLeadsToCampaignV2`, its three
+  counts, the resume flags) come from the third-party `heyreach-cli` 0.2.2, read 2026-11-06
+  (research R5); HeyReach's own docs were unreachable. That `updatedLeadsCount` means
+  "already in the campaign" is read from the field name. Not run live.
 - HeyReach shapes (`AddLeadsToCampaign`, `GetCampaignsForLead`, `X-N8N-KEY`, 100 per
   page) come from HeyReach's n8n package `n8n-nodes-heyreach` 1.0.5, read 2026-11-02; the
   100-pair batch size for adds is the lab's own choice (no limit found). Not run live.

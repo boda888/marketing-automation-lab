@@ -3,6 +3,7 @@
 from .adapters import HttpRequest, InstantlyAdapter, LemlistAdapter, SmartleadAdapter
 from .campaigns import AmbiguousCampaign, CampaignError, CampaignNotFound, resolve_campaign
 from .linkedin import (
+    AddLeadsCounts,
     Held,
     HeyReachAdapter,
     SenderAccount,
@@ -11,6 +12,7 @@ from .linkedin import (
     Unassigned,
     assign_senders,
     normalise_linkedin_url,
+    parse_add_leads_counts,
     plan_linkedin_push,
 )
 from .models import Campaign, DedupeScope, SequencerLead, idempotency_key
@@ -53,7 +55,9 @@ __all__ = [
     "MemberRead",
     "SmartleadMembers",
     "read_members",
+    "AddLeadsCounts",
     "HeyReachAdapter",
+    "parse_add_leads_counts",
     "Held",
     "SenderAccount",
     "SenderAssignment",

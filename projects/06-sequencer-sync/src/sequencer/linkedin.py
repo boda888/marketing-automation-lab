@@ -16,6 +16,15 @@ Request shapes come from HeyReach's own n8n package ``n8n-nodes-heyreach`` 1.0.5
 ``accountLeadPairs: [{linkedInAccountId: int, lead: {profileUrl, firstName, lastName,
 companyName, position, emailAddress, customUserFields: [{name, value}]}}]``, header
 ``X-N8N-KEY``. Not tested against the live API.
+
+``HeyReachAdapter.public(key)`` targets the public API instead (``{base}`` =
+``https://api.heyreach.io/api/public``, header ``X-API-KEY``, ``AddLeadsToCampaignV2`` with
+``resumeFinishedCampaign`` / ``resumePausedCampaign`` sent as ``false`` so a push never
+restarts a campaign someone stopped). V2 answers counts only — ``{addedLeadsCount,
+updatedLeadsCount, failedLeadsCount}`` — so ``assess_accepted`` keeps a 2xx batch as
+``outcome_unknown`` (keys reserved, settled by ``reconcile``) when any lead failed, the counts
+do not add up to the leads sent, or the body has no counts. Shapes from the third-party
+``heyreach-cli`` 0.2.2 (research R5, 2026-11-06), not tested against the live API.
 """
 
 from __future__ import annotations
@@ -23,6 +32,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Literal
 
 from .adapters import HttpRequest
 from .models import (
@@ -262,17 +272,87 @@ def plan_linkedin_push(
     return plan
 
 
+HEYREACH_N8N_BASE = "https://api.heyreach.io/api/n8n"
+HEYREACH_PUBLIC_BASE = "https://api.heyreach.io/api/public"
+_V2_COUNTS = ("addedLeadsCount", "updatedLeadsCount", "failedLeadsCount")
+
+
+@dataclass(frozen=True)
+class AddLeadsCounts:
+    """What ``AddLeadsToCampaignV2`` says it did with one batch (no per-lead detail)."""
+
+    added: int
+    updated: int  # read as "already in the campaign": the vendor updated, did not add
+    failed: int
+
+    @property
+    def total(self) -> int:
+        return self.added + self.updated + self.failed
+
+
+def parse_add_leads_counts(body: object) -> AddLeadsCounts | None:
+    """The three V2 counts, or ``None`` when any is missing, negative or not an integer."""
+    if not isinstance(body, dict):
+        return None
+    values = [body.get(k) for k in _V2_COUNTS]
+    if not all(type(v) is int and v >= 0 for v in values):
+        return None
+    added, updated, failed = values
+    return AddLeadsCounts(added, updated, failed)
+
+
 @dataclass(frozen=True)
 class HeyReachAdapter:
     api_key: str = field(repr=False)
-    base_url: str = "https://api.heyreach.io/api/n8n"
+    base_url: str = HEYREACH_N8N_BASE
     # The vendor node sends whatever it is given; no documented cap was found, so batches
     # stay small enough that one failed call holds back few leads.
     max_batch: int = 100
     vendor: str = "heyreach"
+    api: Literal["n8n", "public"] = "n8n"
+
+    def __post_init__(self) -> None:
+        if self.api not in ("n8n", "public"):
+            raise ValueError(f"api must be 'n8n' or 'public', got {self.api!r}")
+
+    @classmethod
+    def public(cls, api_key: str, *, max_batch: int = 100) -> HeyReachAdapter:
+        """Public API (``X-API-KEY``, ``AddLeadsToCampaignV2`` with counts in the answer)."""
+        return cls(api_key, base_url=HEYREACH_PUBLIC_BASE, max_batch=max_batch, api="public")
 
     def _headers(self) -> dict[str, str]:
+        if self.api == "public":
+            return {"X-API-KEY": self.api_key}
         return {"X-N8N-KEY": self.api_key}
+
+    def _add_leads_body(self, campaign_id: int, pairs: list[dict[str, object]]) -> dict:
+        body: dict[str, object] = {"campaignId": campaign_id, "accountLeadPairs": pairs}
+        if self.api == "public":
+            # Explicit, never the vendor default: a push must not restart a stopped campaign.
+            body["resumeFinishedCampaign"] = False
+            body["resumePausedCampaign"] = False
+        return body
+
+    @property
+    def _add_leads_url(self) -> str:
+        path = "AddLeadsToCampaignV2" if self.api == "public" else "AddLeadsToCampaign"
+        return f"{self.base_url}/campaign/{path}"
+
+    def assess_accepted(self, request: HttpRequest, body: object) -> tuple[bool, str]:
+        """For a 2xx answer: ``(True, "")`` if the batch surely landed, else why it is unknown.
+
+        Only the public V2 call reports counts; the n8n endpoint's 2xx is taken as accepted.
+        """
+        if self.api != "public":
+            return True, ""
+        counts = parse_add_leads_counts(body)
+        if counts is None:
+            return False, "2xx without addedLeadsCount / updatedLeadsCount / failedLeadsCount"
+        sent = len(request.leads)
+        detail = f"added={counts.added} updated={counts.updated} failed={counts.failed} sent={sent}"
+        if counts.failed or counts.total != sent:
+            return False, f"counts do not confirm the batch: {detail}"
+        return True, detail
 
     @staticmethod
     def _campaign_id(campaign: Campaign) -> int:
@@ -312,15 +392,15 @@ class HeyReachAdapter:
         return [
             HttpRequest(
                 "POST",
-                f"{self.base_url}/campaign/AddLeadsToCampaign",
+                self._add_leads_url,
                 headers=self._headers(),
-                json={
-                    "campaignId": campaign_id,
-                    "accountLeadPairs": [
+                json=self._add_leads_body(
+                    campaign_id,
+                    [
                         {"linkedInAccountId": p.sender.account_id, "lead": self.lead_payload(p)}
                         for p in pairs[i : i + self.max_batch]
                     ],
-                },
+                ),
             )
             for i in range(0, len(pairs), self.max_batch)
         ]
@@ -341,18 +421,18 @@ class HeyReachAdapter:
         return [
             HttpRequest(
                 "POST",
-                f"{self.base_url}/campaign/AddLeadsToCampaign",
+                self._add_leads_url,
                 headers=self._headers(),
-                json={
-                    "campaignId": campaign_id,
-                    "accountLeadPairs": [
+                json=self._add_leads_body(
+                    campaign_id,
+                    [
                         {
                             "linkedInAccountId": p.sender_id,
                             "lead": self._payload(p.lead, p.person_key or ""),
                         }
                         for p in chunk
                     ],
-                },
+                ),
                 leads=chunk,
             )
             for chunk in chunks

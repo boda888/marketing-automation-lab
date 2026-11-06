@@ -55,6 +55,7 @@ class BatchResult:
     http_status: int | None = None
     attempts: int = 1
     error: str = ""
+    detail: str = ""  # vendor-reported counts for an accepted batch, when it gives any
 
 
 @dataclass
@@ -107,6 +108,7 @@ class PushReport:
                     "attempts": b.attempts,
                     "url": b.url,
                     "error": b.error,
+                    "detail": b.detail,
                 }
                 for b in self.batches
             ],
@@ -166,8 +168,11 @@ def execute_plan(
             "push_pending": report.skipped_before_send.get("push_pending", 0) + raced,
         }
 
+    # Optional adapter hook: a vendor whose 2xx can hide failed leads (HeyReach V2 counts)
+    # turns that answer into outcome_unknown, so the keys stay reserved for reconcile().
+    assess = getattr(adapter, "assess_accepted", None)
     for request in adapter.build(plan.campaign, ready, plan.dedupe_scope):
-        result = _send(request, transport, max_rate_limit_retries, max_wait_seconds, sleep)
+        result = _send(request, transport, max_rate_limit_retries, max_wait_seconds, sleep, assess)
         for planned in request.leads:
             if result.status is BatchStatus.ACCEPTED:
                 push_log.commit(planned.key)
@@ -183,6 +188,7 @@ def _send(
     max_retries: int,
     max_wait: float,
     sleep: Callable[[float], None],
+    assess: Callable[[HttpRequest, object], tuple[bool, str]] | None = None,
 ) -> BatchResult:
     url = request.redacted_url()
     attempts = 0
@@ -199,7 +205,14 @@ def _send(
             )
         code = response.status
         if 200 <= code < 300:
-            return BatchResult(BatchStatus.ACCEPTED, url, request.leads, code, attempts)
+            ok, detail = assess(request, response.body) if assess else (True, "")
+            if not ok:
+                return BatchResult(
+                    BatchStatus.OUTCOME_UNKNOWN, url, request.leads, code, attempts, detail
+                )
+            return BatchResult(
+                BatchStatus.ACCEPTED, url, request.leads, code, attempts, detail=detail
+            )
         if code == 429:
             wait = retry_after_seconds(response.headers)
             wait = min(max_wait, wait if wait is not None else 2.0 ** (attempts - 1))
