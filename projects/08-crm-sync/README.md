@@ -6,11 +6,12 @@ SDK resolves it as success, so failed rows sit unread in `errors[]`. Retrying a 
 *create* after a timeout makes duplicates; a blank sheet cell overwrites a good CRM value;
 updates matched by company domain overwrite several people of one company.
 
-v0.0.2: HubSpot contacts **batch upsert** planning, response parsing and an executor that
-re-sends only retryable rows under one rate budget per portal, with one
-`created / updated / upserted / failed / skipped` outcome per input row. The executor takes
-an injected transport (offline fake in tests); no live HTTP transport, service or n8n
-workflow yet.
+v0.0.3: HubSpot contacts **batch upsert** planning, response parsing, an executor that
+re-sends only retryable rows under one rate budget per portal, and a stdlib HTTP transport
+(`UrllibTransport`) that never follows redirects, with one
+`created / updated / upserted / failed / skipped` outcome per input row. Tested against a
+local HTTP server and an offline fake; never against a live HubSpot portal. No service or
+n8n workflow yet.
 
 ## Architecture
 
@@ -46,6 +47,17 @@ UpsertReport.outcomes   one per input row, input order, skipped rows included
 UpsertReport.summary()  counts + calls + retried_rows + still_retryable
 ```
 
+```
+UrllibTransport(timeout=30)                          stdlib urllib, no dependency
+   │   every status is an HttpResponse (4xx / 5xx keep body + headers → Retry-After, 207 errors[])
+   │   3xx returned, never followed: urllib re-sends a redirected POST as a body-less GET
+   │     → rows failed "http_30x", not retryable, not re-sent
+   │   no response → TransportError(reached_vendor=…)
+   │     False: DNS / refused / TLS cert → reason "not_sent"
+   │     True:  timeout / reset / disconnect → HubSpot may have written; upsert re-send is safe
+   ▼   error text = method + URL without query string; the Authorization header never appears
+```
+
 Why upsert and not create: a re-sent upsert on a unique property updates the same contact;
 a re-sent create after a 5xx or timeout can create it twice. Batch create is deliberately
 not offered.
@@ -68,7 +80,26 @@ body = batch.body()  # send with your HTTP client / n8n HTTP Request node
 outcomes = parse_upsert_response(batch, 207, {"status": "COMPLETE", "results": [], "errors": []})
 ```
 
+Live send (not run by the lab against a real portal):
+
+```python
+import os
+from crmsync import RateBudget, UrllibTransport, execute_upserts
+
+report = execute_upserts(
+    plan, UrllibTransport(timeout=30), token=os.environ["HUBSPOT_TOKEN"], budget=RateBudget()
+)
+print(report.summary())  # created / updated / failed / skipped, calls, still_retryable
+```
+
 ## Limits (honest)
+- `UrllibTransport` is tested only against a local `http.server` on 127.0.0.1 (207 split,
+  429 `Retry-After`, 302 not followed, read timeout, refused connection). Whether HubSpot
+  sends `Retry-After` on 429 is unconfirmed: developers.hubspot.com did not resolve from the
+  build environment (2026-11-07) and only third-party pages mention it, so the executor falls
+  back to 1 s / 2 s / 4 s. HubSpot's Python SDK README suggests a urllib3 `Retry` for 429 /
+  5xx, but urllib3's default `allowed_methods` excludes POST, so that setup never retries a
+  batch upsert — this executor does, per row.
 - API shape read from HubSpot's official Node client `@hubspot/api-client` 14.1.2 (models
   `SimplePublicObjectBatchInputUpsert`, `SimplePublicUpsertObject`,
   `BatchResponseSimplePublicUpsertObjectWithErrors`, `StandardError`); developers.hubspot.com

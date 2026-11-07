@@ -15,6 +15,7 @@ from .hubspot import (
     plan_upserts,
 )
 from .models import CrmRow, Outcome, RowOutcome, normalise_email
+from .transport import UrllibTransport
 
 __all__ = [
     "HUBSPOT_BATCH_LIMIT",
@@ -24,6 +25,7 @@ __all__ = [
     "RateBudget",
     "TransportError",
     "UpsertReport",
+    "UrllibTransport",
     "execute_upserts",
     "HubSpotBatch",
     "Outcome",

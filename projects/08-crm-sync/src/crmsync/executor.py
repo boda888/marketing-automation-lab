@@ -8,7 +8,8 @@ Rules:
   ``failed`` **and** ``retryable`` (429, 5xx, missing from a 200 / 207 body, unparseable body)
   are sent again, as a smaller batch. A row HubSpot rejected (``errors[]``, other 4xx) is
   never re-sent;
-- a timeout or a dropped connection is retried too: the plan holds upserts on a unique
+- a timeout or a dropped connection is retried too (reason ``timeout`` / ``transport_error``;
+  ``not_sent`` when the transport knows the request never left): the plan holds upserts on a unique
   property, so a second identical request updates the same contact instead of creating one.
   That is why this executor accepts only ``UpsertPlan`` batches and offers no create;
 - 429 waits ``Retry-After`` (delta-seconds) when given, else exponential backoff; every wait
@@ -46,7 +47,14 @@ class HttpResponse:
 
 
 class TransportError(Exception):
-    """No HTTP response (refused, reset, TLS, DNS)."""
+    """No HTTP response (refused, reset, TLS, DNS, timeout).
+
+    ``reached_vendor`` is False only when the request surely never left this machine.
+    """
+
+    def __init__(self, message: str = "", *, reached_vendor: bool = True) -> None:
+        super().__init__(message)
+        self.reached_vendor = reached_vendor
 
 
 class Transport(Protocol):
@@ -146,7 +154,12 @@ def execute_upserts(
             try:
                 response = transport.send(call)
             except (TransportError, TimeoutError) as exc:
-                kind = "timeout" if isinstance(exc, TimeoutError) else "transport_error"
+                if isinstance(exc, TimeoutError):
+                    kind = "timeout"
+                elif not exc.reached_vendor:
+                    kind = "not_sent"  # DNS / refused / TLS: nothing reached HubSpot
+                else:
+                    kind = "transport_error"
                 outcomes = [
                     RowOutcome(r.row_id, r.key, Outcome.FAILED, reason=kind, retryable=True)
                     for r in pending
