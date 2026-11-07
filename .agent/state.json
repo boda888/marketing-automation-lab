@@ -53,8 +53,8 @@
       "id": "08-crm-sync",
       "path": "projects/08-crm-sync",
       "status": "in_progress",
-      "summary": "crmsync 0.0.2: CrmRow / RowOutcome (created / updated / upserted / failed / skipped, retryable only where a re-send cannot duplicate); plan_upserts for HubSpot contacts batch upsert (email or custom unique id_property, <= 100 inputs, objectWriteTraceId = hash(key), blanks / placeholders never sent, fixture / duplicate-key / bad-property-name skips); parse_upsert_response (results by trace id, errors by context values, missing rows failed not_in_response, non-COMPLETE batch status, 429 / 5xx retryable, other 4xx not); execute_upserts (shared sliding-window RateBudget per portal, re-sends only failed + retryable rows, timeouts retried because upserts are idempotent, Retry-After capped, one outcome per input row in input order; duplicate row ids refused); 34 tests. Planned: live transport, Attio assert, Pipedrive cached search + single writer, merge remap, lifecycle / ownership rules.",
-      "version": "0.0.2"
+      "summary": "crmsync 0.0.3: CrmRow / RowOutcome (created / updated / upserted / failed / skipped, retryable only where a re-send cannot duplicate); plan_upserts for HubSpot contacts batch upsert (email or custom unique id_property, <= 100 inputs, objectWriteTraceId = hash(key), blanks / placeholders never sent, fixture / duplicate-key / bad-property-name skips); parse_upsert_response (results by trace id, errors by context values, missing rows failed not_in_response, non-COMPLETE batch status, 429 / 5xx retryable, other 4xx not); execute_upserts (shared sliding-window RateBudget per portal, re-sends only failed + retryable rows, timeouts retried because upserts are idempotent, Retry-After capped, one outcome per input row in input order; duplicate row ids refused); UrllibTransport (stdlib, redirects returned not followed, reached_vendor, not_sent for DNS / refused / TLS, no headers in error text); 47 tests. Planned: Attio assert, Pipedrive cached search + single writer, merge remap, lifecycle / ownership rules.",
+      "version": "0.0.3"
     },
     {
       "id": "09-n8n-reliability",
@@ -152,10 +152,11 @@
     "06-sequencer-sync v0.1.0 (2026-11-04): stdlib HTTP transport that never follows redirects (urllib turns a redirected POST into a body-less GET) with reached_vendor mapping and 3xx on a push -> outcome_unknown; SQLite push log with the reserve -> commit contract (racing writers, restarts, stale-reservation listing); FastAPI /v1/push + stateless /v1/reconcile, n8n push -> route by outcome -> wait -> reconcile workflow, offline demo dataset; 37 new tests, 120 in 06.",
     "08-crm-sync 0.0.1 started: HubSpot batch-upsert planner and per-row 200 / 207 response parser (no row counted as written unless it is in results), 22 tests.",
     "06-sequencer-sync (2026-11-06): HeyReach public API AddLeadsToCampaignV2 builder and counts check — failed / short / excess / missing counts keep a 2xx batch outcome_unknown until reconcile; 13 new tests, 133 in 06.",
-    "08-crm-sync 0.0.2 (2026-11-06): HubSpot upsert executor over an injected transport — shared rate budget per portal, only retryable rows re-sent, rejected rows never, one outcome per input row; 12 new tests, 34 in 08."
+    "08-crm-sync 0.0.2 (2026-11-06): HubSpot upsert executor over an injected transport — shared rate budget per portal, only retryable rows re-sent, rejected rows never, one outcome per input row; 12 new tests, 34 in 08.",
+    "2026-11-07: 08-crm-sync 0.0.3 — UrllibTransport for execute_upserts (stdlib, redirects returned not followed, TransportError.reached_vendor, reason not_sent for DNS / refused / TLS, no headers or query string in error text); 13 local-server tests."
   ],
   "next_steps": [
-    "08: live HTTP transport for crmsync (copy 06's UrllibTransport rules: no redirects followed, reached_vendor) so execute_upserts can run; then Attio assert (PUT /v2/objects/{object}/records?matching_attribute) and Pipedrive cached search + create behind one writer onto the same RowOutcome; merge events (HubSpot merge, Attio record.merged) remap stored ids (research R7 note); then FastAPI route + n8n workflow + offline demo for v0.1.",
+    "08: Attio assert (PUT /v2/objects/{object}/records?matching_attribute) and Pipedrive cached search + create behind one writer onto the same RowOutcome (Pipedrive create must not be re-sent when TransportError.reached_vendor is true); merge events (HubSpot merge, Attio record.merged) remap stored ids (research R7 note); then FastAPI route + n8n workflow + offline demo for v0.1. Optional: read X-HubSpot-RateLimit-Max / -Remaining / -Interval-Milliseconds into RateBudget.",
     "06 follow-ups: wire HeyReachAdapter.public into /v1/push (memberships per profile via GetCampaignsForLead, plan_linkedin_push); HeyReach campaign-level exclusions (excludeContactedFromOtherCampaigns, excludeHasOtherAccConversations, excludeListId) reported in the push report (R5 2026-11-06); lemlist member read-back (then /v1/reconcile for lemlist); Instantly wiring in the API; push-log rows scoped by (vendor, campaign) for a per-campaign watchdog; Waalaxy duplicate booleans in the dedupe_scope mapping.",
     "07 (after 08 v0.1): reply events from email and LinkedIn into one stop action per person: a reply on either channel stops the same person's campaigns on the other (email + profile URL), since native HeyReach <-> Smartlead / Instantly sync does not stop on replies (R5 2026-11-06).",
     "04 follow-ups: match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; phone ladder found -> checked -> callable with Trestle / Twilio Lookup mappers (activity 50 / is_valid null = unknown; R3 note 2026-11-04); live DNS adapter for EmailPrecheck (opt-in [live] extra).",
@@ -205,12 +206,13 @@
     "R4 2026-11-05: reply-webhook payloads, secrets and event names read from integration packages only (Activepieces Smartlead 0.2.0 / lemlist 0.2.2 / Instantly 0.2.3, instantly-cli 0.1.22, Pipedream Instantly 0.1.2); vendor API references blocked. Smartlead event names conflict between integrations (EMAIL_REPLY vs EMAIL_REPLIED); Instantly reply_received fields and auto-disable threshold unknown; no webhook ever received from a live account.",
     "08: HubSpot batch-upsert shape taken from @hubspot/api-client 14.1.2 models only; the 100-input limit and 'no partial upserts with idProperty=email' are search summaries (developers.hubspot.com ENOTFOUND 2026-11-05); keys of StandardError.context unspecified, so error-to-row matching is by value; never run against a live portal.",
     "06: HeyReach public-API shapes (api/public, X-API-KEY, AddLeadsToCampaignV2 counts, resume flags) come from the third-party heyreach-cli 0.2.2, not from HeyReach docs (heyreach.io and the Postman documenter DNS-blocked 2026-11-06); updatedLeadsCount = 'already in campaign' is inferred from the field name. Not run live.",
-    "08: execute_upserts tested only with an offline fake transport; RateBudget default (100 calls / 10 s) is an assumption, HubSpot per-tier limits not opened; the budget is per process object, not shared across processes or n8n workers."
+    "08: execute_upserts tested only with an offline fake transport; RateBudget default (100 calls / 10 s) is an assumption, HubSpot per-tier limits not opened; the budget is per process object, not shared across processes or n8n workers.",
+    "08: UrllibTransport tested only against a local http.server; never against a live HubSpot portal. Whether HubSpot sends Retry-After on 429 is unconfirmed (developers.hubspot.com ENOTFOUND 2026-11-07; only third-party pages), so the executor falls back to 1 s / 2 s / 4 s."
   ],
   "last_run": {
-    "date": "2026-11-06",
-    "commits": 4,
-    "notes": "Morning run, budget 4: research R5 (HeyReach public API V2, cross-channel reply stop), 06 HeyReach V2 counts check, 08 HubSpot upsert executor, state update."
+    "date": "2026-11-07",
+    "commits": 2,
+    "notes": "Evening run, budget 2: 08 UrllibTransport + state update."
   },
   "run_log": [
     {
@@ -680,6 +682,17 @@
         "https://registry.npmjs.org/-/v1/search?text=heyreach&size=20"
       ],
       "research_note": "research/notes/2026-11-06-R5-heyreach-public-api-cross-channel.md. Blocked (DNS): documenter.getpostman.com, helpcenter.smartlead.ai, www.devcommx.com, docs.scalekit.com. Cross-channel stop gap and 300 req/min only as search summaries."
+    },
+    {
+      "date": "2026-11-07",
+      "commits": 2,
+      "summary": "08-crm-sync 0.0.3: UrllibTransport for execute_upserts (copied 06 rules: every status a response so 207 errors[] and 429 Retry-After reach the parser; 3xx returned not followed since CPython re-sends a redirected 301/302/303 POST as a body-less GET; DNS / refused / TLS cert -> TransportError(reached_vendor=False) -> reason not_sent; timeouts / resets reached_vendor True and re-sent because upsert is idempotent; error text has no headers or query string). 13 tests on a local http.server (207 split, 429 Retry-After 7 s, 302 not followed or re-sent, 401 not retried, read timeout retried, refused). Found: HubSpot Python SDK README suggests urllib3 Retry for 429/5xx, but urllib3 DEFAULT_ALLOWED_METHODS excludes POST, so it never retries batch upserts. developers.hubspot.com and skills.sh ENOTFOUND; Retry-After on HubSpot 429 unconfirmed.",
+      "sources": [
+        "https://raw.githubusercontent.com/python/cpython/main/Lib/urllib/request.py",
+        "https://raw.githubusercontent.com/HubSpot/hubspot-api-python/master/README.md",
+        "https://raw.githubusercontent.com/HubSpot/hubspot-api-python/master/hubspot/discovery/discovery_base.py",
+        "https://raw.githubusercontent.com/urllib3/urllib3/main/src/urllib3/util/retry.py"
+      ]
     }
   ],
   "research": {
