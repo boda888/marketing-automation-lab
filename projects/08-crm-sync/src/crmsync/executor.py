@@ -12,13 +12,15 @@ Rules:
   ``not_sent`` when the transport knows the request never left): the plan holds upserts on a unique
   property, so a second identical request updates the same contact instead of creating one.
   That is why this executor accepts only ``UpsertPlan`` batches and offers no create;
-- 429 waits ``Retry-After`` (delta-seconds) when given, else exponential backoff; every wait
-  is capped by ``max_wait_seconds``;
+- 429 waits ``Retry-After`` (delta-seconds or HTTP-date) when given, else exponential
+  backoff; every wait is capped by ``max_wait_seconds``;
 - the report has exactly one outcome per input row, in input order, skipped rows included.
 """
 
 from __future__ import annotations
 
+import datetime as dt
+import email.utils
 import time
 from collections import deque
 from collections.abc import Callable
@@ -114,11 +116,26 @@ class UpsertReport:
         }
 
 
-def _retry_after(headers: dict[str, str]) -> float | None:
+def retry_after_seconds(
+    headers: dict[str, str], *, now: Callable[[], float] = time.time
+) -> float | None:
+    """``Retry-After`` as seconds: delta-seconds or an HTTP-date (RFC 9110 §10.2.3).
+
+    A date in the past means 0; anything unparseable means ``None`` (caller backs off).
+    """
     value = next((v for k, v in headers.items() if k.lower() == "retry-after"), None)
-    if value is None or not value.strip().isdigit():
+    if value is None:
         return None
-    return float(value.strip())
+    value = value.strip()
+    if value.isdigit():
+        return float(value)
+    try:
+        when = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:  # RFC 850 / asctime forms carry no zone; HTTP dates are GMT
+        when = when.replace(tzinfo=dt.UTC)
+    return max(0.0, when.timestamp() - now())
 
 
 def execute_upserts(
@@ -167,7 +184,7 @@ def execute_upserts(
             else:
                 outcomes = parse_upsert_response(current, response.status, response.body)
                 if response.status == 429:
-                    wait_hint = _retry_after(response.headers)
+                    wait_hint = retry_after_seconds(response.headers)
             retry: list[PlannedRow] = []
             for row, outcome in zip(pending, outcomes, strict=True):
                 final[row.trace_id] = outcome

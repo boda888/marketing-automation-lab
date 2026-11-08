@@ -1,4 +1,4 @@
-# 08 · CRM sync (HubSpot first; Attio and Pipedrive next)
+# 08 · CRM sync (HubSpot, Attio; Pipedrive next)
 
 **The pain:** the CRM no longer matches reality. An n8n HTTP node goes green on HubSpot's
 batch endpoint while some rows never landed: a batch returns **HTTP 207** and HubSpot's own
@@ -6,12 +6,16 @@ SDK resolves it as success, so failed rows sit unread in `errors[]`. Retrying a 
 *create* after a timeout makes duplicates; a blank sheet cell overwrites a good CRM value;
 updates matched by company domain overwrite several people of one company.
 
-v0.0.3: HubSpot contacts **batch upsert** planning, response parsing, an executor that
+Attio adds its own trap: its assert endpoint **replaces every multiselect attribute** other
+than the matching one with the list you send, so a sync that writes one `tags` value wipes
+the record's other tags.
+
+v0.0.4: HubSpot contacts **batch upsert** planning, response parsing, an executor that
 re-sends only retryable rows under one rate budget per portal, and a stdlib HTTP transport
-(`UrllibTransport`) that never follows redirects, with one
-`created / updated / upserted / failed / skipped` outcome per input row. Tested against a
-local HTTP server and an offline fake; never against a live HubSpot portal. No service or
-n8n workflow yet.
+(`UrllibTransport`) that never follows redirects; **Attio assert** (one idempotent `PUT` per
+person) with a multiselect-overwrite guard. One `created / updated / upserted / failed /
+skipped` outcome per input row. Tested against a local HTTP server and offline fakes; never
+against a live HubSpot portal or Attio workspace. No service or n8n workflow yet.
 
 ## Architecture
 
@@ -58,6 +62,24 @@ UrllibTransport(timeout=30)                          stdlib urllib, no dependenc
    ▼   error text = method + URL without query string; the Authorization header never appears
 ```
 
+```
+plan_asserts(rows, object="people", matching_attribute="email_addresses" | unique slug,
+             multiselect=("email_addresses", "phone_numbers", …), overwrite=(…))
+   │   skipped: missing_key · fixture · duplicate_key · invalid_property_name
+   │            · multiselect_overwrite:<slugs>  (declared multiselect, not owned by this sync)
+   │            · undeclared_list:<slugs>        (list value on an attribute not declared)
+   │   values typed (0 / False kept as JSON number / bool), blanks + placeholders dropped
+   ▼
+AttioAssert → PUT /v2/objects/{object}/records?matching_attribute=…  {"data": {"values": …}}
+   │
+execute_asserts(plan, transport, token=…, budget=RateBudget(25, 1.0))   one call per row
+       200 + data.id.record_id → upserted (Attio does not say created vs updated)
+       200 without record_id → failed unparseable_body, retryable
+       408 / 429 / 5xx, timeout, reset, not_sent → re-sent (assert is idempotent)
+       400 value_not_found, 404 not_found, 3xx, other 4xx → failed, sent once
+       429 waits Retry-After (seconds or HTTP-date), capped by max_wait_seconds
+```
+
 Why upsert and not create: a re-sent upsert on a unique property updates the same contact;
 a re-sent create after a 5xx or timeout can create it twice. Batch create is deliberately
 not offered.
@@ -80,7 +102,23 @@ body = batch.body()  # send with your HTTP client / n8n HTTP Request node
 outcomes = parse_upsert_response(batch, 207, {"status": "COMPLETE", "results": [], "errors": []})
 ```
 
-Live send (not run by the lab against a real portal):
+Attio (not run by the lab against a real workspace):
+
+```python
+import os
+from crmsync import CrmRow, RateBudget, UrllibTransport, execute_asserts, plan_asserts
+
+plan = plan_asserts(
+    [CrmRow("row-7", "ana@northwind.io", {"job_title": "COO", "tags": ["clay"]})],
+    multiselect=("email_addresses", "phone_numbers", "tags"),
+    overwrite=("tags",),  # only if this sync owns the whole tag list
+)
+report = execute_asserts(
+    plan, UrllibTransport(), token=os.environ["ATTIO_TOKEN"], budget=RateBudget(25, 1.0)
+)
+```
+
+HubSpot live send (not run by the lab against a real portal):
 
 ```python
 import os
@@ -112,6 +150,13 @@ print(report.summary())  # created / updated / failed / skipped, calls, still_re
 - `RateBudget` defaults to 100 calls / 10 s, the lab's conservative assumption; HubSpot's
   per-tier limits were not opened (search summary only). The budget is per process object:
   writers in separate processes or n8n workers need a shared store (not built).
-- `Retry-After` is read as delta-seconds only; an HTTP-date value falls back to backoff.
-- Not built yet: live HTTP transport, Attio assert, Pipedrive cached
+- `Retry-After` is read as delta-seconds or an HTTP-date; anything else falls back to backoff.
+- Attio shapes come from the generated types and endpoint docs comments in the third-party
+  `attio-ts-sdk` 2.3.3 (npm, generated from Attio's OpenAPI); docs.attio.com and
+  api.attio.com were refused by the build environment's proxy (2026-11-08). The 25 writes / s
+  workspace budget is a search summary of Attio's rate-limit guide, not an opened page.
+  Which multiselect attributes an object has is the caller's declaration (`multiselect`);
+  the lab does not read the object schema. Whether two concurrent asserts on the same new
+  key can both create is not documented in what was read: keep one writer per workspace.
+- Not built yet: Pipedrive cached
   search + single writer, merge remapping, lifecycle / ownership rules (see ROADMAP 08).
