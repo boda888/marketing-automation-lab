@@ -153,7 +153,8 @@
     "08-crm-sync 0.0.1 started: HubSpot batch-upsert planner and per-row 200 / 207 response parser (no row counted as written unless it is in results), 22 tests.",
     "06-sequencer-sync (2026-11-06): HeyReach public API AddLeadsToCampaignV2 builder and counts check — failed / short / excess / missing counts keep a 2xx batch outcome_unknown until reconcile; 13 new tests, 133 in 06.",
     "08-crm-sync 0.0.2 (2026-11-06): HubSpot upsert executor over an injected transport — shared rate budget per portal, only retryable rows re-sent, rejected rows never, one outcome per input row; 12 new tests, 34 in 08.",
-    "2026-11-07: 08-crm-sync 0.0.3 — UrllibTransport for execute_upserts (stdlib, redirects returned not followed, TransportError.reached_vendor, reason not_sent for DNS / refused / TLS, no headers or query string in error text); 13 local-server tests."
+    "2026-11-07: 08-crm-sync 0.0.3 — UrllibTransport for execute_upserts (stdlib, redirects returned not followed, TransportError.reached_vendor, reason not_sent for DNS / refused / TLS, no headers or query string in error text); 13 local-server tests.",
+    "Research R6 2026-11-08: Retell webhook intake (x-retell-signature from a third-party receiver, Webhook-badge key, 10 s timeout, no webhook for regenerated analysis / SMS DNC) and ElevenLabs Agents outbound calls (no idempotency key, SDK retries creation, success flag, no DNC field, batch retry re-dials, cost_fiat USD, t=/v0= signing with a lax SDK check) — note, 2 insights, STACK rows, research + root ROADMAP 14 edited."
   ],
   "next_steps": [
     "08: Attio assert (PUT /v2/objects/{object}/records?matching_attribute) and Pipedrive cached search + create behind one writer onto the same RowOutcome (Pipedrive create must not be re-sent when TransportError.reached_vendor is true); merge events (HubSpot merge, Attio record.merged) remap stored ids (research R7 note); then FastAPI route + n8n workflow + offline demo for v0.1. Optional: read X-HubSpot-RateLimit-Max / -Remaining / -Interval-Milliseconds into RateBudget.",
@@ -207,12 +208,13 @@
     "08: HubSpot batch-upsert shape taken from @hubspot/api-client 14.1.2 models only; the 100-input limit and 'no partial upserts with idProperty=email' are search summaries (developers.hubspot.com ENOTFOUND 2026-11-05); keys of StandardError.context unspecified, so error-to-row matching is by value; never run against a live portal.",
     "06: HeyReach public-API shapes (api/public, X-API-KEY, AddLeadsToCampaignV2 counts, resume flags) come from the third-party heyreach-cli 0.2.2, not from HeyReach docs (heyreach.io and the Postman documenter DNS-blocked 2026-11-06); updatedLeadsCount = 'already in campaign' is inferred from the field name. Not run live.",
     "08: execute_upserts tested only with an offline fake transport; RateBudget default (100 calls / 10 s) is an assumption, HubSpot per-tier limits not opened; the budget is per process object, not shared across processes or n8n workers.",
-    "08: UrllibTransport tested only against a local http.server; never against a live HubSpot portal. Whether HubSpot sends Retry-After on 429 is unconfirmed (developers.hubspot.com ENOTFOUND 2026-11-07; only third-party pages), so the executor falls back to 1 s / 2 s / 4 s."
+    "08: UrllibTransport tested only against a local http.server; never against a live HubSpot portal. Whether HubSpot sends Retry-After on 429 is unconfirmed (developers.hubspot.com ENOTFOUND 2026-11-07; only third-party pages), so the executor falls back to 1 s / 2 s / 4 s.",
+    "R6 2026-11-08: Retell webhook header and signing key from the third-party twenty-retell-sync 0.1.25; Retell redelivery (10 s, 3 retries, no delivery id) only a search summary; ElevenLabs webhook header name, retry policy, termination_reason values and the unit of `cost` unknown (docs.retellai.com, community.retellai.com, hookdeck.com, elevenlabs.io unreachable). No live call placed."
   ],
   "last_run": {
-    "date": "2026-11-07",
-    "commits": 2,
-    "notes": "Evening run, budget 2: 08 UrllibTransport + state update."
+    "date": "2026-11-08",
+    "commits": 1,
+    "notes": "Morning run, budget 1: research R6 (Retell webhooks, ElevenLabs outbound calls) with state folded in. No code changed."
   },
   "run_log": [
     {
@@ -693,6 +695,21 @@
         "https://raw.githubusercontent.com/HubSpot/hubspot-api-python/master/hubspot/discovery/discovery_base.py",
         "https://raw.githubusercontent.com/urllib3/urllib3/main/src/urllib3/util/retry.py"
       ]
+    },
+    {
+      "date": "2026-11-08",
+      "commits": 1,
+      "summary": "Research R6: Retell webhooks — header x-retell-signature (v=ms,d=hex, HMAC raw body + ts, ±5 min), signed only with the API key that has the Webhook badge (other keys -> 401 on every event), webhook_timeout_ms default 10 s, call_ended + call_analyzed upserted on call_id, pull sync needed since regenerated analysis and SMS / carrier DNC send no webhook; redelivery 3x without delivery id only as search summary. ElevenLabs Agents 2.77.0: outbound-call (twilio / sip / exotel / whatsapp) and batch-calling submit / retry / cancel, no idempotency field, SDK retries creation 2x on 408 / 429 / 5xx, answer {success, conversation_id?, call_sid?}, no DNC field, batch retry re-dials failed + no-response, termination_reason free text, cost_fiat USD, webhook t=/v0= HMAC with SDK check allowing 30 min old and future timestamps, non-constant-time. Note, 2 insights, STACK rows (Retell edited, ElevenLabs new), research ROADMAP 2 ticked + 2 new, root ROADMAP 14 edited. No code changed.",
+      "sources": [
+        "https://registry.npmjs.org/retell-sdk/-/retell-sdk-6.2.19.tgz",
+        "https://registry.npmjs.org/@retell-ai/retell-cli/-/retell-cli-0.54.0.tgz",
+        "https://registry.npmjs.org/twenty-retell-sync/latest",
+        "https://registry.npmjs.org/twenty-retell-sync/-/twenty-retell-sync-0.1.25.tgz",
+        "https://registry.npmjs.org/@elevenlabs/elevenlabs-js/-/elevenlabs-js-2.77.0.tgz",
+        "https://registry.npmjs.org/-/v1/search?text=elevenlabs%20outbound%20call&size=10",
+        "https://registry.npmjs.org/-/v1/search?text=retell%20webhook&size=10"
+      ],
+      "research_note": "research/notes/2026-11-08-R6-voice-webhooks-elevenlabs-calls.md. Blocked (DNS / no connection): docs.retellai.com, community.retellai.com, hookdeck.com, elevenlabs.io. Retell retry policy only as search summary."
     }
   ],
   "research": {
@@ -720,7 +737,7 @@
       },
       "R6": {
         "name": "Calls & AI voice",
-        "last_researched": "2026-10-28"
+        "last_researched": "2026-11-08"
       },
       "R7": {
         "name": "CRM, pipeline & reporting",

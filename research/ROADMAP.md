@@ -58,8 +58,10 @@ can apply, a catalogue row, or a lab roadmap item.
 - [x] Dialers and call tasks: JustCall API, AI-agent calls, Sales Dialer, call events and webhook signing → [note](notes/2026-10-28-R6-voice-agents-dialer-api.md) (from the vendor n8n node)
 - [ ] Aircall / Kixie APIs (no API client package on npm 2026-10-28): click-to-call from CRM, call-state webhooks, disposition sync back to the sequence
 - [x] AI voice agents (Vapi, Retell): outbound call creation, idempotency and retries, DNC switches, end reasons, cost per call, CRM write-back events → [note](notes/2026-10-28-R6-voice-agents-dialer-api.md) (vendor SDKs; prices only as search summary; latency not covered)
-- [ ] Bland, Synthflow and ElevenLabs agents: call creation, DNC / consent fields, end reasons, cost fields (packages found 2026-10-28, not read); open live Retell / Vapi pricing pages (blocked 2026-10-28)
-- [ ] Retell webhook signature header name and retry policy for failed webhook deliveries (not in the SDK)
+- [x] ElevenLabs Agents: outbound call creation (single + batch), idempotency, SDK retries, end reasons, cost fields, webhook signing → [note](notes/2026-11-08-R6-voice-webhooks-elevenlabs-calls.md) (vendor SDK 2.77.0; no DNC field found)
+- [ ] Bland and Synthflow agents: call creation, DNC / consent fields, end reasons, cost fields (n8n packages found 2026-10-28, not read); open live Retell / Vapi / ElevenLabs pricing pages (blocked 2026-10-28, 2026-11-08)
+- [x] Retell webhook signature header name and retry policy for failed webhook deliveries → [note](notes/2026-11-08-R6-voice-webhooks-elevenlabs-calls.md) (`x-retell-signature` from a third-party receiver; 10 s / 3 retries / no delivery id only as search summary)
+- [ ] Open docs.retellai.com / elevenlabs.io when reachable: Retell retry backoff and what happens after the last failed delivery; ElevenLabs webhook header name, retry policy and `termination_reason` values; whether ElevenLabs `cost` is credits
 - [ ] Compliance for automated calls (TCPA / consent in the US, UK / EU rules): what an AI caller may and may not do — FCC 2024 ruling known only from search summaries; open FCC 24-17 and check whether B2B calls to business lines need written consent
 - [ ] "Call when engaged" patterns: trigger a call task from email opens / replies / site visits without blocking the sequence
 
