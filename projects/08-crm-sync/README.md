@@ -1,4 +1,4 @@
-# 08 · CRM sync (HubSpot, Attio; Pipedrive next)
+# 08 · CRM sync (HubSpot, Attio, Pipedrive)
 
 **The pain:** the CRM no longer matches reality. An n8n HTTP node goes green on HubSpot's
 batch endpoint while some rows never landed: a batch returns **HTTP 207** and HubSpot's own
@@ -8,14 +8,16 @@ updates matched by company domain overwrite several people of one company.
 
 Attio adds its own trap: its assert endpoint **replaces every multiselect attribute** other
 than the matching one with the list you send, so a sync that writes one `tags` value wipes
-the record's other tags.
+the record's other tags. Pipedrive has no upsert at all: search-then-create from two n8n
+executions (or a retried create after a timeout) makes the same person twice.
 
-v0.0.4: HubSpot contacts **batch upsert** planning, response parsing, an executor that
+v0.0.5: HubSpot contacts **batch upsert** planning, response parsing, an executor that
 re-sends only retryable rows under one rate budget per portal, and a stdlib HTTP transport
 (`UrllibTransport`) that never follows redirects; **Attio assert** (one idempotent `PUT` per
-person) with a multiselect-overwrite guard. One `created / updated / upserted / failed /
+person) with a multiselect-overwrite guard; **Pipedrive** cached search → update / create
+under one writer lock, where a create is never re-sent unless it surely never left. One `created / updated / upserted / failed /
 skipped` outcome per input row. Tested against a local HTTP server and offline fakes; never
-against a live HubSpot portal or Attio workspace. No service or n8n workflow yet.
+against a live HubSpot portal, Attio workspace or Pipedrive company. No service or n8n workflow yet.
 
 ## Architecture
 
@@ -80,6 +82,24 @@ execute_asserts(plan, transport, token=…, budget=RateBudget(25, 1.0))   one ca
        429 waits Retry-After (seconds or HTTP-date), capped by max_wait_seconds
 ```
 
+```
+plan_persons(rows)                       e-mail is the key; name required only to create
+   │   skipped: missing_key · fixture · duplicate_key · invalid_property_name
+   │            (standard fields top level; custom fields only by their 40-hex key)
+   ▼
+execute_persons(plan, transport, token=…, budget=…, cache=MemoryPersonCache(), lock=Lock())
+   cache hit  → PATCH /persons/{id}        404 → evict, fall through to search (merged / deleted)
+   cache miss → under the writer lock:
+       GET /persons/search?term=<email>&fields=email&exact_match=true
+         hits re-checked: an item counts only if its emails[] holds the key
+         0 → POST /persons (emails [{value, primary, label}])   1 → PATCH   ≥ 2 → ambiguous_match
+   GET / PATCH re-sent on 408 / 429 / 5xx / timeout / reset
+   POST re-sent only on 429 or not_sent; timeout / reset / 5xx / 2xx without id
+     → failed outcome_unknown, not retryable, not cached → next run searches first
+   e-mails never sent on update; no fields to change → updated "no_fields", no call
+   report.summary(): + search_calls, cache_hits (search costs more of Pipedrive's token budget)
+```
+
 Why upsert and not create: a re-sent upsert on a unique property updates the same contact;
 a re-sent create after a 5xx or timeout can create it twice. Batch create is deliberately
 not offered.
@@ -115,6 +135,23 @@ plan = plan_asserts(
 )
 report = execute_asserts(
     plan, UrllibTransport(), token=os.environ["ATTIO_TOKEN"], budget=RateBudget(25, 1.0)
+)
+```
+
+Pipedrive (not run by the lab against a real company account):
+
+```python
+import os
+from crmsync import CrmRow, MemoryPersonCache, RateBudget, UrllibTransport
+from crmsync import execute_persons, plan_persons
+
+cache = MemoryPersonCache()  # replace with a sheet / Postgres table to keep ids between runs
+report = execute_persons(
+    plan_persons([CrmRow("row-7", "ana@northwind.io", {"name": "Ana Ruiz", "org_id": 12})]),
+    UrllibTransport(),
+    token=os.environ["PIPEDRIVE_TOKEN"],
+    budget=RateBudget(10, 2.0),
+    cache=cache,
 )
 ```
 
@@ -158,5 +195,10 @@ print(report.summary())  # created / updated / failed / skipped, calls, still_re
   Which multiselect attributes an object has is the caller's declaration (`multiselect`);
   the lab does not read the object schema. Whether two concurrent asserts on the same new
   key can both create is not documented in what was read: keep one writer per workspace.
-- Not built yet: Pipedrive cached
-  search + single writer, merge remapping, lifecycle / ownership rules (see ROADMAP 08).
+- Pipedrive shapes come from the official `pipedrive` client 36.3.1 (npm, v2 models and
+  `persons-api`); pipedrive.readme.io and developers.pipedrive.com were not opened. The
+  writer lock is per process; several n8n workers need one queue. How soon a just-created
+  person shows up in search (index lag) is not documented in what was read — the cache is
+  what protects a re-run in the same process. `RateBudget(10, 2.0)` in the example is an
+  assumption, not Pipedrive's token budget (third-party summaries only, R7).
+- Not built yet: merge remapping, lifecycle / ownership rules (see ROADMAP 08).

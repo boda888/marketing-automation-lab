@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crm-sync"
-version = "0.0.4"
-description = "Per-row created / updated / failed CRM upserts keyed by person (HubSpot, Attio)"
+version = "0.0.5"
+description = "Per-row created / updated / failed CRM upserts keyed by person (HubSpot, Attio, Pipedrive)"
 requires-python = ">=3.11"
 dependencies = []
 
