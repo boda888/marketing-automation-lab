@@ -1,6 +1,7 @@
 """CRM sync: one upsert per person key, one created / updated / failed outcome per row.
 
-HubSpot contacts batch upsert, Attio assert, Pipedrive cached search + update / create.
+HubSpot contacts batch upsert, Attio assert, Pipedrive cached search + update / create,
+and merge webhooks that re-point stored ids.
 """
 
 from .attio import AssertPlan, AttioAssert, execute_asserts, parse_assert_response, plan_asserts
@@ -19,6 +20,17 @@ from .hubspot import (
     parse_upsert_response,
     plan_upserts,
 )
+from .idmap import (
+    IdMap,
+    IdMapPersonCache,
+    MemoryIdMap,
+    MergeEvent,
+    MergeReport,
+    apply_merges,
+    parse_attio_merges,
+    parse_hubspot_merges,
+    parse_pipedrive_merge,
+)
 from .models import CrmRow, Outcome, RowOutcome, normalise_email
 from .pipedrive import (
     MemoryPersonCache,
@@ -30,6 +42,15 @@ from .pipedrive import (
 from .transport import UrllibTransport
 
 __all__ = [
+    "IdMap",
+    "IdMapPersonCache",
+    "MemoryIdMap",
+    "MergeEvent",
+    "MergeReport",
+    "apply_merges",
+    "parse_attio_merges",
+    "parse_hubspot_merges",
+    "parse_pipedrive_merge",
     "MemoryPersonCache",
     "PersonPlan",
     "PersonReport",

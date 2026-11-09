@@ -11,11 +11,13 @@ than the matching one with the list you send, so a sync that writes one `tags` v
 the record's other tags. Pipedrive has no upsert at all: search-then-create from two n8n
 executions (or a retried create after a timeout) makes the same person twice.
 
-v0.0.5: HubSpot contacts **batch upsert** planning, response parsing, an executor that
+v0.0.6: HubSpot contacts **batch upsert** planning, response parsing, an executor that
 re-sends only retryable rows under one rate budget per portal, and a stdlib HTTP transport
 (`UrllibTransport`) that never follows redirects; **Attio assert** (one idempotent `PUT` per
 person) with a multiselect-overwrite guard; **Pipedrive** cached search → update / create
-under one writer lock, where a create is never re-sent unless it surely never left. One `created / updated / upserted / failed /
+under one writer lock, where a create is never re-sent unless it surely never left; and
+**merge webhooks** (HubSpot `*.merge`, Attio `record.merged`, Pipedrive v2 `merged_from_id`)
+that re-point every stored key of a merged-away id in one shared `IdMap`. One `created / updated / upserted / failed /
 skipped` outcome per input row. Tested against a local HTTP server and offline fakes; never
 against a live HubSpot portal, Attio workspace or Pipedrive company. No service or n8n workflow yet.
 
@@ -103,6 +105,24 @@ execute_persons(plan, transport, token=…, budget=…, cache=MemoryPersonCache(
 Why upsert and not create: a re-sent upsert on a unique property updates the same contact;
 a re-sent create after a 5xx or timeout can create it twice. Batch create is deliberately
 not offered.
+
+```
+HubSpot [ {subscriptionType: "contact.merge", primaryObjectId, mergedObjectIds, newObjectId?} ]
+Attio   {events: [{event_type: "record.merged", id.record_id, duplicate_record_id, …}]}
+Pipedrive v2 {meta: {entity, entity_id, merged_from_id?}, data}
+   │  parse_hubspot_merges / parse_attio_merges / parse_pipedrive_merge
+   │    → MergeEvent(crm="hubspot:contact" | "attio:<object_id>" | "pipedrive:person",
+   │                 losing_ids, winner_id)            + ignored reasons, never guessed
+   │    HubSpot: newObjectId wins over primaryObjectId; then the primary is a loser too
+   │    Attio: one event per original; duplicate from another object → cross_object_merge
+   │    Pipedrive: no survivor id → winner None
+   ▼
+apply_merges(idmap, events)        every key stored for a losing id → winner (replay = no-op)
+   │                               winner None → key evicted: the next write searches again
+   ▼
+MemoryIdMap  (crm, key) → id with a reverse index; IdMapPersonCache(idmap) plugs it into
+             execute_persons, so a merged Pipedrive person is PATCHed by its new id, no search
+```
 
 ## Run it
 
@@ -201,4 +221,13 @@ print(report.summary())  # created / updated / failed / skipped, calls, still_re
   person shows up in search (index lag) is not documented in what was read — the cache is
   what protects a re-run in the same process. `RateBudget(10, 2.0)` in the example is an
   assumption, not Pipedrive's token budget (third-party summaries only, R7).
-- Not built yet: merge remapping, lifecycle / ownership rules (see ROADMAP 08).
+- Merge payloads were not read from vendor docs: docs.attio.com, attio.com,
+  developers.hubspot.com, community.hubspot.com and pipedrive.readme.io did not resolve from the
+  build environment (2026-11-09). `contact.merge` and `record.merged` are confirmed only as
+  event names in `@hubspot/api-client` 14.1.2 and `attio-ts-sdk` 2.3.3; field names come from
+  search summaries of the vendor pages. When HubSpot sets `newObjectId`, and whether Pipedrive
+  puts `merged_from_id` in `meta` or `data` (both are read), is unconfirmed. Webhook signature
+  checks are not done here; `MemoryIdMap` is per process (no persistent store yet). Never fed
+  a live webhook.
+- Not built yet: lifecycle / ownership rules, HubSpot / Attio writers reading the `IdMap`
+  (see ROADMAP 08).
