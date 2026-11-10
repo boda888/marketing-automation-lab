@@ -11,14 +11,15 @@ than the matching one with the list you send, so a sync that writes one `tags` v
 the record's other tags. Pipedrive has no upsert at all: search-then-create from two n8n
 executions (or a retried create after a timeout) makes the same person twice.
 
-v0.0.7: HubSpot contacts **batch upsert** planning, response parsing, an executor that
+v0.0.8: HubSpot contacts **batch upsert** planning, response parsing, an executor that
 re-sends only retryable rows under one rate budget per portal, and a stdlib HTTP transport
 (`UrllibTransport`) that never follows redirects; **Attio assert** (one idempotent `PUT` per
 person) with a multiselect-overwrite guard; **Pipedrive** cached search → update / create
 under one writer lock, where a create is never re-sent unless it surely never left; and
 **merge webhooks** (HubSpot `*.merge`, Attio `record.merged`, Pipedrive v2 `merged_from_id`)
 that re-point every stored key of a merged-away id in one shared `IdMap`, behind
-**webhook origin checks** (HubSpot v3 HMAC, Attio HMAC, Pipedrive Basic) that fail closed. One `created / updated / upserted / failed /
+**webhook origin checks** (HubSpot v3 HMAC, Attio HMAC, Pipedrive Basic) that fail closed;
+one `write(rows, crm=...)` entry point stores every landed id where those merge events look. One `created / updated / upserted / failed /
 skipped` outcome per input row. Tested against a local HTTP server and offline fakes; never
 against a live HubSpot portal, Attio workspace or Pipedrive company. No service or n8n workflow yet.
 
@@ -140,6 +141,22 @@ verify_webhook(crm, headers, raw_body, method, url, secrets=WebhookSecrets(...),
      refused, never waved through) · unknown CRM refused
 ```
 
+One entry point for all three writers, sharing one `IdMap`:
+
+```
+write(rows, crm="hubspot" | "attio" | "pipedrive", transport, token, budget, idmap=…,
+      options=WriteOptions(id_property / object / attio_object_id / multiselect / overwrite))
+   │   plan + execute with that CRM's writer → one RowOutcome per input row, input order
+   │   landed (created / updated / upserted with an id) → idmap.put(namespace, key, id)
+   │   failed / skipped rows never touch the map; Pipedrive also reads it before searching
+   ▼
+namespaces = what the merge parsers emit:
+   hubspot:contact · pipedrive:person · attio:<object UUID>
+   Attio webhooks name the object by UUID, the assert path usually by slug ("people"):
+   with an IdMap, an Attio write without attio_object_id is refused (ValueError) before
+   any call, instead of storing ids where no merge event will ever find them
+```
+
 `hubspot_legacy_signature` (v1 / v2) reproduces the vendor SDK's own test vectors, which is
 how the concatenation order was checked.
 
@@ -254,5 +271,6 @@ print(report.summary())  # created / updated / failed / skipped, calls, still_re
   third-party sources disagree on whether Attio signs a timestamp. Whether HubSpot re-signs a
   redelivery with a fresh timestamp is unconfirmed (an old one would be refused as stale).
   No live delivery was ever verified.
-- Not built yet: lifecycle / ownership rules, HubSpot / Attio writers reading the `IdMap`
-  (see ROADMAP 08).
+- `write()` stores ids for HubSpot and Attio but those writers do not need them (they upsert
+  on a unique property); only Pipedrive reads the map. Not built yet: lifecycle / ownership
+  rules (see ROADMAP 08).

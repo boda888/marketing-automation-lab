@@ -39,6 +39,7 @@ from .pipedrive import (
     execute_persons,
     plan_persons,
 )
+from .sync import CRMS, WriteOptions, WriteResult, idmap_namespace, write
 from .transport import UrllibTransport
 from .webhook_auth import (
     AuthResult,
@@ -52,6 +53,11 @@ from .webhook_auth import (
 )
 
 __all__ = [
+    "CRMS",
+    "WriteOptions",
+    "WriteResult",
+    "idmap_namespace",
+    "write",
     "AuthResult",
     "WebhookSecrets",
     "hubspot_legacy_signature",
