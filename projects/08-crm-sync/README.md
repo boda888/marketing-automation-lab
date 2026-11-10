@@ -11,7 +11,7 @@ than the matching one with the list you send, so a sync that writes one `tags` v
 the record's other tags. Pipedrive has no upsert at all: search-then-create from two n8n
 executions (or a retried create after a timeout) makes the same person twice.
 
-v0.0.8: HubSpot contacts **batch upsert** planning, response parsing, an executor that
+v0.0.9: HubSpot contacts **batch upsert** planning, response parsing, an executor that
 re-sends only retryable rows under one rate budget per portal, and a stdlib HTTP transport
 (`UrllibTransport`) that never follows redirects; **Attio assert** (one idempotent `PUT` per
 person) with a multiselect-overwrite guard; **Pipedrive** cached search → update / create
@@ -21,7 +21,8 @@ that re-point every stored key of a merged-away id in one shared `IdMap`, behind
 **webhook origin checks** (HubSpot v3 HMAC, Attio HMAC, Pipedrive Basic) that fail closed;
 one `write(rows, crm=...)` entry point stores every landed id where those merge events look. One `created / updated / upserted / failed /
 skipped` outcome per input row. Tested against a local HTTP server and offline fakes; never
-against a live HubSpot portal, Attio workspace or Pipedrive company. No service or n8n workflow yet.
+against a live HubSpot portal, Attio workspace or Pipedrive company. A FastAPI service (`POST /v1/write`, `POST /v1/webhooks/{crm}`)
+wraps both sides; no n8n workflow or offline demo yet.
 
 ## Architecture
 
@@ -157,6 +158,26 @@ namespaces = what the merge parsers emit:
    any call, instead of storing ids where no merge event will ever find them
 ```
 
+The service puts both halves behind HTTP (`crmsync.api`):
+
+```
+POST /v1/write            Bearer token (optional) → write(rows, crm) → one outcome per row
+   {crm, rows[≤1000]}      CRM without a token → 404 · duplicate row_id / Attio slug with
+                           no object UUID → 422, nothing sent · IdMap shared by all writes
+POST /v1/webhooks/{crm}   no bearer (CRMs cannot send one): their signature is the auth
+   raw body bytes ─► verify_webhook(url = configured public_base_url + path + query)
+                     refused → 401 · no secret configured → 500 (CRM retries later)
+                  ─► json → 400 invalid_json
+                  ─► hubspot: drop items whose eventId was already applied (attemptNumber
+                     changes per retry, so it is never part of the key); eventIds marked
+                     seen only after apply_merges ran
+                  ─► parse_*_merges → apply_merges → 200 {merge, duplicates, ignored}
+```
+
+Webhook work is in-memory only, so the answer goes back well inside HubSpot's ~5 s
+(search summary). `public_base_url` must be `https://`: HubSpot v3 signs the URL it called,
+not the host the app sees behind a proxy.
+
 `hubspot_legacy_signature` (v1 / v2) reproduces the vendor SDK's own test vectors, which is
 how the concatenation order was checked.
 
@@ -165,6 +186,25 @@ how the concatenation order was checked.
 ```bash
 python -m pip install -e ".[dev]"
 python -m pytest -q
+```
+
+Service (not run by the lab against a real CRM):
+
+```python
+import os
+from crmsync import UrllibTransport, WebhookSecrets, WriteOptions
+from crmsync.api import CrmService, create_app
+
+app = create_app(
+    CrmService(
+        transport=UrllibTransport(),
+        tokens={"hubspot": os.environ["HUBSPOT_TOKEN"]},
+        secrets=WebhookSecrets(hubspot_client_secret=os.environ["HUBSPOT_CLIENT_SECRET"]),
+        public_base_url="https://hooks.example",  # the URL HubSpot calls
+        options={"attio": WriteOptions(attio_object_id="<people object UUID>")},
+    ),
+    api_token=os.environ["CRMSYNC_API_TOKEN"],
+)
 ```
 
 ```python
@@ -224,6 +264,9 @@ print(report.summary())  # created / updated / failed / skipped, calls, still_re
 ```
 
 ## Limits (honest)
+- The service is tested only with FastAPI's `TestClient` and offline fakes. `/v1/write`
+  holds the HTTP request open for the whole CRM write (no job queue); the default rate
+  budgets (HubSpot 100 / 10 s, Attio 25 / 1 s, Pipedrive 10 / 2 s) are lab assumptions.
 - `UrllibTransport` is tested only against a local `http.server` on 127.0.0.1 (207 split,
   429 `Retry-After`, 302 not followed, read timeout, refused connection). Whether HubSpot
   sends `Retry-After` on 429 is unconfirmed: developers.hubspot.com did not resolve from the
@@ -263,8 +306,9 @@ print(report.summary())  # created / updated / failed / skipped, calls, still_re
   event names in `@hubspot/api-client` 14.1.2 and `attio-ts-sdk` 2.3.3; field names come from
   search summaries of the vendor pages. When HubSpot sets `newObjectId`, and whether Pipedrive
   puts `merged_from_id` in `meta` or `data` (both are read), is unconfirmed. Webhook signature
-  checks (`webhook_auth`) exist but are not yet wired to a route; `MemoryIdMap` is per process (no persistent store yet). Never fed
-  a live webhook.
+  checks run in `POST /v1/webhooks/{crm}`; `MemoryIdMap` and the HubSpot `eventId` memory
+  (`SeenEvents`, 50,000 ids) are per process, so a restart forgets both (no persistent store
+  yet). Never fed a live webhook.
 - Webhook auth: the HubSpot v3 rule (concatenation, base64, 5 min) is from the official
   `@hubspot/api-client` 14.1.3 `Signature` util and its test vectors; the header names, and
   everything about Attio's signature (header, hex, no timestamp), are search summaries only —
