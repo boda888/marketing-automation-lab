@@ -1,7 +1,7 @@
 """CRM sync: one upsert per person key, one created / updated / failed outcome per row.
 
 HubSpot contacts batch upsert, Attio assert, Pipedrive cached search + update / create,
-and merge webhooks that re-point stored ids.
+merge webhooks that re-point stored ids, and origin checks for those webhooks.
 """
 
 from .attio import AssertPlan, AttioAssert, execute_asserts, parse_assert_response, plan_asserts
@@ -40,8 +40,26 @@ from .pipedrive import (
     plan_persons,
 )
 from .transport import UrllibTransport
+from .webhook_auth import (
+    AuthResult,
+    WebhookSecrets,
+    hubspot_legacy_signature,
+    hubspot_v3_signature,
+    verify_attio,
+    verify_basic_auth,
+    verify_hubspot_v3,
+    verify_webhook,
+)
 
 __all__ = [
+    "AuthResult",
+    "WebhookSecrets",
+    "hubspot_legacy_signature",
+    "hubspot_v3_signature",
+    "verify_attio",
+    "verify_basic_auth",
+    "verify_hubspot_v3",
+    "verify_webhook",
     "IdMap",
     "IdMapPersonCache",
     "MemoryIdMap",

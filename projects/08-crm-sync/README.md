@@ -11,13 +11,14 @@ than the matching one with the list you send, so a sync that writes one `tags` v
 the record's other tags. Pipedrive has no upsert at all: search-then-create from two n8n
 executions (or a retried create after a timeout) makes the same person twice.
 
-v0.0.6: HubSpot contacts **batch upsert** planning, response parsing, an executor that
+v0.0.7: HubSpot contacts **batch upsert** planning, response parsing, an executor that
 re-sends only retryable rows under one rate budget per portal, and a stdlib HTTP transport
 (`UrllibTransport`) that never follows redirects; **Attio assert** (one idempotent `PUT` per
 person) with a multiselect-overwrite guard; **Pipedrive** cached search → update / create
 under one writer lock, where a create is never re-sent unless it surely never left; and
 **merge webhooks** (HubSpot `*.merge`, Attio `record.merged`, Pipedrive v2 `merged_from_id`)
-that re-point every stored key of a merged-away id in one shared `IdMap`. One `created / updated / upserted / failed /
+that re-point every stored key of a merged-away id in one shared `IdMap`, behind
+**webhook origin checks** (HubSpot v3 HMAC, Attio HMAC, Pipedrive Basic) that fail closed. One `created / updated / upserted / failed /
 skipped` outcome per input row. Tested against a local HTTP server and offline fakes; never
 against a live HubSpot portal, Attio workspace or Pipedrive company. No service or n8n workflow yet.
 
@@ -124,6 +125,24 @@ MemoryIdMap  (crm, key) → id with a reverse index; IdMapPersonCache(idmap) plu
              execute_persons, so a merged Pipedrive person is PATCHed by its new id, no search
 ```
 
+A merge webhook re-points stored ids, so a forged one would redirect later writes. Check
+origin on the **raw body bytes** before parsing (research R7 note 2026-11-10):
+
+```
+verify_webhook(crm, headers, raw_body, method, url, secrets=WebhookSecrets(...), now_ms)
+   hubspot    X-HubSpot-Signature-v3 == base64 HMAC-SHA256(app client secret,
+              METHOD + exact public URL + raw body + X-HubSpot-Request-Timestamp)
+              timestamp older than 5 min → stale_timestamp; more than 5 min ahead →
+              future_timestamp (the official SDK lets future ones pass); constant-time compare
+   attio      Attio-Signature / X-Attio-Signature == hex HMAC-SHA256(webhook secret, raw body)
+   pipedrive  Authorization: Basic user:password set on the webhook (no signature exists)
+   → AuthResult(ok, reason).status: 200 · 401 refused · 500 not_configured (no secret set:
+     refused, never waved through) · unknown CRM refused
+```
+
+`hubspot_legacy_signature` (v1 / v2) reproduces the vendor SDK's own test vectors, which is
+how the concatenation order was checked.
+
 ## Run it
 
 ```bash
@@ -227,7 +246,13 @@ print(report.summary())  # created / updated / failed / skipped, calls, still_re
   event names in `@hubspot/api-client` 14.1.2 and `attio-ts-sdk` 2.3.3; field names come from
   search summaries of the vendor pages. When HubSpot sets `newObjectId`, and whether Pipedrive
   puts `merged_from_id` in `meta` or `data` (both are read), is unconfirmed. Webhook signature
-  checks are not done here; `MemoryIdMap` is per process (no persistent store yet). Never fed
+  checks (`webhook_auth`) exist but are not yet wired to a route; `MemoryIdMap` is per process (no persistent store yet). Never fed
   a live webhook.
+- Webhook auth: the HubSpot v3 rule (concatenation, base64, 5 min) is from the official
+  `@hubspot/api-client` 14.1.3 `Signature` util and its test vectors; the header names, and
+  everything about Attio's signature (header, hex, no timestamp), are search summaries only —
+  third-party sources disagree on whether Attio signs a timestamp. Whether HubSpot re-signs a
+  redelivery with a fresh timestamp is unconfirmed (an old one would be refused as stale).
+  No live delivery was ever verified.
 - Not built yet: lifecycle / ownership rules, HubSpot / Attio writers reading the `IdMap`
   (see ROADMAP 08).
