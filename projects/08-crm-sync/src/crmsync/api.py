@@ -53,7 +53,7 @@ from .models import CrmRow
 from .sync import WriteOptions, write
 from .webhook_auth import WebhookSecrets, verify_webhook
 
-__version__ = "0.0.9"
+__version__ = "0.1.0"
 MAX_ROWS = 1000
 Crm = Literal["hubspot", "attio", "pipedrive"]
 

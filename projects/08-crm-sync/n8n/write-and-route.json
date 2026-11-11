@@ -1,0 +1,537 @@
+{
+  "name": "Write rows to a CRM, route per-row outcomes, retry once (marketing-automation-lab/08)",
+  "nodes": [
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000001",
+      "name": "Webhook: rows in",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "c8a2f4e1-0008-4c3d-9b20-0000000000aa",
+      "notes": "Body {rows: [{row_id, email, properties}]}, at most 1000 rows. row_id must be unique: it is how every outcome is routed back to its sheet / Clay row.",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm/write",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ],
+      "notes": "crm: hubspot | attio | pipedrive. Merge webhooks do not pass through n8n: point the CRM at <public url>/v1/webhooks/{crm} so the service checks the signature on the raw body.",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-url",
+              "name": "crm_sync_url",
+              "value": "http://crm-sync:8008",
+              "type": "string"
+            },
+            {
+              "id": "cfg-crm",
+              "name": "crm",
+              "value": "hubspot",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000003",
+      "name": "Write rows (one outcome per row)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "retryOnFail": false,
+      "onError": "continueErrorOutput",
+      "notes": "No n8n retry: the service already re-sends only retryable rows, and a Pipedrive create is never re-sent blind. A 207 with errors[] comes back as per-row failed outcomes, not a green node.",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.crm_sync_url }}/v1/write",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ crm: $json.crm, rows: $json.body.rows || [] }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      }
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000004",
+      "name": "Respond: write summary",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        700,
+        -200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ crm: $json.crm, summary: $json.summary, idmap_recorded: $json.idmap_recorded }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000005",
+      "name": "Respond: write refused (nothing sent)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        700,
+        200
+      ],
+      "notes": "401 bearer, 404 CRM not configured, 422 duplicate row_id / Attio object without UUID: no row was written.",
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: $json.error }) }}",
+        "options": {
+          "responseCode": 502
+        }
+      }
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000006",
+      "name": "One item per row",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        700,
+        0
+      ],
+      "parameters": {
+        "fieldToSplitOut": "outcomes",
+        "include": "noOtherFields",
+        "options": {}
+      }
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000007",
+      "name": "Route by outcome",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        920,
+        0
+      ],
+      "notes": "fallbackOutput 'extra' on purpose: Switch V3 drops unmatched items by default, so an outcome this workflow does not know yet goes to the DLQ instead of vanishing.",
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "renameOutput": true,
+              "outputKey": "Created",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "route-created-false",
+                    "leftValue": "={{ $json.outcome + ':' + $json.retryable }}",
+                    "rightValue": "created:false",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Updated",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "route-updated-false",
+                    "leftValue": "={{ $json.outcome + ':' + $json.retryable }}",
+                    "rightValue": "updated:false",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Upserted",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "route-upserted-false",
+                    "leftValue": "={{ $json.outcome + ':' + $json.retryable }}",
+                    "rightValue": "upserted:false",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Skipped",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "route-skipped-false",
+                    "leftValue": "={{ $json.outcome + ':' + $json.retryable }}",
+                    "rightValue": "skipped:false",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "Retryable",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "route-failed-true",
+                    "leftValue": "={{ $json.outcome + ':' + $json.retryable }}",
+                    "rightValue": "failed:true",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Failed"
+        }
+      }
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000008",
+      "name": "Log: landed (write crm_id back to the row)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        -300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000009",
+      "name": "Skip + log (no key / duplicate / fixture / bad field)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        -120
+      ],
+      "notes": "Never sent. Fix the source row; re-posting it unchanged gives the same skip.",
+      "parameters": {}
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000010",
+      "name": "Wait before retry (5 min)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1160,
+        100
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 5,
+        "unit": "minutes"
+      }
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000011",
+      "name": "Collect retryable row ids",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1380,
+        100
+      ],
+      "parameters": {
+        "aggregate": "aggregateIndividualFields",
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "row_id"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000012",
+      "name": "Re-post retryable rows once",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        100
+      ],
+      "retryOnFail": false,
+      "onError": "continueErrorOutput",
+      "notes": "Only rows the service marked retryable (429 / 5xx / timeout / not in response): upserts and searches are idempotent, and a Pipedrive create that may have landed is never marked retryable.",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.crm_sync_url }}/v1/write",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ crm: $('Config').first().json.crm, rows: ($('Webhook: rows in').first().json.body.rows || []).filter(r => $json.row_id.includes(r.row_id)) }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      }
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000013",
+      "name": "Log: retry outcomes",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "notes": "Rows still failed after this pass go to the DLQ by hand; this workflow retries once, never in a loop.",
+      "parameters": {}
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000014",
+      "name": "Alert: retry call failed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        200
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "c8a2f4e1-0008-4c3d-9b20-000000000015",
+      "name": "DLQ: failed (rejected / ambiguous / outcome unknown)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        300
+      ],
+      "notes": "Not retryable: the CRM refused the row, two people share the e-mail (Pipedrive), or a create may have landed. A human decides; re-posting blindly can duplicate.",
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Webhook: rows in": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Write rows (one outcome per row)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write rows (one outcome per row)": {
+      "main": [
+        [
+          {
+            "node": "Respond: write summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "One item per row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: write refused (nothing sent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per row": {
+      "main": [
+        [
+          {
+            "node": "Route by outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by outcome": {
+      "main": [
+        [
+          {
+            "node": "Log: landed (write crm_id back to the row)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log: landed (write crm_id back to the row)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log: landed (write crm_id back to the row)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip + log (no key / duplicate / fixture / bad field)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait before retry (5 min)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DLQ: failed (rejected / ambiguous / outcome unknown)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry (5 min)": {
+      "main": [
+        [
+          {
+            "node": "Collect retryable row ids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect retryable row ids": {
+      "main": [
+        [
+          {
+            "node": "Re-post retryable rows once",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-post retryable rows once": {
+      "main": [
+        [
+          {
+            "node": "Log: retry outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert: retry call failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -11,7 +11,7 @@ than the matching one with the list you send, so a sync that writes one `tags` v
 the record's other tags. Pipedrive has no upsert at all: search-then-create from two n8n
 executions (or a retried create after a timeout) makes the same person twice.
 
-v0.0.9: HubSpot contacts **batch upsert** planning, response parsing, an executor that
+v0.1.0: HubSpot contacts **batch upsert** planning, response parsing, an executor that
 re-sends only retryable rows under one rate budget per portal, and a stdlib HTTP transport
 (`UrllibTransport`) that never follows redirects; **Attio assert** (one idempotent `PUT` per
 person) with a multiselect-overwrite guard; **Pipedrive** cached search → update / create
@@ -22,7 +22,8 @@ that re-point every stored key of a merged-away id in one shared `IdMap`, behind
 one `write(rows, crm=...)` entry point stores every landed id where those merge events look. One `created / updated / upserted / failed /
 skipped` outcome per input row. Tested against a local HTTP server and offline fakes; never
 against a live HubSpot portal, Attio workspace or Pipedrive company. A FastAPI service (`POST /v1/write`, `POST /v1/webhooks/{crm}`)
-wraps both sides; no n8n workflow or offline demo yet.
+wraps both sides; an n8n workflow routes every row on its outcome, and an offline demo runs
+the whole loop against in-memory fake HubSpot / Attio / Pipedrive.
 
 ## Architecture
 
@@ -188,6 +189,42 @@ python -m pip install -e ".[dev]"
 python -m pytest -q
 ```
 
+Offline demo (no network, no account — fake HubSpot, Attio and Pipedrive in memory):
+
+```bash
+uvicorn crmsync.demo:app --port 8008
+curl -s localhost:8008/v1/write -H 'Content-Type: application/json' \
+  -d @examples/demo-write.json | python -m json.tool
+```
+
+[`examples/demo-write.json`](examples/demo-write.json) hits every branch: two contacts
+created (re-post → `updated`), a duplicate key and an `"Unknown"` e-mail skipped, a bad
+property name skipped, a `reject+` row refused by the CRM (`failed`, not retryable) and a
+`busy+` row HubSpot leaves out of both `results` and `errors` (`failed`, retryable). The
+demo Pipedrive already holds `ana.ruiz@northwind.example` (update) and two people sharing
+`office@contoso.example` (`ambiguous_match`). Merges can be posted to
+`/v1/webhooks/{crm}` signed with the demo secrets in `crmsync.demo`.
+
+n8n: import [`n8n/write-and-route.json`](n8n/write-and-route.json) (Header Auth credential
+= `Authorization: Bearer <CRMSYNC_API_TOKEN>`, set `crm` and `crm_sync_url` in **Config**):
+
+```
+Webhook {rows} → Config → POST /v1/write (no n8n retry) ─error─► Respond 502 (nothing written)
+                                   │ ok → Respond {summary}
+                                   ▼ one item per outcome
+Switch on "outcome:retryable"  created / updated / upserted → Log: landed (write crm_id back)
+                               skipped → Skip + log          failed:true → Wait 5 min →
+                               failed:false + anything new → DLQ   collect row_ids →
+                                                                   re-post those rows once
+```
+
+The Switch uses `fallbackOutput: "extra"` on purpose: n8n's Switch V3 drops unmatched items
+unless a fallback output is set (`SwitchV3.node.ts`), so an outcome the workflow does not
+know yet lands in the DLQ instead of vanishing. CRM merge webhooks do not pass through n8n:
+point each CRM at `<public url>/v1/webhooks/{crm}` so the signature is checked on the raw
+body. The retry pass re-posts the original rows (looked up by `row_id` from the webhook
+input) exactly once; it never loops.
+
 Service (not run by the lab against a real CRM):
 
 ```python
@@ -264,6 +301,10 @@ print(report.summary())  # created / updated / failed / skipped, calls, still_re
 ```
 
 ## Limits (honest)
+- The n8n workflow is checked only structurally (node types, connections, request body
+  keys against the API model, every outcome routed) and was never imported into a running
+  n8n instance. Node parameter names were read from n8n's `master` sources
+  (`HttpRequest/V3/Description.ts`, `Switch/V3/SwitchV3.node.ts`, `Aggregate.node.ts`).
 - The service is tested only with FastAPI's `TestClient` and offline fakes. `/v1/write`
   holds the HTTP request open for the whole CRM write (no job queue); the default rate
   budgets (HubSpot 100 / 10 s, Attio 25 / 1 s, Pipedrive 10 / 2 s) are lab assumptions.

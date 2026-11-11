@@ -1,0 +1,12 @@
+{
+  "crm": "hubspot",
+  "rows": [
+    {"row_id": "sheet-2", "email": "Ana.Ruiz@northwind.example", "properties": {"firstname": "Ana", "lastname": "Ruiz", "jobtitle": "COO", "lifecyclestage": "lead"}},
+    {"row_id": "sheet-3", "email": "ben.okafor@contoso.example", "properties": {"firstname": "Ben", "jobtitle": "Unknown", "lifecyclestage": "lead"}},
+    {"row_id": "sheet-4", "email": "ana.ruiz@northwind.example", "properties": {"firstname": "Ana", "phone": "+49 30 000000"}},
+    {"row_id": "sheet-5", "email": "Unknown", "properties": {"firstname": "Lee"}},
+    {"row_id": "sheet-6", "email": "reject+kim@fabrikam.example", "properties": {"firstname": "Kim"}},
+    {"row_id": "sheet-7", "email": "busy+dana@tailspin.example", "properties": {"firstname": "Dana"}},
+    {"row_id": "sheet-8", "email": "lee@woodgrove.example", "properties": {"First Name": "Lee"}}
+  ]
+}
