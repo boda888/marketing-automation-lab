@@ -76,8 +76,9 @@ can apply, a catalogue row, or a lab roadmap item.
 
 ## R8 · AI agents & MCP over the stack
 - [x] Which GTM tools ship MCP servers (Clay, HubSpot, Apollo, Smartlead, Airtable…); what an agent can safely do with them → [note](notes/2026-10-31-R8-gtm-mcp-servers-write-safety.md) (sourcing tools in the R1 note)
-- [ ] HubSpot's remote MCP server (used by Claude's connector): open the vendor docs when reachable — tool list per scope, whether writes are upserts, how partial failures and the per-write confirmation work
-- [ ] Clay as an MCP / connector: confirm on clay.com or docs.clay.com what an agent can do (read tables, run enrichments, spend credits) and how credits are capped per call
+- [ ] HubSpot's remote MCP server (used by Claude's connector): open the vendor docs when reachable — tool list per scope, whether writes are upserts, how partial failures and the per-write confirmation work (endpoint / OAuth / GA date as search summaries and the dev server's elicitation gate in the [2026-11-11 note](notes/2026-11-11-R8-agent-write-confirmation-elicitation.md); docs still ENOTFOUND)
+- [ ] Clay as an MCP / connector: confirm on clay.com or docs.clay.com what an agent can do (read tables, run enrichments, spend credits) and how credits are capped per call (npm `@clayhq/clay-mcp` is clay.earth, not Clay.com; connector facts so far search summaries only — 2026-11-11 note)
+- [x] How an MCP server makes a human confirm a write (elicitation), and whether that holds when the agent runs in n8n → [note](notes/2026-11-11-R8-agent-write-confirmation-elicitation.md) (n8n's client declares no elicitation: confirmations degrade to a model-settable flag)
 - [ ] Claude skills / agents for research, first lines and reply drafting: guardrails, review steps, eval practice
 - [ ] Agent-run workflows vs n8n: when each is the right tool
 

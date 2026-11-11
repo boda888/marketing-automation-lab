@@ -158,7 +158,8 @@
     "2026-11-08: 08-crm-sync 0.0.4 — Attio assert writer (multiselect-overwrite guard, upserted + record_id, idempotent retries; Retry-After HTTP-date) and 0.0.5 — Pipedrive cached search + update / create under one writer lock, create never blindly re-sent (outcome_unknown, not cached); 46 tests.",
     "2026-11-09: 08-crm-sync 0.0.6 — merge webhooks (HubSpot *.merge, Attio record.merged, Pipedrive v2 merged_from_id) parsed into MergeEvent and applied to one shared IdMap that re-points every stored key of a merged-away id; Pipedrive writer reads it via IdMapPersonCache; 10 tests.",
     "2026-11-10: research R7 CRM webhooks (HubSpot v3 signing from the SDK, n8n HubSpot Trigger v1-only + deletes all app subscriptions on deactivate, Attio secret once + degraded -> inactive after 7 days, Pipedrive Basic only + user_id permission filter + webhook status fields); 08-crm-sync 0.0.7 webhook_auth origin checks for merge webhooks, 22 tests.",
-    "2026-11-10 (evening): 08-crm-sync 0.0.8 write(rows, crm=...) entry point recording landed ids in the merge namespaces; 0.0.9 FastAPI /v1/write + signed /v1/webhooks/{crm} with HubSpot eventId dedupe on one locked IdMap."
+    "2026-11-10 (evening): 08-crm-sync 0.0.8 write(rows, crm=...) entry point recording landed ids in the merge namespaces; 0.0.9 FastAPI /v1/write + signed /v1/webhooks/{crm} with HubSpot eventId dedupe on one locked IdMap.",
+    "2026-11-11: research R8 agent write confirmation — MCP 2025-11-25 elicitation (form / URL, accept / decline / cancel, capability must be declared); @hubspot/cli 8.18.0 dev MCP gates production deploys with an elicitation form (timeout = decline) and falls back to a model-settable confirmProductionAccount flag; n8n MCP client declares no elicitation, Server Trigger elicits only for missing credentials; npm @clayhq/clay-mcp is clay.earth, not Clay.com."
   ],
   "next_steps": [
     "08 v0.1: n8n workflow (HTTP Request -> /v1/write with per-row routing on outcome / retryable; a Webhook node is not needed for merges since CRMs call /v1/webhooks/{crm} directly) + offline demo with .example rows and fake transports for all three CRMs, README run-it for the service (uvicorn), then root README / ROADMAP to v0.1. Optional: dry_run flag on /v1/write (plan only), persistent IdMap + SeenEvents (sqlite) and a cross-process writer lock; read X-HubSpot-RateLimit-* headers into RateBudget.",
@@ -167,7 +168,7 @@
     "04 follow-ups: match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; phone ladder found -> checked -> callable with Trestle / Twilio Lookup mappers (activity 50 / is_valid null = unknown; R3 note 2026-11-04); live DNS adapter for EmailPrecheck (opt-in [live] extra).",
     "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status >= 400 -> Unknown; changeTracking scrape item and Firecrawl /monitor page event, missing statusCode stays Unknown; dedupe search-monitor hits per event — R2 notes 2026-10-23, 2026-11-03); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort.",
     "09 (after 08): reliability kit per R9 note — per-item retry with backoff + Retry-After for idempotent calls only, generalise 06's SqlitePushLog reserve -> commit into a shared dedupe store, DLQ intake from node error outputs, error-workflow alert template, silent-schedule watchdog (incl. 06 pending(older_than), Firecrawl skipped_no_credits and Instantly webhooks auto-disabled after delivery failures until /resume — R4 2026-11-05; Pipedrive GET /v1/webhooks is_active / remove_reason / last_http_status and Attio webhook status degraded — R7 2026-11-10), rate budget per vendor key; ops-table writer for Airtable / sheets (R1 2026-11-02 note).",
-    "13 (later): GTM MCP server design rules from R8 — server-side read-only mode, upsert writes with per-row created / updated / failed, HTTP transport refuses to start without auth; ship an n8n MCP Server Trigger example with Bearer auth."
+    "13 (later): GTM MCP server design rules from R8 — server-side read-only mode, upsert writes with per-row created / updated / failed, HTTP transport refuses to start without auth; ship an n8n MCP Server Trigger example with Bearer auth; confirm non-read tools by form elicitation when the client declares it, otherwise return a plan id and require an approval recorded outside the MCP session (R8 2026-11-11)."
   ],
   "known_gaps": [
     "01 n8n workflow is structure-tested only; never imported into a live n8n instance.",
@@ -217,12 +218,13 @@
     "08: Attio assert shapes from the third-party attio-ts-sdk 2.3.3 generated types (docs.attio.com / api.attio.com refused by the proxy 2026-11-08); 25 writes / s budget is a search summary; multiselect attributes are the caller's declaration, not read from the object schema; concurrent asserts on one new key not documented. Pipedrive shapes from the official pipedrive 36.3.1 client; search index lag after create undocumented in what was read; writer lock is per process. Both tested only with offline fakes, never against a live workspace / company.",
     "08 merge remap: payload fields from search summaries only (docs.attio.com, attio.com, developers.hubspot.com, community.hubspot.com, pipedrive.readme.io ENOTFOUND 2026-11-09); event names confirmed in @hubspot/api-client 14.1.2 (contact.merge) and attio-ts-sdk 2.3.3 (record.merged). When HubSpot sets newObjectId and where Pipedrive puts merged_from_id (meta or data — both read) unconfirmed; no webhook signature check yet; MemoryIdMap per process; never fed a live webhook.",
     "08 webhook_auth (2026-11-10): HubSpot v3 concatenation / base64 / 5 min from @hubspot/api-client 14.1.3 Signature util (v1 / v2 checked against its test vectors), but header names X-HubSpot-Signature-v3 / X-HubSpot-Request-Timestamp are search summaries; Attio header name, hex encoding and 'no timestamp signed' are search summaries and third-party sources conflict; whether HubSpot re-signs redeliveries with a fresh timestamp and all retry schedules (HubSpot ~10x / 24 h, Pipedrive, Attio) unconfirmed — developers.hubspot.com, attio.mintlify.app, pipedrive.readme.io, webhookrelay.com ENOTFOUND. Not wired to a route; never checked against a live delivery.",
-    "08 api (2026-11-10): service tested only with FastAPI TestClient (starlette 1.10 warns that httpx-based TestClient is deprecated) and offline fakes; /v1/write holds the request for the whole CRM write (no queue); IdMap and HubSpot eventId memory per process, lost on restart; HubSpot ~5 s webhook timeout and redelivery behaviour are search summaries (developers.hubspot.com, hookdeck.com, fastapi.tiangolo.com ENOTFOUND 2026-11-10); raw-body handling read from installed Starlette Request.body source. Never served a live CRM or webhook."
+    "08 api (2026-11-10): service tested only with FastAPI TestClient (starlette 1.10 warns that httpx-based TestClient is deprecated) and offline fakes; /v1/write holds the request for the whole CRM write (no queue); IdMap and HubSpot eventId memory per process, lost on restart; HubSpot ~5 s webhook timeout and redelivery behaviour are search summaries (developers.hubspot.com, hookdeck.com, fastapi.tiangolo.com ENOTFOUND 2026-11-10); raw-body handling read from installed Starlette Request.body source. Never served a live CRM or webhook.",
+    "R8 2026-11-11: HubSpot remote CRM MCP (mcp.hubspot.com) tool list, write semantics and confirmation still search summaries — developers.hubspot.com, mcp.hubspot.com, api.hubapi.com blocked; Clay.com connector (tools, credit caps) search summaries only — university.clay.com, reply.io, scalekit.com ENOTFOUND. HubSpot elicitation behaviour read from the CLI's developer MCP server, not the CRM server; nothing run against a live client."
   ],
   "last_run": {
-    "date": "2026-11-10",
-    "commits": 3,
-    "notes": "Evening run, budget 3, used 3: 08 write() entry point (0.0.8); FastAPI /v1/write + /v1/webhooks/{crm} (0.0.9); state. n8n workflow + demo left for v0.1."
+    "date": "2026-11-11",
+    "commits": 1,
+    "notes": "Morning run, budget 1: research R8 (agent write confirmation via MCP elicitation; n8n client cannot elicit; Clay MCP name collision) with state folded in. No code."
   },
   "run_log": [
     {
@@ -764,6 +766,24 @@
         "installed starlette 1.10.0 starlette/requests.py Request.body (local source)",
         "web search summary only: HubSpot webhook 5 s timeout and eventId / attemptNumber (developers.hubspot.com and hookdeck.com ENOTFOUND)"
       ]
+    },
+    {
+      "date": "2026-11-11",
+      "commits": 1,
+      "summary": "Research R8: MCP 2025-11-25 elicitation (form / URL modes, accept / decline / cancel, client must declare the capability); @hubspot/cli 8.18.0 developer MCP server confirms deploy / upload to production-with-care accounts with a form, timeout or failure = decline, and without client elicitation falls back to text asking the model to retry with confirmProductionAccount: true; n8n MCP client connects with capabilities {} (no elicitation) so such confirmations become a model-settable flag; n8n MCP Server Trigger elicits only URLs for missing credentials; @clayhq/clay-mcp is clay.earth. HubSpot remote MCP and Clay.com connector still search summaries. ROADMAP 13 confirmation rule edited.",
+      "sources": [
+        "https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/main/docs/specification/2025-11-25/client/elicitation.mdx",
+        "https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/main/docs/specification/2025-06-18/client/elicitation.mdx",
+        "https://registry.npmjs.org/@hubspot/cli/-/cli-8.18.0.tgz (mcp-server: productionConfirmation.js, DeployProjectTool.js, constants.js, utils/elicitation.js)",
+        "https://registry.npmjs.org/@hubspot/mcp-server (latest 0.4.0)",
+        "https://registry.npmjs.org/@clayhq/clay-mcp (README: clay.earth)",
+        "https://registry.npmjs.org/-/v1/search?text=clay%20mcp",
+        "https://registry.modelcontextprotocol.io/v0/servers?search=hubspot / ?search=clay",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/@n8n/nodes-langchain/nodes/mcp/shared/utils.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/@n8n/nodes-langchain/nodes/mcp/shared/runtime.ts",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/@n8n/nodes-langchain/nodes/mcp/McpTrigger/McpServer.ts",
+        "web search summaries only (pages not opened, ENOTFOUND): developers.hubspot.com integrate-with-the-remote-hubspot-mcp-server, university.clay.com mcp-troubleshooting-and-faqs, reply.io clay-mcp, scalekit.com clay-mcp-vs-api"
+      ]
     }
   ],
   "research": {
@@ -799,7 +819,7 @@
       },
       "R8": {
         "name": "AI agents & MCP over the stack",
-        "last_researched": "2026-10-31"
+        "last_researched": "2026-11-11"
       },
       "R9": {
         "name": "Orchestration & reliability",
