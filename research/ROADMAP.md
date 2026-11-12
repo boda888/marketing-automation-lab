@@ -85,6 +85,9 @@ can apply, a catalogue row, or a lab roadmap item.
 ## R9 · Orchestration & reliability
 - [x] n8n patterns used in real outbound stacks: queues, per-item loops, error workflows, idempotency, rate limits → [note](notes/2026-11-01-R9-n8n-retry-dedupe-error-workflow.md) (from n8n source; behaviour read, not run)
 - [ ] Confirm on a live n8n (docker) what the source reading predicts: Remove Duplicates failing at a full history, Retry On Fail re-sending earlier items, error workflow payload with execution data saving off
-- [ ] How practitioners rate-limit vendor calls in n8n (HTTP Request batching, Wait, Redis / Postgres counters) and run queue mode for outbound volumes; published n8n outbound templates and what they skip
+- [x] How practitioners rate-limit vendor calls in n8n (HTTP Request batching, Wait, Redis / Postgres counters) and run queue mode for outbound volumes → [note](notes/2026-11-12-R9-n8n-rate-limits-queue-mode.md) (from n8n source + docs repo; docs.n8n.io ENOTFOUND, practitioner guides only as search summaries)
+- [ ] Published n8n outbound templates (n8n.io/workflows, Clay / Smartlead / Instantly templates): which set Batching, continue-on-fail and dedupe, and what they skip
+- [ ] Confirm on a live n8n (docker) that HTTP Request without Batching sends all items concurrently and that queue-mode executions with Wait < 65 s stay on the worker (the Wait node source read 2026-11-12 parks every timed wait via `putExecutionToWait`; any short-wait shortcut would live in core, not read)
+- [ ] Vendor rate limits in one table (Smartlead, Instantly, HeyReach, HubSpot, Attio, Pipedrive, Clay webhook, Apollo): per key vs per account, window, `Retry-After` / reset headers — to set the lab's rate budgets from published numbers
 - [ ] Make / Zapier / Clay native automations vs n8n: cost and failure modes at 2,000+ records
 - [ ] End-to-end reference architectures practitioners publish (diagrams, templates) — what they skip
