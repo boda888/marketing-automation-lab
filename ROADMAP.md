@@ -95,8 +95,8 @@ Pain: leads pushed twice, unsubscribed people re-contacted.
 
 ## 07 · Reply intent classification & routing
 Pain: replies triaged by hand, hot leads go cold.
-- [ ] classes: interested, objection, referral, OOO + return date, unsubscribe, bounce, wrong person, no meaningful reply; sequencer's own label is context only
-- [ ] routing + suppression actions, eval set
+- [ ] classes: interested, objection, referral, OOO + return date, unsubscribe, bounce, wrong person, no meaningful reply; sequencer's own label is context only; started 2026-11-12: deterministic classes (bounce hard / soft / unknown, left company → referral / wrong person before OOO, OOO + return date, unsubscribe in own text after quote stripping, auto-generated acks, no meaningful reply) with vendor-label disagreement flag (`replyrouting` 0.0.1); open: LLM stage for interested / question / objection / not interested
+- [ ] routing + suppression actions, eval set; 2026-11-12: `route()` plans stop / pause / suppress per channel key (email + LinkedIn URL), OOO pause until return + 1 day (default 7, cap 60), hard bounce email-only, referral → task, missing key → warning; open: eval set
 - [ ] event dedupe before classification (vendors replay failed webhooks; lemlist fires per occurrence), shared-secret check on inbound hooks; Instantly numeric interest codes (OOO = 0) mapped as context (research R4 2026-10-25); per-vendor event keys (lemlist activity `_id`, derived keys for Smartlead / Instantly, which send none), lemlist body `secret` compared in constant time then stripped, path token for unsigned vendors, stale-event cut-off, both Smartlead event-name spellings and all five lemlist unsubscribe types mapped, unknown event type → alert (R4 2026-11-05); LinkedIn reply events (HeyReach first vs every reply, Aimfox reply variants) through the same dedupe, sender `account_logged_out` routed as an alert (R5 2026-10-26); a reply on one channel emits a stop for the same person's campaigns on the other channel (email ↔ LinkedIn by email + profile URL), since native HeyReach ↔ Smartlead / Instantly sync does not stop on replies (R5 2026-11-06)
 
 ## 08 · CRM sync
