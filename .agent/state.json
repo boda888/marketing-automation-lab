@@ -160,7 +160,8 @@
     "2026-11-10: research R7 CRM webhooks (HubSpot v3 signing from the SDK, n8n HubSpot Trigger v1-only + deletes all app subscriptions on deactivate, Attio secret once + degraded -> inactive after 7 days, Pipedrive Basic only + user_id permission filter + webhook status fields); 08-crm-sync 0.0.7 webhook_auth origin checks for merge webhooks, 22 tests.",
     "2026-11-10 (evening): 08-crm-sync 0.0.8 write(rows, crm=...) entry point recording landed ids in the merge namespaces; 0.0.9 FastAPI /v1/write + signed /v1/webhooks/{crm} with HubSpot eventId dedupe on one locked IdMap.",
     "2026-11-11: research R8 agent write confirmation — MCP 2025-11-25 elicitation (form / URL, accept / decline / cancel, capability must be declared); @hubspot/cli 8.18.0 dev MCP gates production deploys with an elicitation form (timeout = decline) and falls back to a model-settable confirmProductionAccount flag; n8n MCP client declares no elicitation, Server Trigger elicits only for missing credentials; npm @clayhq/clay-mcp is clay.earth, not Clay.com.",
-    "2026-11-11 (evening): 08-crm-sync 0.1.0 (v0.1): offline demo with FakeCrms for HubSpot / Attio / Pipedrive, examples/demo-write.json hitting every outcome branch, n8n write-and-route workflow (Switch with fallbackOutput extra, one re-post of retryable rows by row_id); root README / ROADMAP updated."
+    "2026-11-11 (evening): 08-crm-sync 0.1.0 (v0.1): offline demo with FakeCrms for HubSpot / Attio / Pipedrive, examples/demo-write.json hitting every outcome branch, n8n write-and-route workflow (Switch with fallbackOutput extra, one re-post of retryable rows by row_id); root README / ROADMAP updated.",
+    "2026-11-12 (morning): research R9 — n8n rate limiting and queue mode from n8n source (HTTP Request Batching per execution with no in-flight cap, 429 not retried, Redis Increment + Expire TTL reset, worker concurrency 10); note, STACK, INSIGHTS, research ROADMAP; root ROADMAP 09 rate-budget item extended."
   ],
   "next_steps": [
     "08 follow-ups (v0.1 shipped 2026-11-11): dry_run flag on /v1/write (plan only, no call); persistent IdMap + SeenEvents (sqlite) and a cross-process writer lock / shared RateBudget; read X-HubSpot-RateLimit-* headers into RateBudget; lifecycle stages, assignment / territory rules, field-level ownership (ROADMAP 08 second item).",
@@ -168,7 +169,7 @@
     "07 next (current project): start projects/07-reply-routing — reply intent classes (interested, objection, referral, OOO + return date, unsubscribe, bounce) with deterministic rules before any LLM, JSON-schema-validated LLM fallback, and reply events from email and LinkedIn into one stop action per person: a reply on either channel stops the same person's campaigns on the other (email + profile URL), since native HeyReach <-> Smartlead / Instantly sync does not stop on replies (R5 2026-11-06).",
     "04 follow-ups: match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; phone ladder found -> checked -> callable with Trestle / Twilio Lookup mappers (activity 50 / is_valid null = unknown; R3 note 2026-11-04); live DNS adapter for EmailPrecheck (opt-in [live] extra).",
     "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status >= 400 -> Unknown; changeTracking scrape item and Firecrawl /monitor page event, missing statusCode stays Unknown; dedupe search-monitor hits per event — R2 notes 2026-10-23, 2026-11-03); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort.",
-    "09 (after 08): reliability kit per R9 note — per-item retry with backoff + Retry-After for idempotent calls only, generalise 06's SqlitePushLog reserve -> commit into a shared dedupe store, DLQ intake from node error outputs, error-workflow alert template, silent-schedule watchdog (incl. 06 pending(older_than), Firecrawl skipped_no_credits and Instantly webhooks auto-disabled after delivery failures until /resume — R4 2026-11-05; Pipedrive GET /v1/webhooks is_active / remove_reason / last_http_status and Attio webhook status degraded — R7 2026-11-10), rate budget per vendor key; ops-table writer for Airtable / sheets (R1 2026-11-02 note).",
+    "09 (after 08): reliability kit per R9 note — per-item retry with backoff + Retry-After for idempotent calls only, generalise 06's SqlitePushLog reserve -> commit into a shared dedupe store, DLQ intake from node error outputs, error-workflow alert template, silent-schedule watchdog (incl. 06 pending(older_than), Firecrawl skipped_no_credits and Instantly webhooks auto-disabled after delivery failures until /resume — R4 2026-11-05; Pipedrive GET /v1/webhooks is_active / remove_reason / last_http_status and Attio webhook status degraded — R7 2026-11-10), rate budget per vendor key shared across executions / queue-mode workers, exposed as an acquire call returning wait ms and honouring Retry-After, n8n examples with explicit Batching and window-in-key Redis counters (R9 2026-11-12); ops-table writer for Airtable / sheets (R1 2026-11-02 note).",
     "13 (later): GTM MCP server design rules from R8 — server-side read-only mode, upsert writes with per-row created / updated / failed, HTTP transport refuses to start without auth; ship an n8n MCP Server Trigger example with Bearer auth; confirm non-read tools by form elicitation when the client declares it, otherwise return a plan id and require an approval recorded outside the MCP session (R8 2026-11-11)."
   ],
   "known_gaps": [
@@ -221,12 +222,13 @@
     "08 webhook_auth (2026-11-10): HubSpot v3 concatenation / base64 / 5 min from @hubspot/api-client 14.1.3 Signature util (v1 / v2 checked against its test vectors), but header names X-HubSpot-Signature-v3 / X-HubSpot-Request-Timestamp are search summaries; Attio header name, hex encoding and 'no timestamp signed' are search summaries and third-party sources conflict; whether HubSpot re-signs redeliveries with a fresh timestamp and all retry schedules (HubSpot ~10x / 24 h, Pipedrive, Attio) unconfirmed — developers.hubspot.com, attio.mintlify.app, pipedrive.readme.io, webhookrelay.com ENOTFOUND. Not wired to a route; never checked against a live delivery.",
     "08 api (2026-11-10): service tested only with FastAPI TestClient (starlette 1.10 warns that httpx-based TestClient is deprecated) and offline fakes; /v1/write holds the request for the whole CRM write (no queue); IdMap and HubSpot eventId memory per process, lost on restart; HubSpot ~5 s webhook timeout and redelivery behaviour are search summaries (developers.hubspot.com, hookdeck.com, fastapi.tiangolo.com ENOTFOUND 2026-11-10); raw-body handling read from installed Starlette Request.body source. Never served a live CRM or webhook.",
     "R8 2026-11-11: HubSpot remote CRM MCP (mcp.hubspot.com) tool list, write semantics and confirmation still search summaries — developers.hubspot.com, mcp.hubspot.com, api.hubapi.com blocked; Clay.com connector (tools, credit caps) search summaries only — university.clay.com, reply.io, scalekit.com ENOTFOUND. HubSpot elicitation behaviour read from the CLI's developer MCP server, not the CRM server; nothing run against a live client.",
-    "08 n8n (2026-11-11): write-and-route.json checked only structurally and against the demo service; never imported into a running n8n. Node parameter names from n8n master sources (HttpRequest V3 Description.ts, Switch V3, Aggregate), not a pinned n8n release. The demo fakes model vendor shapes the lab already used; they are not vendor-verified. 02 preflight-before-send.json Switch has no fallbackOutput, so a verdict other than pass / review / block would be dropped (Switch V3 default none) and the webhook never answered."
+    "08 n8n (2026-11-11): write-and-route.json checked only structurally and against the demo service; never imported into a running n8n. Node parameter names from n8n master sources (HttpRequest V3 Description.ts, Switch V3, Aggregate), not a pinned n8n release. The demo fakes model vendor shapes the lab already used; they are not vendor-verified. 02 preflight-before-send.json Switch has no fallbackOutput, so a verdict other than pass / review / block would be dropped (Switch V3 default none) and the webhook never answered.",
+    "R9 2026-11-12: n8n rate-limit behaviour (HTTP Request concurrency without Batching, Redis incr TTL reset, Wait parking) read from source only; docs.n8n.io ENOTFOUND, practitioner guides only search summaries; not run on a live n8n."
   ],
   "last_run": {
-    "date": "2026-11-11",
+    "date": "2026-11-12",
     "commits": 2,
-    "notes": "Evening run, budget 2: 08-crm-sync v0.1 (offline demo + n8n workflow) and this state update."
+    "notes": "Morning run, budget 2: research R9 (n8n rate limits / queue mode) and this state update. No code."
   },
   "run_log": [
     {
@@ -795,6 +797,19 @@
         "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Switch/V3/SwitchV3.node.ts (fallbackOutput default none drops unmatched items)",
         "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/HttpRequest/V3/Description.ts (options: batching, timeout, response)",
         "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Transform/Aggregate/Aggregate.node.ts (aggregateIndividualFields / fieldsToAggregate)"
+      ]
+    },
+    {
+      "date": "2026-11-12",
+      "commits": 2,
+      "summary": "Research R9: n8n HTTP Request starts every item's request at once unless Batching is added (then 50 / 1,000 ms per execution, no in-flight cap); 429 only gets a hint message, Retry-After ignored; pacing is per execution and queue-mode workers run 10 jobs in parallel by default; Redis node Increment + Expire resets the TTL every call so a per-minute key never expires under steady traffic and the item is replaced by {key: count}. Root ROADMAP 09 rate budget: shared across executions, acquire call with Retry-After.",
+      "sources": [
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/HttpRequest/V3/HttpRequestV3.node.ts (opened 2026-11-12)",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/HttpRequest/V3/Description.ts (opened 2026-11-12)",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Redis/Redis.node.ts (opened 2026-11-12)",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Wait/Wait.node.ts (opened 2026-11-12)",
+        "https://raw.githubusercontent.com/n8n-io/n8n-docs/main/docs/deploy/host-n8n/configure-n8n/scaling/enable-queue-mode.md (opened 2026-11-12)",
+        "https://docs.n8n.io/integrations/builtin/rate-limits (search summary, not opened: ENOTFOUND)"
       ]
     }
   ],
