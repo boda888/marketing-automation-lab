@@ -32,7 +32,9 @@ the candidate lists in ``FIELDS``; send one real event per vendor and check them
 
 from __future__ import annotations
 
+import hashlib
 import hmac
+import re
 import sqlite3
 import threading
 from collections import OrderedDict
@@ -41,6 +43,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any, Protocol
+from urllib.parse import unquote
 
 from .classify import classify
 from .models import BounceKind, Channel, Classification, InboundReply, ReplyClass
@@ -407,7 +410,22 @@ def intake(
         payload=payload,
     )
 
-    age = now - occurred
+    return _finish(event, now=now, config=config, seen=seen)
+
+
+def _finish(
+    event: VendorEvent, *, now: datetime, config: IntakeConfig, seen: SeenEvents
+) -> IntakeResult:
+    """Shared tail for every vendor: age -> person key -> dedupe -> outcome by kind."""
+    kind, key, vendor, event_type = (
+        event.kind,
+        event.event_key or "",
+        event.vendor,
+        event.event_type,
+    )
+    if event.occurred_at is None:
+        return IntakeResult(IntakeOutcome.INVALID, "event has no timestamp", event)
+    age = now - event.occurred_at
     if age > config.max_age:
         return IntakeResult(
             IntakeOutcome.STALE,
@@ -433,7 +451,7 @@ def intake(
             event,
         )
     if kind is EventKind.REPLY:
-        if channel is None:
+        if event.channel is None:
             return IntakeResult(
                 IntakeOutcome.ALERT, f"{event_type}: channel not supported, route by hand", event
             )
@@ -444,6 +462,136 @@ def intake(
                 event,
             )
     return IntakeResult(IntakeOutcome.ACCEPTED, f"{vendor} {event_type}", event)
+
+
+# --- LinkedIn tools ------------------------------------------------------------------------
+# HeyReach and Aimfox webhook payload fields are not documented in any package opened (R5
+# 2026-10-26 / 2026-11-06, re-checked 2026-11-13), so the n8n flow maps each delivery into
+# this envelope with a Set node and the lab works on the envelope only:
+#   event_type, profile_url, message_text, message_at, campaign_id (optional)
+# Neither vendor signs deliveries; a token is required either in the URL path or (HeyReach)
+# in a custom header configured on the webhook (``customHeaders``, per a third-party
+# plugin's schema; read the webhook back with includeCustomHeaders to confirm it was kept).
+
+HEYREACH_EVENTS: dict[str, EventKind] = {
+    "MESSAGE_REPLY_RECEIVED": EventKind.REPLY,  # first reply (label; not confirmed in docs)
+    "EVERY_MESSAGE_REPLY_RECEIVED": EventKind.REPLY,  # every reply
+    "INMAIL_REPLY_RECEIVED": EventKind.REPLY,
+    "LEAD_TAG_UPDATED": EventKind.LABEL,
+    "CONNECTION_REQUEST_SENT": EventKind.IGNORED,
+    "CONNECTION_REQUEST_ACCEPTED": EventKind.IGNORED,
+    "MESSAGE_SENT": EventKind.IGNORED,
+    "INMAIL_SENT": EventKind.IGNORED,
+    "FOLLOW_SENT": EventKind.IGNORED,
+    "LIKED_POST": EventKind.IGNORED,
+    "VIEWED_PROFILE": EventKind.IGNORED,
+    "CAMPAIGN_COMPLETED": EventKind.IGNORED,
+}
+
+AIMFOX_EVENTS: dict[str, EventKind] = {
+    "reply": EventKind.REPLY,
+    "new_reply": EventKind.REPLY,
+    "campaign_reply": EventKind.REPLY,
+    "inmail_reply": EventKind.REPLY,
+    "account_logged_out": EventKind.SENDER_ALERT,  # the sequence stops silently otherwise
+    "account_logged_in": EventKind.IGNORED,
+    "connect": EventKind.IGNORED,
+    "accepted": EventKind.IGNORED,
+    "view": EventKind.IGNORED,
+    "campaign_ended": EventKind.IGNORED,
+}
+
+LINKEDIN_EVENT_MAPS: dict[str, dict[str, EventKind]] = {
+    "heyreach": HEYREACH_EVENTS,
+    "aimfox": AIMFOX_EVENTS,
+}
+
+
+def normalize_profile_url(url: str) -> str | None:
+    """``http(s)://(www.)linkedin.com/in/<slug>/?query`` -> ``https://www.linkedin.com/in/<slug>``.
+    Anything that is not a /in/ profile URL -> None (no key, never a guess)."""
+    m = re.match(
+        r"^(?:https?://)?(?:[a-z]{2,3}\.|www\.)?linkedin\.com/in/([^/?#\s]+)",
+        url.strip(),
+        re.IGNORECASE,
+    )
+    if not m:
+        return None
+    return f"https://www.linkedin.com/in/{unquote(m.group(1)).lower()}"
+
+
+def _text_fingerprint(text: str) -> str:
+    folded = " ".join(text.split()).casefold()
+    return hashlib.sha256(folded.encode()).hexdigest()[:16]
+
+
+def linkedin_intake(
+    vendor: str,
+    envelope: Any,
+    *,
+    now: datetime,
+    config: IntakeConfig,
+    seen: SeenEvents,
+    token: str | None = None,
+) -> IntakeResult:
+    """Same outcomes as ``intake``. The reply key is content-based — vendor + profile +
+    message text + message time, **without** the event type — so HeyReach's first-reply and
+    every-reply events (or Aimfox's reply / new_reply / campaign_reply) for one message are
+    processed once when both are subscribed."""
+    vendor = vendor.strip().lower()
+    if vendor not in LINKEDIN_EVENT_MAPS:
+        return IntakeResult(IntakeOutcome.INVALID, f"unknown LinkedIn vendor {vendor!r}")
+    if not isinstance(envelope, Mapping):
+        return IntakeResult(IntakeOutcome.INVALID, "envelope is not a JSON object")
+    payload = dict(envelope)
+    rejected = _authenticate(vendor, payload, token, config)
+    if rejected:
+        return IntakeResult(IntakeOutcome.REJECTED, rejected)
+
+    event_type = str(payload.get("event_type") or "").strip()
+    kind = LINKEDIN_EVENT_MAPS[vendor].get(event_type)
+    if kind is None:
+        return IntakeResult(
+            IntakeOutcome.ALERT,
+            f"unknown {vendor} event type {event_type!r}: add it to the event map",
+        )
+    if kind is EventKind.IGNORED:
+        return IntakeResult(IntakeOutcome.IGNORED, f"{vendor} {event_type} is not a reply event")
+
+    occurred = parse_timestamp(payload.get("message_at"))
+    if occurred is None:
+        return IntakeResult(IntakeOutcome.INVALID, f"{vendor} {event_type}: no readable message_at")
+    raw_url = str(payload.get("profile_url") or "")
+    profile = normalize_profile_url(raw_url) if raw_url else None
+    text = str(payload.get("message_text") or "").strip()
+    campaign = str(payload.get("campaign_id") or "").strip() or None
+
+    if kind is EventKind.REPLY:
+        if profile is None:
+            return IntakeResult(
+                IntakeOutcome.INVALID, f"{vendor} {event_type}: no LinkedIn /in/ profile URL"
+            )
+        content = _text_fingerprint(text) if text else "no-text"
+        key = f"{vendor}:reply:{profile}:{content}:{_iso(occurred)}"
+    else:
+        # Sender alerts and labels: one per (type, subject, minute) - no message to hash.
+        subject = profile or str(payload.get("sender_account") or "") or "-"
+        key = f"{vendor}:{event_type}:{subject}:{_iso(occurred.replace(second=0, microsecond=0))}"
+
+    event = VendorEvent(
+        vendor=vendor,
+        event_type=event_type,
+        kind=kind,
+        event_key=key,
+        occurred_at=occurred,
+        channel=Channel.LINKEDIN,
+        person_linkedin_url=profile,
+        campaign_id=campaign,
+        body_text=text,
+        vendor_label=event_type if kind is EventKind.LABEL else None,
+        payload=payload,
+    )
+    return _finish(event, now=now, config=config, seen=seen)
 
 
 def to_reply(event: VendorEvent, body_text: str | None = None) -> InboundReply:

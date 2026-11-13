@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reply-routing"
-version = "0.0.2"
+version = "0.0.3"
 description = "Webhook intake (auth, event keys, dedupe) and deterministic reply classification (bounce, auto-reply / OOO, unsubscribe, wrong person, referral) and cross-channel stop / pause routing"
 requires-python = ">=3.11"
 dependencies = []

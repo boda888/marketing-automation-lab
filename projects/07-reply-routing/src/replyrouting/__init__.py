@@ -13,6 +13,8 @@ from .intake import (
     classify_event,
     handle,
     intake,
+    linkedin_intake,
+    normalize_profile_url,
 )
 from .models import BounceKind, Channel, Classification, InboundReply, ReplyClass
 from .routing import Action, ActionKind, RoutingDecision, RoutingPolicy, route
@@ -40,8 +42,10 @@ __all__ = [
     "extract_return_date",
     "handle",
     "intake",
+    "linkedin_intake",
+    "normalize_profile_url",
     "own_text",
     "route",
 ]
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"

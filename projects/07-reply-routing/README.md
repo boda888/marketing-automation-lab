@@ -31,6 +31,20 @@ event-name string in an n8n Switch sends every reply to the fallback branch with
 | dedupe | `SeenEvents.add(key)` first sighting wins: `MemorySeenEvents` (bounded) or `SqliteSeenEvents` (unique key, `INSERT OR IGNORE`, shared by every process on the file); `release(key)` when downstream failed so the replay is processed | `duplicate` |
 | result | reply with text → `accepted`; reply without text → `needs_body` (fetch from the inbox API, never classify an empty body); vendor unsubscribe → class `unsubscribe`; vendor bounce → `bounce` **unknown** (the vendor does not say permanent); interest / category labels → `label_only`; lemlist mailbox-health (`sendLimitReached`, `connectionIssue`, …) → `alert`; sends / opens / clicks → `ignored`; WhatsApp / SMS replies → `alert` (no channel here) | |
 
+**LinkedIn (`linkedin_intake()`, v0.0.3).** HeyReach and Aimfox payload fields are not in
+any package opened (R5 2026-10-26 / 2026-11-06, rechecked 2026-11-13), so the n8n flow maps
+each delivery with a Set node into an envelope — `event_type`, `profile_url`, `message_text`,
+`message_at` (the message's time, not the delivery's), `campaign_id` — and the lab works on
+that. Neither vendor signs deliveries: a token is required in the URL path or, for HeyReach,
+in a custom header set on the webhook (`customHeaders` on `CreateWebhook`, documented only
+in a third-party plugin's schema — read the webhook back with `includeCustomHeaders` to
+confirm). The reply key is **content-based** — vendor + normalised `/in/` profile URL +
+whitespace/case-folded text hash + message time, without the event type — so HeyReach's
+`MESSAGE_REPLY_RECEIVED` and `EVERY_MESSAGE_REPLY_RECEIVED` (or Aimfox's `reply` /
+`new_reply` / `campaign_reply` / `inmail_reply`) for one message are processed once. Aimfox
+`account_logged_out` → `alert` (once per sender and minute): a logged-out sender stops the
+sequence silently. Sales Navigator / company URLs are never turned into a profile key.
+
 `handle(result)` runs classify → route for `accepted` events (and `needs_body` once the text
 is passed in) and returns None for everything else, so the caller branches on `outcome`.
 
@@ -137,6 +151,7 @@ decision = route(r, classify(r))  # stop + suppress on LinkedIn *and* email
   sample shows the **reply text** field for any vendor or Instantly's lead e-mail field; they
   are looked up from candidate lists in `intake.FIELDS`. Send one real event per vendor and
   check them; until then expect `needs_body`.
-- HeyReach / Aimfox LinkedIn events are not in the intake yet; nor are the LLM stage, FastAPI
+- LinkedIn intake trusts the n8n mapping into the envelope; HeyReach's "first" vs "every"
+  reply semantics come from event labels, not docs. Not yet built: the LLM stage, FastAPI
   and the n8n flow.
 - Nothing here talks to a live sequencer, CRM or LLM.
