@@ -163,7 +163,8 @@
     "2026-11-11: research R8 agent write confirmation — MCP 2025-11-25 elicitation (form / URL, accept / decline / cancel, capability must be declared); @hubspot/cli 8.18.0 dev MCP gates production deploys with an elicitation form (timeout = decline) and falls back to a model-settable confirmProductionAccount flag; n8n MCP client declares no elicitation, Server Trigger elicits only for missing credentials; npm @clayhq/clay-mcp is clay.earth, not Clay.com.",
     "2026-11-11 (evening): 08-crm-sync 0.1.0 (v0.1): offline demo with FakeCrms for HubSpot / Attio / Pipedrive, examples/demo-write.json hitting every outcome branch, n8n write-and-route workflow (Switch with fallbackOutput extra, one re-post of retryable rows by row_id); root README / ROADMAP updated.",
     "2026-11-12 (morning): research R9 — n8n rate limiting and queue mode from n8n source (HTTP Request Batching per execution with no in-flight cap, 429 not retried, Redis Increment + Expire TTL reset, worker concurrency 10); note, STACK, INSIGHTS, research ROADMAP; root ROADMAP 09 rate-budget item extended.",
-    "2026-11-12 (evening): 07-reply-routing 0.0.1 started: replyrouting.classify (fixed rule order, quoted thread / signature stripped before any wording rule, vendor label as context with disagreement flag), extract_return_date (cue priority, ambiguous numeric dates reported), route (cross-channel stop / pause by email + LinkedIn URL, missing key -> warning, hard bounce email-only, referral -> task never enrolment); README; 65 tests."
+    "2026-11-12 (evening): 07-reply-routing 0.0.1 started: replyrouting.classify (fixed rule order, quoted thread / signature stripped before any wording rule, vendor label as context with disagreement flag), extract_return_date (cue priority, ambiguous numeric dates reported), route (cross-channel stop / pause by email + LinkedIn URL, missing key -> warning, hard bounce email-only, referral -> task never enrolment); README; 65 tests.",
+    "2026-11-13 (morning): research R1 — Supabase / Postgres as the ops DB behind Clay and n8n (PostgREST merge-duplicates + on_conflict upsert, one request = one transaction, duplicate conflict keys in one batch = cardinality violation, n8n Supabase node has no upsert / posts all items in one request / unordered offset paging, Free-plan pausing, Nano / Micro connection limits); note, STACK row, INSIGHTS, research ROADMAP; root ROADMAP 09 ops-table writer item extended."
   ],
   "next_steps": [
     "08 follow-ups (v0.1 shipped 2026-11-11): dry_run flag on /v1/write (plan only, no call); persistent IdMap + SeenEvents (sqlite) and a cross-process writer lock / shared RateBudget; read X-HubSpot-RateLimit-* headers into RateBudget; lifecycle stages, assignment / territory rules, field-level ownership (ROADMAP 08 second item).",
@@ -171,7 +172,7 @@
     "07 next (current project, 0.0.1 shipped 2026-11-12): intake stage before classify — per-vendor event keys (lemlist `_id`, derived Smartlead / Instantly keys), lemlist body secret compared in constant time then stripped, path token for unsigned vendors, stale-event cut-off, both Smartlead event-name spellings and all five lemlist unsubscribe types mapped straight to classes, unknown event type -> alert, HeyReach / Aimfox LinkedIn reply events, sender account_logged_out -> alert; then the JSON-schema-validated LLM stage for intent (interested / question / objection / not_interested) behind a fake client, a labelled synthetic eval set (.example), FastAPI /v1/replies and an n8n webhook -> classify -> route flow.",
     "04 follow-ups: match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; phone ladder found -> checked -> callable with Trestle / Twilio Lookup mappers (activity 50 / is_valid null = unknown; R3 note 2026-11-04); live DNS adapter for EmailPrecheck (opt-in [live] extra).",
     "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status >= 400 -> Unknown; changeTracking scrape item and Firecrawl /monitor page event, missing statusCode stays Unknown; dedupe search-monitor hits per event — R2 notes 2026-10-23, 2026-11-03); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort.",
-    "09 (after 08): reliability kit per R9 note — per-item retry with backoff + Retry-After for idempotent calls only, generalise 06's SqlitePushLog reserve -> commit into a shared dedupe store, DLQ intake from node error outputs, error-workflow alert template, silent-schedule watchdog (incl. 06 pending(older_than), Firecrawl skipped_no_credits and Instantly webhooks auto-disabled after delivery failures until /resume — R4 2026-11-05; Pipedrive GET /v1/webhooks is_active / remove_reason / last_http_status and Attio webhook status degraded — R7 2026-11-10), rate budget per vendor key shared across executions / queue-mode workers, exposed as an acquire call returning wait ms and honouring Retry-After, n8n examples with explicit Batching and window-in-key Redis counters (R9 2026-11-12); ops-table writer for Airtable / sheets (R1 2026-11-02 note).",
+    "09 (after 08): reliability kit per R9 note — per-item retry with backoff + Retry-After for idempotent calls only, generalise 06's SqlitePushLog reserve -> commit into a shared dedupe store, DLQ intake from node error outputs, error-workflow alert template, silent-schedule watchdog (incl. 06 pending(older_than), Firecrawl skipped_no_credits and Instantly webhooks auto-disabled after delivery failures until /resume — R4 2026-11-05; Pipedrive GET /v1/webhooks is_active / remove_reason / last_http_status and Attio webhook status degraded — R7 2026-11-10), rate budget per vendor key shared across executions / queue-mode workers, exposed as an acquire call returning wait ms and honouring Retry-After, n8n examples with explicit Batching and window-in-key Redis counters (R9 2026-11-12); ops-table writer for Airtable / sheets (R1 2026-11-02 note) and Supabase / Postgres via PostgREST merge-duplicates upsert with in-chunk dedupe by conflict key and bisect-on-failure (R1 2026-11-13 note).",
     "13 (later): GTM MCP server design rules from R8 — server-side read-only mode, upsert writes with per-row created / updated / failed, HTTP transport refuses to start without auth; ship an n8n MCP Server Trigger example with Bearer auth; confirm non-read tools by form elicitation when the client declares it, otherwise return a plan id and require an approval recorded outside the MCP session (R8 2026-11-11)."
   ],
   "known_gaps": [
@@ -229,9 +230,9 @@
     "07: classifier rules are English heuristics written from knowledge plus Discourse's and Zammad's open-source auto-reply checks; RFC 3834 / RFC 3464 text unreachable (rfc-editor.org ENOTFOUND, 2026-11-12) and no labelled reply set yet; header rules only apply when intake has raw mail headers (most sequencer webhooks send body only)."
   ],
   "last_run": {
-    "date": "2026-11-12",
+    "date": "2026-11-13",
     "commits": 2,
-    "notes": "Evening run, budget 2: started 07-reply-routing (deterministic classifier + routing, 0.0.1) and this state update."
+    "notes": "Morning run, budget 2: research R1 (Supabase as ops DB) and this state update. supabase.com, community.clay.com and postgresql.org ENOTFOUND; facts read from GitHub source / docs repos."
   },
   "run_log": [
     {
@@ -825,6 +826,24 @@
         "https://www.rfc-editor.org/rfc/rfc3834.html and rfc3464.html (not opened: ENOTFOUND)",
         "https://developer.instantly.ai/guides/webhook-events.md (not opened: ENOTFOUND; lt_interest_status 0 = OOO, 1 = Interested from a search summary, consistent with R4 note 2026-10-25)"
       ]
+    },
+    {
+      "date": "2026-11-13",
+      "commits": 2,
+      "summary": "Research R1: Supabase / Postgres as the ops DB. PostgREST upsert = POST with Prefer: resolution=merge-duplicates (+ ?on_conflict=<UNIQUE col>, missing=default for surrogate keys); any DB failure rolls back the whole request; Postgres raises a cardinality violation when one ON CONFLICT DO UPDATE batch repeats a key. n8n Supabase node: no upsert, create posts all input items in one POST (continue-on-fail gives one error for all items), getAll offset-pages without default order and stops on a page < 1,000 rows. Supabase Free pauses low-activity projects after 7 days; Nano / Micro 60 connections, 200 pooler clients. Clay -> Supabase only via HTTP API column (search summary). Root ROADMAP 09 ops-table writer extended to Supabase.",
+      "sources": [
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Supabase/Supabase.node.ts (opened 2026-11-13)",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Supabase/GenericFunctions.ts (opened 2026-11-13)",
+        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/Supabase/RowDescription.ts (opened 2026-11-13)",
+        "https://raw.githubusercontent.com/PostgREST/postgrest/main/docs/references/api/tables_views.rst (opened 2026-11-13)",
+        "https://raw.githubusercontent.com/PostgREST/postgrest/main/docs/references/transactions.rst (opened 2026-11-13)",
+        "https://raw.githubusercontent.com/postgres/postgres/master/doc/src/sgml/ref/insert.sgml (opened 2026-11-13)",
+        "https://raw.githubusercontent.com/supabase/supabase/master/apps/docs/content/guides/platform/billing-on-supabase.mdx (opened 2026-11-13)",
+        "https://raw.githubusercontent.com/supabase/supabase/master/apps/docs/content/guides/platform/compute-and-disk.mdx (opened 2026-11-13)",
+        "https://raw.githubusercontent.com/supabase/supabase/master/apps/docs/content/guides/deployment/going-into-prod.mdx (opened 2026-11-13)",
+        "https://community.clay.com/x/support/9fxy5mclv7u8/setting-up-http-api-for-clay-records-in-supabase-a (search summary, not opened: ENOTFOUND)",
+        "https://www.cloudzero.com/blog/supabase-pricing/ (search summary, not opened)"
+      ]
     }
   ],
   "research": {
@@ -832,7 +851,7 @@
     "tracks": {
       "R1": {
         "name": "Account & contact sourcing",
-        "last_researched": "2026-11-02"
+        "last_researched": "2026-11-13"
       },
       "R2": {
         "name": "Signals & research",
