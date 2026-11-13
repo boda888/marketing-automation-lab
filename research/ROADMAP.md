@@ -13,7 +13,9 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] Lookalike sourcing from best customers: how tools do it, input format, quality checks
 - [x] Airtable as the ops database behind Clay: API limits, upsert on duplicate keys, n8n node batching / polling, client retries → [note](notes/2026-11-02-R1-airtable-ops-db-sync.md) (behaviour from n8n + airtable.js source; limits only as search summary)
 - [ ] Open Airtable's own API reference (blocked 2026-11-02): confirm 5 req/s per base, 30 s penalty, `performUpsert` multiple-match error text, records per base per plan, and what Airtable automations count against
-- [ ] Postgres / Supabase instead of Airtable as the ops DB: when practitioners switch (row counts, cost, concurrency), and how Clay writes to it (HTTP API column vs Supabase integration)
+- [x] Postgres / Supabase instead of Airtable as the ops DB: when practitioners switch (row counts, cost, concurrency), and how Clay writes to it (HTTP API column vs Supabase integration) → [note](notes/2026-11-13-R1-supabase-ops-db-clay-n8n.md) (upsert / transaction / paging behaviour from n8n + PostgREST + Postgres source; plan limits from Supabase docs source; Clay side only search summaries)
+- [ ] Open supabase.com docs when reachable: Data API max-rows default, Free / Pro price page, any REST rate limit; confirm on a live project that a merge-duplicates bulk POST with a duplicate key returns 21000 and writes nothing
+- [ ] Clay's own docs for HTTP API column → Supabase: retries on 5xx / 429, rows per second, and whether a failed request can be re-run per row without re-spending enrichment credits
 
 ## R2 · Signals & research
 - [x] Apify actors for jobs, LinkedIn posts / reactions, company pages: cost per 1,000 results (pricing models + max charge; per-Actor prices only as search summary) → [note](notes/2026-10-23-R2-firecrawl-apify-signal-costs.md)
