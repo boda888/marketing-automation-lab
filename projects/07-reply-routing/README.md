@@ -11,12 +11,36 @@ Instantly sync does not stop the other channel on a reply (R5, 2026-11-06).
 v0.0.1 (started 2026-11-12): the **deterministic** stage and the routing plan. The classes
 with suppression or legal consequences are decided by rules in code, never by a model;
 everything else is handed to an LLM stage (next step) with `needs_llm=True`.
+v0.0.2 (2026-11-13): the **webhook intake** in front of it — Smartlead, Instantly and
+lemlist events are authenticated, keyed, age-checked and deduped before anything is
+classified, and every event leaves with an outcome and a reason.
+
+## Intake (`intake()` → `handle()`)
+
+Sequencers replay failed deliveries (Smartlead `retrigger-failed-events`, Instantly after
+`/resume`), lemlist fires per occurrence, Smartlead and Instantly sign nothing, and a wrong
+event-name string in an n8n Switch sends every reply to the fallback branch without a sound
+(research R4, 2026-10-25 and 2026-11-05). So, in this order:
+
+| step | rule | outcome when it fails |
+|---|---|---|
+| auth | lemlist: `secret` echoed in the body, `hmac.compare_digest`, then **stripped** from the payload; Smartlead / Instantly: per-vendor random path token. Nothing configured = refuse | `rejected` |
+| event type | both Smartlead spellings (`EMAIL_REPLY` / `EMAIL_REPLIED`), all five lemlist `*Unsubscribed` types; only names seen in an opened package are mapped | unknown → `alert` |
+| key | lemlist `_id`; Smartlead `campaign + sl_email_lead_id + kind + timestamp`; Instantly `campaign + lead e-mail (lower) + kind + timestamp` — the kind, not the raw name, so a replay under the other spelling still matches; timestamps normalised to UTC | `invalid` |
+| age | older than 24 h (configurable) or > 5 min in the future | `stale` → review, **not dropped**: a replay after an outage is legitimately old |
+| dedupe | `SeenEvents.add(key)` first sighting wins: `MemorySeenEvents` (bounded) or `SqliteSeenEvents` (unique key, `INSERT OR IGNORE`, shared by every process on the file); `release(key)` when downstream failed so the replay is processed | `duplicate` |
+| result | reply with text → `accepted`; reply without text → `needs_body` (fetch from the inbox API, never classify an empty body); vendor unsubscribe → class `unsubscribe`; vendor bounce → `bounce` **unknown** (the vendor does not say permanent); interest / category labels → `label_only`; lemlist mailbox-health (`sendLimitReached`, `connectionIssue`, …) → `alert`; sends / opens / clicks → `ignored`; WhatsApp / SMS replies → `alert` (no channel here) | |
+
+`handle(result)` runs classify → route for `accepted` events (and `needs_body` once the text
+is passed in) and returns None for everything else, so the caller branches on `outcome`.
 
 ## Architecture
 
 ```
+vendor webhook ─► intake()  auth · event type · key · age · dedupe   (see Intake)
+   │
 InboundReply(channel, body_text, subject, headers, from, person_email, person_linkedin_url,
-             vendor_label)          one deduped event (intake / dedupe: next steps)
+             vendor_label)          one deduped event
    │
 own_text()            quoted thread ("On … wrote:", "-----Original Message-----", "From:/Sent:"),
                       '>' lines and "-- " signature removed: our own "reply unsubscribe"
@@ -107,6 +131,12 @@ decision = route(r, classify(r))  # stop + suppress on LinkedIn *and* email
   two codebases, not the RFC text.
 - Most sequencer webhooks carry the reply body without mail headers, so header rules only
   help when the intake has the raw message (IMAP / Gmail API / unified inbox).
-- No intake yet: per-vendor event keys, secret / path-token checks, stale-event cut-off and
-  dedupe (ROADMAP 07 third item) come next; so do the LLM stage, FastAPI and the n8n flow.
+- Intake payload fields come from integration packages (Activepieces Smartlead 0.2.0 / 0.2.1,
+  lemlist 0.2.2, Instantly 0.2.3; `instantly-cli`), not vendor docs — vendor doc sites were
+  unreachable from the run environment (proxy 403, 2026-11-05 and 2026-11-13). No opened
+  sample shows the **reply text** field for any vendor or Instantly's lead e-mail field; they
+  are looked up from candidate lists in `intake.FIELDS`. Send one real event per vendor and
+  check them; until then expect `needs_body`.
+- HeyReach / Aimfox LinkedIn events are not in the intake yet; nor are the LLM stage, FastAPI
+  and the n8n flow.
 - Nothing here talks to a live sequencer, CRM or LLM.
