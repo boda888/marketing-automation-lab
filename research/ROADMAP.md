@@ -25,7 +25,10 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] Confirm on the live Firecrawl API what a `/monitor` page with HTTP 404 reports (`changed` vs `error`) and whether `monitor.page` events can arrive twice for one check (no event id dedupe documented)
 - [ ] LinkedIn profile / company data per URL: Firecrawl provider routing (FullEnrich 5 … Apollo 30 credits) vs Apify Actors vs HarvestAPI — cost per 1,000 and freshness
 - [ ] Website-visitor identification (RB2B and similar): how it works, match rates claimed vs observed, privacy limits (US-only, GDPR) — RB2B webhook fields / API scope only as search summary 2026-11-03 (support site DNS-blocked)
-- [ ] Hiring, funding, tech-change and "new leader" signals: which sources are fresh enough to act on within a week
+- [x] Hiring and funding signals: which sources are fresh enough to act on within a week → [note](notes/2026-11-14-R2-hiring-funding-signal-freshness.md) (ATS boards from Greenhouse docs source, Lever README and an npm adapter; Form D fields from edgartools; deadline only as search summary; nothing run live)
+- [ ] Tech-change and "new leader" signals: which sources are fresh enough to act on within a week (BuiltWith / Wappalyzer-style diffs, job-change feeds in Apollo / PDL / Clay), and what date they carry
+- [ ] Open the live ATS endpoints (blocked 2026-11-14): does Lever's live JSON carry `createdAt` despite the README, Ashby `publishedAt` vs an id field, Greenhouse list rate limits; and EDGAR full-text search for Form D by date (query shape, `User-Agent` rule, 10 req/s)
+- [ ] Share of target accounts on a public Greenhouse / Lever / Ashby board vs Workday / custom careers pages, measured on the owner's own ICP list (run outside the repo); this decides whether ATS boards can be the main hiring source
 
 ## R3 · Enrichment & verification
 - [x] Email waterfall order by cost and hit rate (Icypeas, Prospeo, LeadMagic, Findymail, Freckle, Clay); pay-per-found vs subscription → [note](notes/2026-10-24-R3-finder-verifier-billing-statuses.md) (billing rules first-party; hit rates only vendor-published search summaries)

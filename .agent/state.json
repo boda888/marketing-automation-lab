@@ -165,14 +165,15 @@
     "2026-11-12 (morning): research R9 — n8n rate limiting and queue mode from n8n source (HTTP Request Batching per execution with no in-flight cap, 429 not retried, Redis Increment + Expire TTL reset, worker concurrency 10); note, STACK, INSIGHTS, research ROADMAP; root ROADMAP 09 rate-budget item extended.",
     "2026-11-12 (evening): 07-reply-routing 0.0.1 started: replyrouting.classify (fixed rule order, quoted thread / signature stripped before any wording rule, vendor label as context with disagreement flag), extract_return_date (cue priority, ambiguous numeric dates reported), route (cross-channel stop / pause by email + LinkedIn URL, missing key -> warning, hard bounce email-only, referral -> task never enrolment); README; 65 tests.",
     "2026-11-13 (morning): research R1 — Supabase / Postgres as the ops DB behind Clay and n8n (PostgREST merge-duplicates + on_conflict upsert, one request = one transaction, duplicate conflict keys in one batch = cardinality violation, n8n Supabase node has no upsert / posts all items in one request / unordered offset paging, Free-plan pausing, Nano / Micro connection limits); note, STACK row, INSIGHTS, research ROADMAP; root ROADMAP 09 ops-table writer item extended.",
-    "2026-11-13 (evening): 07 webhook intake (replyrouting 0.0.2) — per-vendor auth (lemlist secret constant-time + strip, path tokens, fail closed), event-type maps incl. both Smartlead reply spellings and all five lemlist unsubscribe types, unknown -> alert, derived / _id event keys, stale -> review, needs_body for text-less replies, Memory / SQLite SeenEvents with release(), vendor bounce = unknown; LinkedIn intake for HeyReach / Aimfox (0.0.3) with a content-based reply key so first / every reply events collapse, account_logged_out -> alert, /in/ URL normalisation."
+    "2026-11-13 (evening): 07 webhook intake (replyrouting 0.0.2) — per-vendor auth (lemlist secret constant-time + strip, path tokens, fail closed), event-type maps incl. both Smartlead reply spellings and all five lemlist unsubscribe types, unknown -> alert, derived / _id event keys, stale -> review, needs_body for text-less replies, Memory / SQLite SeenEvents with release(), vendor bounce = unknown; LinkedIn intake for HeyReach / Aimfox (0.0.3) with a content-based reply key so first / every reply events collapse, account_logged_out -> alert, /in/ URL normalisation.",
+    "2026-11-14 (morning): research R2 hiring + funding signal freshness — ATS board date semantics (Greenhouse updated_at = last edit, first_published per job only; Lever no documented date; Ashby publishedAt = last publication), first-seen diff as the honest hiring date; Form D fields (isAmendment, dateOfFirstSale, pooled-fund flag) and the 15-day deadline (search summary); STACK rows, 2 insights, 03 ROADMAP item edited."
   ],
   "next_steps": [
     "08 follow-ups (v0.1 shipped 2026-11-11): dry_run flag on /v1/write (plan only, no call); persistent IdMap + SeenEvents (sqlite) and a cross-process writer lock / shared RateBudget; read X-HubSpot-RateLimit-* headers into RateBudget; lifecycle stages, assignment / territory rules, field-level ownership (ROADMAP 08 second item).",
     "06 follow-ups: wire HeyReachAdapter.public into /v1/push (memberships per profile via GetCampaignsForLead, plan_linkedin_push); HeyReach campaign-level exclusions (excludeContactedFromOtherCampaigns, excludeHasOtherAccConversations, excludeListId) reported in the push report (R5 2026-11-06); lemlist member read-back (then /v1/reconcile for lemlist); Instantly wiring in the API; push-log rows scoped by (vendor, campaign) for a per-campaign watchdog; Waalaxy duplicate booleans in the dedupe_scope mapping.",
     "07 next (current project, 0.0.3 shipped 2026-11-13): JSON-schema-validated LLM stage for intent (interested / question / objection / not_interested) behind a fake client with retry-on-invalid and a human-review fallback; labelled synthetic eval set (.example) covering the deterministic classes and the LLM classes; FastAPI /v1/intake/{vendor}/{token} + /v1/replies (needs_body fill-in) using SqliteSeenEvents; n8n webhook -> intake -> Switch on outcome (accepted / needs_body -> inbox fetch / stale -> review / alert) -> route flow with the HeyReach / Aimfox envelope Set node; then confirm reply-text field names from one real delivery per vendor.",
     "04 follow-ups: match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; phone ladder found -> checked -> callable with Trestle / Twilio Lookup mappers (activity 50 / is_valid null = unknown; R3 note 2026-11-04); live DNS adapter for EmailPrecheck (opt-in [live] extra).",
-    "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS source adapters; page-change signal source from scrape diffs (status >= 400 -> Unknown; changeTracking scrape item and Firecrawl /monitor page event, missing statusCode stays Unknown; dedupe search-monitor hits per event — R2 notes 2026-10-23, 2026-11-03); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort.",
+    "02/03 follow-ups: opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS board adapter (Greenhouse / Lever / Ashby): hiring events from a first-seen diff over (previous complete pull, this pull], vendor dates as provenance only, failed / partial pull -> Unknown (R2 2026-11-14); Form D funding adapter (amendments merged into the round, pooled funds dropped, dated by dateOfFirstSale); page-change signal source from scrape diffs (status >= 400 -> Unknown; changeTracking scrape item and Firecrawl /monitor page event, missing statusCode stays Unknown; dedupe search-monitor hits per event — R2 notes 2026-10-23, 2026-11-03); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort.",
     "09 (after 08): reliability kit per R9 note — per-item retry with backoff + Retry-After for idempotent calls only, generalise 06's SqlitePushLog reserve -> commit into a shared dedupe store, DLQ intake from node error outputs, error-workflow alert template, silent-schedule watchdog (incl. 06 pending(older_than), Firecrawl skipped_no_credits and Instantly webhooks auto-disabled after delivery failures until /resume — R4 2026-11-05; Pipedrive GET /v1/webhooks is_active / remove_reason / last_http_status and Attio webhook status degraded — R7 2026-11-10), rate budget per vendor key shared across executions / queue-mode workers, exposed as an acquire call returning wait ms and honouring Retry-After, n8n examples with explicit Batching and window-in-key Redis counters (R9 2026-11-12); ops-table writer for Airtable / sheets (R1 2026-11-02 note) and Supabase / Postgres via PostgREST merge-duplicates upsert with in-chunk dedupe by conflict key and bisect-on-failure (R1 2026-11-13 note).",
     "13 (later): GTM MCP server design rules from R8 — server-side read-only mode, upsert writes with per-row created / updated / failed, HTTP transport refuses to start without auth; ship an n8n MCP Server Trigger example with Bearer auth; confirm non-read tools by form elicitation when the client declares it, otherwise return a plan id and require an approval recorded outside the MCP session (R8 2026-11-11)."
   ],
@@ -232,9 +233,9 @@
     "07 intake: payload field names for reply text (all vendors) and Instantly's lead e-mail are unconfirmed candidates in intake.FIELDS; HeyReach / Aimfox payloads are not documented in any opened package, so the lab works on an n8n-mapped envelope; event names limited to those seen in integration packages (Activepieces Smartlead 0.2.1 / lemlist 0.2.2 / Instantly 0.2.3, community n8n nodes); vendor doc sites (api.smartlead.ai, developer.instantly.ai, developer.lemlist.com, docs.heyreach.io) gave proxy 403 on 2026-11-13. HeyReach customHeaders on webhooks comes from a third-party plugin's schema only. Nothing tested against a live webhook."
   ],
   "last_run": {
-    "date": "2026-11-13",
-    "commits": 3,
-    "notes": "Evening run, budget 4, used 3: 07 email-sequencer intake, 07 LinkedIn intake, this state update. Vendor doc sites blocked (proxy 403); payload shapes from npm integration packages."
+    "date": "2026-11-14",
+    "commits": 1,
+    "notes": "Morning run, budget 1: research R2 (hiring + funding signal freshness) with the state update folded in. ATS / SEC / Ashby / Crunchbase hosts blocked (proxy 403 / DNS); facts from GitHub docs sources and npm / PyPI packages."
   },
   "run_log": [
     {
@@ -858,6 +859,19 @@
         "https://registry.npmjs.org/n8n-nodes-aimfox/-/n8n-nodes-aimfox-1.0.21.tgz (re-read 2026-11-13, already a source 2026-10-26; trigger passes req.body unchanged, no payload sample)",
         "https://api.smartlead.ai/api-reference/webhooks/events, https://developer.instantly.ai/webhook-events, https://developer.lemlist.com/api-reference/endpoints/hooks, https://docs.heyreach.io/llms.txt, https://docs.heyreach.io/openapi.json — tried 2026-11-13, proxy 403, not opened"
       ]
+    },
+    {
+      "date": "2026-11-14",
+      "commits": 1,
+      "summary": "Research R2: public ATS boards (Greenhouse / Lever / Ashby) are free per-board JSON but their dates differ — Greenhouse list updated_at is the last edit (first_published only on the single-job call), Lever documents no date, Ashby publishedAt is the last publication — so a hiring signal should be dated by our own first-seen diff over (previous complete pull, this pull]; empty board != failed pull. Form D: due within 15 calendar days of first sale (search summary), fields isAmendment / dateOfFirstSale / totalAmountSold / isPooledInvestmentFundType per edgartools 6.1.0; amendments are the same round. Live endpoints and docs hosts blocked; nothing run live.",
+      "sources": [
+        "https://github.com/grnhse/greenhouse-api-docs/blob/master/source/includes/job-board/_jobs.md (opened 2026-11-14)",
+        "https://github.com/lever/postings-api (opened 2026-11-14, README)",
+        "https://registry.npmjs.org/@absolutejs/job-sources/-/job-sources-0.2.0.tgz (opened 2026-11-14; README + dist/index.js)",
+        "https://files.pythonhosted.org/packages/47/6f/202e16ed6c801354ab707ebc8a535ba7e233a5a7ad1a3e123017806c1cd9/edgartools-6.1.0-py3-none-any.whl (opened 2026-11-14; edgar/offerings/exempt/formd.py)",
+        "https://developers.ashbyhq.com/docs/public-job-posting-api (search summary, not opened — host blocked)",
+        "https://www.law.cornell.edu/cfr/text/17/230.503 (search summary, not opened — host blocked)"
+      ]
     }
   ],
   "research": {
@@ -869,7 +883,7 @@
       },
       "R2": {
         "name": "Signals & research",
-        "last_researched": "2026-11-03"
+        "last_researched": "2026-11-14"
       },
       "R3": {
         "name": "Enrichment & verification",
