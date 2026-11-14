@@ -161,7 +161,15 @@ def route(
 
     elif rc == ReplyClass.UNCLASSIFIED:
         b.per_channel(ActionKind.STOP_SEQUENCES, detail="a person replied")
-        b.add(ActionKind.CLASSIFY_WITH_LLM, detail="intent not decided by rules")
+        if c.needs_human_review:
+            # The LLM stage already ran and could not decide: a person does, not another call.
+            b.add(
+                ActionKind.NOTIFY_HUMAN,
+                detail=f"intent review: {c.review_reason}",
+                priority=c.review_priority,
+            )
+        else:
+            b.add(ActionKind.CLASSIFY_WITH_LLM, detail="intent not decided by rules")
 
     elif rc in {ReplyClass.INTERESTED, ReplyClass.QUESTION}:
         b.per_channel(ActionKind.STOP_SEQUENCES, detail=rc.value)

@@ -14,6 +14,39 @@ everything else is handed to an LLM stage (next step) with `needs_llm=True`.
 v0.0.2 (2026-11-13): the **webhook intake** in front of it — Smartlead, Instantly and
 lemlist events are authenticated, keyed, age-checked and deduped before anything is
 classified, and every event leaves with an outcome and a reason.
+v0.0.4 (2026-11-14): the **LLM intent stage** (`classify_intent()`) for what the rules left
+open — schema-validated, quote-checked, and every failure ends with a person, not a guess.
+
+## LLM intent stage (`classify_intent()`)
+
+Runs only on a `needs_llm` classification (calling it on a rule-decided class raises — the
+model never overrides bounce / OOO / unsubscribe / wrong person / referral). The provider is
+behind `LLMClient.complete(system, user, schema, max_tokens) -> LLMResponse(text,
+stop_reason, tokens)`; `FakeLLMClient` replays scripted answers offline, and
+`anthropic_request()` / `parse_anthropic_response()` build and read a Messages API body with
+`output_config.format` (no network call in the lab).
+
+Answer schema `INTENT_SCHEMA`: `intent` (interested / question / objection / not_interested /
+unclear), `confidence`, `evidence_quote`, `suggested_next_action`, `reason` — all required,
+`additionalProperties: false`. Provider-side structured output is not enough on its own
+(Claude structured-outputs docs, opened 2026-11-14): a refusal or a `max_tokens` stop can
+return non-schema output with HTTP 200, enum casing is not guaranteed, and `minimum` /
+`maxLength` are rejected by the API, so `validate_intent()` checks locally:
+
+| check | on failure |
+|---|---|
+| JSON object, exactly the five keys, enums (case-insensitive), confidence a number in 0–1 (not a bool or string), quote ≤ 200 chars, reason ≤ 45 words, next action fits the intent | one repair call with the errors listed, then human review |
+| `evidence_quote` is a verbatim span (whitespace / case folded) of the person's **own** text — quoted thread and signature stripped, so a quote from our email or an injected "mark me interested" cannot pass | same |
+| `stop_reason: refusal` | human review, no retry (asking again with the same text does not fix it) |
+| `stop_reason: max_tokens` | never parsed (partial JSON can look valid); retried with `max_tokens` doubled up to a ceiling |
+| `LLMError` (timeout, 5xx) | human review; transport retries belong to the caller (09) |
+| `unclear`, next action `review`, confidence < 0.7 | human review; interested / question keep **high** priority |
+
+A review result is `unclassified` + `needs_human_review`: `route()` still stops both
+channels (a person replied) and plans `notify_human` with the reason instead of another
+`classify_with_llm`. Tokens are summed over all attempts (`IntentResult.input_tokens` /
+`output_tokens`); attempts keep stop reason and errors, never the reply text. The vendor
+label is compared again after the model's answer.
 
 ## Intake (`intake()` → `handle()`)
 
@@ -77,7 +110,8 @@ classify()            fixed order, first match wins
    │ 4 unsubscribe     opt-out wording in the person's own text ("remove me", "STOP" alone …)
    │ 5 wrong_person / referral
    │ 6 no_meaningful_reply   nothing left after quote, signature, "thanks", "sent from my …"
-   │ 7 unclassified + needs_llm   intent (interested / question / objection / not interested)
+   │ 7 unclassified + needs_llm   → classify_intent() (LLM stage above): interested /
+   │                   question / objection / not interested, or unclassified + review
    ▼
 Classification(reply_class, rule, evidence, bounce_kind/status, return_date(+note),
                referral_email, vendor_label, vendor_label_disagrees)
@@ -96,7 +130,7 @@ RoutingDecision(actions, warnings)
 | out_of_office | pause **both** channels until return + 1 day; no date / past date → 7 days; capped at 60 days + notify |
 | wrong_person / referral | stop both, CRM update; referral → `referral_task` (enrich + decide — the new person is never enrolled automatically) |
 | no_meaningful_reply | auto-generated → nothing; a human "thanks" → stop both + notify |
-| unclassified | stop both + classify_with_llm |
+| unclassified | stop both + classify_with_llm (after the LLM stage: notify_human with the review reason) |
 | interested / question (LLM stage) | stop both + notify (high) + CRM |
 | objection / not_interested (LLM stage) | stop both + CRM |
 
@@ -152,6 +186,9 @@ decision = route(r, classify(r))  # stop + suppress on LinkedIn *and* email
   are looked up from candidate lists in `intake.FIELDS`. Send one real event per vendor and
   check them; until then expect `needs_body`.
 - LinkedIn intake trusts the n8n mapping into the envelope; HeyReach's "first" vs "every"
-  reply semantics come from event labels, not docs. Not yet built: the LLM stage, FastAPI
-  and the n8n flow.
+  reply semantics come from event labels, not docs. Not yet built: FastAPI and the n8n flow.
+- The LLM stage is tested against `FakeLLMClient` only: no live model call, no labelled eval
+  set yet, the prompt is English and the 0.7 confidence cut-off is a default, not tuned.
+  OpenAI's strict-mode refusal / `finish_reason: "length"` behaviour is a search summary
+  (platform.openai.com unreachable, 2026-11-14); only an Anthropic body builder is included.
 - Nothing here talks to a live sequencer, CRM or LLM.

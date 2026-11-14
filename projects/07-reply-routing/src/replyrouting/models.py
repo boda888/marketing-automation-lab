@@ -80,3 +80,9 @@ class Classification:
     referral_email: str | None = None
     vendor_label: str | None = None
     vendor_label_disagrees: bool = False
+    # LLM stage (llm.classify_intent): model confidence, and the human-review fallback for
+    # refusals, invalid / truncated output, "unclear" and low confidence.
+    confidence: float | None = None
+    needs_human_review: bool = False
+    review_reason: str = ""
+    review_priority: str = "normal"
