@@ -1,7 +1,17 @@
-"""07 reply routing: webhook intake, deterministic + LLM intent classification, routing."""
+"""07 reply routing: webhook intake, deterministic + LLM intent classification, routing, evals."""
 
 from .classify import classify, own_text
 from .dates import ReturnDate, extract_return_date
+from .evals import (
+    CaseResult,
+    EvalCase,
+    EvalGate,
+    EvalReport,
+    load_cases,
+    replay_client,
+    run_eval,
+    score,
+)
 from .intake import (
     EventKind,
     IntakeConfig,
@@ -33,6 +43,14 @@ from .models import BounceKind, Channel, Classification, InboundReply, ReplyClas
 from .routing import Action, ActionKind, RoutingDecision, RoutingPolicy, route
 
 __all__ = [
+    "CaseResult",
+    "EvalCase",
+    "EvalGate",
+    "EvalReport",
+    "load_cases",
+    "replay_client",
+    "run_eval",
+    "score",
     "Action",
     "ActionKind",
     "BounceKind",
@@ -72,4 +90,4 @@ __all__ = [
     "validate_intent",
 ]
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"

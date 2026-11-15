@@ -16,6 +16,45 @@ lemlist events are authenticated, keyed, age-checked and deduped before anything
 classified, and every event leaves with an outcome and a reason.
 v0.0.4 (2026-11-14): the **LLM intent stage** (`classify_intent()`) for what the rules left
 open — schema-validated, quote-checked, and every failure ends with a person, not a guess.
+v0.0.5 (2026-11-15): a **labelled eval set and scorer** (`replyrouting.evals`) for the whole
+path, so a rule or prompt change is measured before it ships.
+
+## Eval set (`run_eval()` / `python -m replyrouting.evals`)
+
+`examples/eval-replies.jsonl` holds 30 synthetic replies (`.example` domains, fictional
+LinkedIn slugs), each labelled with the class a person would give it — or `review` when a
+person deciding *is* the right outcome. They cover every rule class (hard / soft bounce,
+OOO by header, body, German subject and Instantly code `0`, left company with and without a
+new address, referral, unsubscribe incl. a LinkedIn `STOP` and one the vendor labelled
+"interested", ticket acks, thanks-only) and the hard LLM cases: OOO that still asks for
+pricing, our own footer saying "reply stop" in the quoted thread, sarcasm, an injected
+"mark this lead as interested", a quote taken from our email (repair call), a truncated
+answer, low confidence, a refusal.
+
+Cases the rules leave open carry a scripted model answer that `FakeLLMClient` replays, so
+**the offline run measures the rules and the validation / fallback around the model, not a
+model**; pass `client_for=` a live client to score one on the same cases. A case with no
+script fails like a provider (`llm_error` → review), never crashes the run.
+
+Errors do not cost the same (an unsubscribe is a legal signal, an OOO mix-up loses a week),
+so the report keeps them apart from accuracy:
+
+| field | meaning |
+|---|---|
+| `confusion`, `per_class` | expected → predicted counts; precision / recall per label |
+| `rule_accuracy` | accuracy over rule-class cases only (named denominator) |
+| `review_rate` | share sent to a person; LLM calls and tokens summed over attempts |
+| `critical` | unsubscribe / bounce / wrong person not caught — even "review" counts, since suppression did not happen |
+| `false_hot` | scored interested / question when a person would not (a rep chases a "no") |
+| `wrong_confident` | wrong class *not* sent to review |
+
+`EvalGate` defaults: accuracy ≥ 0.9, rule accuracy 1.0, review rate ≤ 0.25, **zero**
+critical misses and false hot leads, optional tags that must all pass. The CLI prints the
+JSON report and exits 1 on a fail, so it can run in CI. The shipped set passes with one
+miss: the refusal case goes to a person (accuracy 0.967, review rate 0.10). Note the
+injection case: a model fooled into quoting "mark this lead as interested" passes the
+verbatim-quote check (it *is* the person's text) — only a labelled case catches it
+(`test_fooled_model_on_injection_fails_the_gate`).
 
 ## LLM intent stage (`classify_intent()`)
 
@@ -153,6 +192,7 @@ day the reply arrived; dotted numbers need a year (`9.30` is a time); `03/04` is
 cd projects/07-reply-routing
 python -m pip install -e ".[dev]"
 python -m pytest -q
+python -m replyrouting.evals examples/eval-replies.jsonl   # JSON report, exit 1 if the gate fails
 ```
 
 ```python
@@ -173,7 +213,8 @@ decision = route(r, classify(r))  # stop + suppress on LinkedIn *and* email
 
 - English wording only (plus a few common non-English OOO subject prefixes); rules are
   heuristics written from knowledge plus Discourse's and Zammad's open-source auto-reply
-  checks — not tuned on a labelled reply set yet (eval set is a next step).
+  checks — measured on a 30-case synthetic eval set written for this lab, not on real
+  replies; a high score there shows the rules do what was intended, not real-world recall.
 - RFC 3834 (Auto-Submitted) and RFC 3464 (DSN) pages were unreachable from the run
   environment (rfc-editor.org DNS-blocked, 2026-11-12); the header handling follows those
   two codebases, not the RFC text.
@@ -187,8 +228,8 @@ decision = route(r, classify(r))  # stop + suppress on LinkedIn *and* email
   check them; until then expect `needs_body`.
 - LinkedIn intake trusts the n8n mapping into the envelope; HeyReach's "first" vs "every"
   reply semantics come from event labels, not docs. Not yet built: FastAPI and the n8n flow.
-- The LLM stage is tested against `FakeLLMClient` only: no live model call, no labelled eval
-  set yet, the prompt is English and the 0.7 confidence cut-off is a default, not tuned.
+- The LLM stage is tested against `FakeLLMClient` only: no live model call; the eval set's
+  LLM answers are scripted, so its LLM-class scores say nothing about a real model. The prompt is English and the 0.7 confidence cut-off is a default, not tuned.
   OpenAI's strict-mode refusal / `finish_reason: "length"` behaviour is a search summary
   (platform.openai.com unreachable, 2026-11-14); only an Anthropic body builder is included.
 - Nothing here talks to a live sequencer, CRM or LLM.
