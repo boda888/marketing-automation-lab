@@ -44,10 +44,12 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] Connect rate by activity-score band on the owner's own calling list (run outside the repo) to set the call / unknown / drop cut-offs
 
 ## R4 · Email infrastructure & sequencers
-- [ ] Mailbox infrastructure (Zapmail-style Google / Microsoft inbox providers): domains per mailbox, warm-up time, cost per inbox
+- [x] Mailbox infrastructure (Zapmail-style Google / Microsoft inbox providers): domains per mailbox, warm-up time, cost per inbox → [note](notes/2026-11-16-R4-mailbox-infra-warmup-placement.md) (API from npm packages; prices and warm-up timelines only as search summaries)
 - [x] Smartlead vs Instantly vs Lemlist: APIs, webhooks, custom variables, campaign-level vs global dedupe → [note](notes/2026-10-25-R4-sequencer-dedupe-webhooks.md) (from vendor packages; upload-setting defaults only as search summary)
 - [ ] Open the live Smartlead / Instantly API references (blocked 2026-10-25): placement and defaults of Smartlead `settings` ignore_* flags and Instantly `skip_if_*`, webhook payload fields, rate limits per plan; pricing tiers and subsequences
-- [ ] Inbox placement testing and warm-up: what is measurable, what is vendor theatre
+- [x] Inbox placement testing and warm-up: what is measurable, what is vendor theatre → [note](notes/2026-11-16-R4-mailbox-infra-warmup-placement.md)
+- [ ] Open Zapmail / Mailforge / Instantly pricing and warm-up pages first-party (DNS-blocked 2026-11-16); confirm whether Zapmail mailboxes ship pre-warmed and Instantly's health-score threshold
+- [ ] Warmforge / Instantly placement-test result fields (per-provider inbox / spam / missing counts) and warm-up stats fields — bodies untyped in the packages read 2026-11-16
 - [x] Reply handling: webhook payload fields per vendor, authenticity, dedupe key, receiver-down behaviour → [note](notes/2026-11-05-R4-reply-webhook-payloads.md) (from integration packages; event names, replay and inbox APIs in the 2026-10-25 note)
 - [ ] Smartlead webhook event names first-party (`EMAIL_REPLY` in Activepieces 0.2.0 vs `EMAIL_REPLIED` in a third-party n8n node) and the reply payload: does it carry the reply body / message id; open api.smartlead.ai/api-reference/webhooks/events (blocked 2026-11-05)
 - [ ] Instantly `reply_received` payload fields and the failure count that auto-disables a webhook; whether retries happen before disable (no package documents either)

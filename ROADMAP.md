@@ -51,6 +51,7 @@ Gmail / Yahoo / Microsoft bulk-sender requirements.
 Open follow-ups:
 - [ ] import both n8n workflows into a real n8n instance (with 01's)
 - [ ] opt-in live-DNS smoke test (env-gated)
+- [ ] readiness gate in the capacity planner: a mailbox leaves `warmup` only with evidence — days elapsed plus optional vendor warm-up reading (vendor + date as provenance, never compared across vendors) and a seed placement result for the current copy; missing evidence → `held`; pre-warmed mailboxes still start at `ramp_start` ([R4 note](research/notes/2026-11-16-R4-mailbox-infra-warmup-placement.md))
 
 ## 03 · Signal engine — v0.1.0 (2026-10-21)
 Pain: list-based outreach with 2–4% replies.
