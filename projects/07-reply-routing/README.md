@@ -18,6 +18,44 @@ v0.0.4 (2026-11-14): the **LLM intent stage** (`classify_intent()`) for what the
 open — schema-validated, quote-checked, and every failure ends with a person, not a guess.
 v0.0.5 (2026-11-15): a **labelled eval set and scorer** (`replyrouting.evals`) for the whole
 path, so a rule or prompt change is measured before it ships.
+v0.0.6 (2026-11-16): a **FastAPI service** (`replyrouting.api`) that puts intake → classify
+(→ LLM stage when a client is wired) → route behind webhook URLs, with a waiting room for
+replies whose text has to be fetched first.
+
+## Service (`replyrouting.api`)
+
+```bash
+python -m pip install -e ".[api]"
+REPLYROUTING_API_TOKEN=... REPLYROUTING_TOKEN_SMARTLEAD=<long random> \
+REPLYROUTING_LEMLIST_SECRET=... REPLYROUTING_SEEN_DB=seen.db \
+  uvicorn replyrouting.api:app_from_env --factory
+```
+
+| route | auth | does |
+|---|---|---|
+| `POST /v1/intake/{vendor}/{token}` | path token (Smartlead / Instantly) | intake → decide; body as the vendor sent it |
+| `POST /v1/intake/lemlist` | `secret` in the body | same |
+| `POST /v1/linkedin/{vendor}/{token}` | path token | HeyReach / Aimfox envelope mapped by n8n |
+| `POST /v1/replies` `{event_key, body_text}` | bearer | fills a `needs_body` event **once**, then decides |
+| `GET /v1/replies/pending` | bearer | `needs_body` events still waiting |
+
+The answer carries `outcome`, `reason`, the event (keys and ids only — never the payload or
+the reply text), and for decided events `reply_class`, `rule`, `actions` (kind, channel,
+key, until, priority), `warnings` and LLM `calls` / tokens. HTTP status is picked for the
+**sender's retry logic**, the outcome for n8n's Switch:
+
+| status | when | why |
+|---|---|---|
+| 401 | token / secret wrong or not configured (fail closed) | Smartlead retries a 401 but not a 400 (search summary of its help-centre page — not opened), so a delivery refused during a mis-configuration can be retriggered after the fix; no key is recorded |
+| 404 / 400 / 413 | unknown vendor / body not JSON / body over 256 KB | a retry cannot fix these |
+| 503 | classify / route / the LLM client **raised** after the key was recorded | the key is **released** first, so the retry is processed, not dropped as a duplicate; a failed `/v1/replies` fill stays pending |
+| 200 | every other outcome — `accepted`, `needs_body`, `duplicate`, `stale`, `alert`, `invalid`, `label_only`, `ignored` | a non-2xx would only make the vendor resend an event already decided |
+
+Without an LLM client, a reply the rules leave open is planned as `classify_with_llm`; with
+one (`ReplyService(..., llm=client)`), the intent stage runs inline. Senders want a fast 2xx
+(Smartlead help centre; Instantly's 30 s timeout is from a third-party page) — keep the model
+timeout well below that, or answer the vendor from n8n first. `app_from_env` wires no LLM
+client and refuses to start without `REPLYROUTING_API_TOKEN`.
 
 ## Eval set (`run_eval()` / `python -m replyrouting.evals`)
 
@@ -210,6 +248,12 @@ decision = route(r, classify(r))  # stop + suppress on LinkedIn *and* email
 ```
 
 ## Limits (honest)
+
+- Service: tested with FastAPI's `TestClient` only, never behind a real vendor webhook; the
+  `needs_body` waiting room is in-process and bounded (oldest evicted, lost on restart; the
+  dedupe store can be shared through `SqliteSeenEvents`, the waiting room cannot); path
+  tokens end up in access logs of anything in front of the service — keep them out of
+  shared logs. Vendor retry counts and timeouts are not documented in any page opened.
 
 - English wording only (plus a few common non-English OOO subject prefixes); rules are
   heuristics written from knowledge plus Discourse's and Zammad's open-source auto-reply
