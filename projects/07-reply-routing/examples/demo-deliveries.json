@@ -1,0 +1,196 @@
+{
+  "_comment": "Synthetic deliveries (.example people only) as they reach the n8n webhooks; tokens / secrets are placeholders replaced by the test. Field names for HeyReach are the workflow's candidate mapping, not a confirmed vendor payload. now = 2026-11-16T17:00:00Z.",
+  "now": "2026-11-16T17:00:00Z",
+  "deliveries": [
+    {
+      "label": "smartlead unsubscribe reply",
+      "webhook": "email",
+      "vendor": "smartlead",
+      "token": "SMARTLEAD_TOKEN",
+      "body": {
+        "event_type": "EMAIL_REPLY",
+        "campaign_id": 123456,
+        "sl_email_lead_id": 987654,
+        "to_email": "mara.olsen@northwind-freight.example",
+        "subject": "Re: lanes into Rotterdam",
+        "event_timestamp": "2026-11-16T16:30:00.000Z",
+        "reply_message": {
+          "text": "Please remove me from your list."
+        }
+      },
+      "expect": "accepted"
+    },
+    {
+      "label": "same delivery replayed by the vendor",
+      "webhook": "email",
+      "vendor": "smartlead",
+      "token": "SMARTLEAD_TOKEN",
+      "body": {
+        "event_type": "EMAIL_REPLY",
+        "campaign_id": 123456,
+        "sl_email_lead_id": 987654,
+        "to_email": "mara.olsen@northwind-freight.example",
+        "subject": "Re: lanes into Rotterdam",
+        "event_timestamp": "2026-11-16T16:30:00.000Z",
+        "reply_message": {
+          "text": "Please remove me from your list."
+        }
+      },
+      "expect": "duplicate"
+    },
+    {
+      "label": "smartlead reply without text",
+      "webhook": "email",
+      "vendor": "smartlead",
+      "token": "SMARTLEAD_TOKEN",
+      "body": {
+        "event_type": "EMAIL_REPLY",
+        "campaign_id": 123456,
+        "sl_email_lead_id": 987655,
+        "to_email": "jon.berg@harbor-analytics.example",
+        "subject": "Re: lanes into Rotterdam",
+        "event_timestamp": "2026-11-16T16:30:00.000Z"
+      },
+      "expect": "needs_body"
+    },
+    {
+      "label": "replay after a 3-day outage",
+      "webhook": "email",
+      "vendor": "smartlead",
+      "token": "SMARTLEAD_TOKEN",
+      "body": {
+        "event_type": "EMAIL_REPLY",
+        "campaign_id": 123456,
+        "sl_email_lead_id": 987656,
+        "to_email": "mara.olsen@northwind-freight.example",
+        "subject": "Re: lanes into Rotterdam",
+        "event_timestamp": "2026-11-13T09:00:00.000Z",
+        "reply_message": {
+          "text": "Please remove me from your list."
+        }
+      },
+      "expect": "stale"
+    },
+    {
+      "label": "wrong path token",
+      "webhook": "email",
+      "vendor": "smartlead",
+      "token": "not-the-token",
+      "body": {
+        "event_type": "EMAIL_REPLY",
+        "campaign_id": 123456,
+        "sl_email_lead_id": 987657,
+        "to_email": "mara.olsen@northwind-freight.example",
+        "subject": "Re: lanes into Rotterdam",
+        "event_timestamp": "2026-11-16T16:30:00.000Z",
+        "reply_message": {
+          "text": "Please remove me from your list."
+        }
+      },
+      "expect": "rejected"
+    },
+    {
+      "label": "lemlist out-of-office",
+      "webhook": "email",
+      "vendor": "lemlist",
+      "token": "-",
+      "body": {
+        "_id": "act_demo_ooo",
+        "type": "emailsReplied",
+        "createdAt": "2026-11-16T16:45:00.000Z",
+        "campaignId": "cam_example",
+        "leadEmail": "ines.kovac@lumen-retail.example",
+        "subject": "Re: lanes",
+        "text": "I'm out of the office until 24 November.",
+        "secret": "LEMLIST_SECRET"
+      },
+      "expect": "accepted"
+    },
+    {
+      "label": "lemlist mailbox hit its send limit",
+      "webhook": "email",
+      "vendor": "lemlist",
+      "token": "-",
+      "body": {
+        "_id": "act_demo_limit",
+        "type": "sendLimitReached",
+        "createdAt": "2026-11-16T16:50:00.000Z",
+        "secret": "LEMLIST_SECRET"
+      },
+      "expect": "alert"
+    },
+    {
+      "label": "lemlist interest label",
+      "webhook": "email",
+      "vendor": "lemlist",
+      "token": "-",
+      "body": {
+        "_id": "act_demo_label",
+        "type": "emailsInterested",
+        "createdAt": "2026-11-16T16:52:00.000Z",
+        "leadEmail": "ines.kovac@lumen-retail.example",
+        "secret": "LEMLIST_SECRET"
+      },
+      "expect": "label_only"
+    },
+    {
+      "label": "heyreach LinkedIn reply asking to stop",
+      "webhook": "linkedin",
+      "vendor": "heyreach",
+      "token": "HEYREACH_TOKEN",
+      "query": {
+        "event_type": "MESSAGE_REPLY_RECEIVED"
+      },
+      "body": {
+        "lead": {
+          "profile_url": "https://www.linkedin.com/in/tomas-reyes-example/"
+        },
+        "message": {
+          "text": "Not interested, please stop messaging me.",
+          "created_at": "2026-11-16T16:40:00.000Z"
+        },
+        "campaign": {
+          "id": "cmp-demo-1"
+        }
+      },
+      "expect": "accepted"
+    },
+    {
+      "label": "heyreach event with a company URL only",
+      "webhook": "linkedin",
+      "vendor": "heyreach",
+      "token": "HEYREACH_TOKEN",
+      "query": {
+        "event_type": "MESSAGE_REPLY_RECEIVED"
+      },
+      "body": {
+        "lead": {
+          "profile_url": "https://www.linkedin.com/company/harbor-analytics-example/"
+        },
+        "message": {
+          "text": "Thanks",
+          "created_at": "2026-11-16T16:41:00.000Z"
+        }
+      },
+      "expect": "invalid"
+    },
+    {
+      "label": "heyreach connection accepted (not a reply)",
+      "webhook": "linkedin",
+      "vendor": "heyreach",
+      "token": "HEYREACH_TOKEN",
+      "query": {
+        "event_type": "CONNECTION_REQUEST_ACCEPTED"
+      },
+      "body": {
+        "lead": {
+          "profile_url": "https://www.linkedin.com/in/tomas-reyes-example/"
+        },
+        "message": {
+          "created_at": "2026-11-16T16:42:00.000Z"
+        }
+      },
+      "expect": "ignored"
+    }
+  ]
+}

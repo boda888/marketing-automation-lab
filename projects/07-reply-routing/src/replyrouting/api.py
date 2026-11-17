@@ -71,7 +71,7 @@ from .intake import (
 from .llm import IntentPolicy, LLMClient, classify_intent
 from .routing import RoutingPolicy, route
 
-__version__ = "0.0.6"
+__version__ = "0.1.0"
 MAX_BODY_BYTES = 256_000  # a reply webhook is a few KB; refuse megabyte bodies before parsing
 MAX_REPLY_CHARS = 50_000
 

@@ -21,6 +21,10 @@ path, so a rule or prompt change is measured before it ships.
 v0.0.6 (2026-11-16): a **FastAPI service** (`replyrouting.api`) that puts intake → classify
 (→ LLM stage when a client is wired) → route behind webhook URLs, with a waiting room for
 replies whose text has to be fetched first.
+v0.1.0 (2026-11-17): an **n8n workflow** ([`n8n/intake-and-route.json`](n8n/intake-and-route.json))
+that answers the sender with the service's own status code first, then routes every outcome
+and every planned action, plus an offline demo of eleven synthetic deliveries that lands on
+every outcome branch.
 
 ## Service (`replyrouting.api`)
 
@@ -56,6 +60,49 @@ one (`ReplyService(..., llm=client)`), the intent stage runs inline. Senders wan
 (Smartlead help centre; Instantly's 30 s timeout is from a third-party page) — keep the model
 timeout well below that, or answer the vendor from n8n first. `app_from_env` wires no LLM
 client and refuses to start without `REPLYROUTING_API_TOKEN`.
+
+## n8n workflow (`n8n/intake-and-route.json`)
+
+```
+Webhook reply-intake/:vendor/:token ── pass body ──┐
+Webhook linkedin-intake/:vendor/:token ─ envelope ─┴─ Config ─ POST /v1/{intake|linkedin}/{vendor}/{token}
+   ├─ (any status) Respond to vendor with the service's status ─ Decision ─ Switch on outcome
+   │      accepted ─ one item per action ─ Switch on action kind
+   │           stop / pause / suppress ─ Execute: sequencer actions ─(error)─ Alert
+   │           crm_update / mark_email_invalid / record_soft_bounce ─ Execute: CRM + data ─(error)─ Alert
+   │           notify_human / referral_task / classify_with_llm ─ Execute: notify a human
+   │      needs_body ─ Execute: log key (inbox fetch) ··· Webhook reply-text ─ POST /v1/replies ─ back into the Switch
+   │      stale / invalid ─ review queue      alert / rejected / error / unknown ─ Alert
+   │      duplicate / ignored / label_only ─ done
+   └─ (service unreachable) Respond 503 ─ Alert
+```
+
+- **Answer first, act after.** The Intake call uses full response + never-error, so the
+  vendor gets exactly the status the service chose (401 → Smartlead can retrigger after a
+  token fix, 503 → resend after a crash, 200 for anything decided); a connection error
+  answers 503 because nothing was recorded. No n8n Retry On Fail anywhere: the vendor's
+  retry plus the dedupe store is the retry.
+- Both Switch nodes use `fallbackOutput: extra` (Switch V3 drops unmatched items otherwise),
+  so an outcome or action kind added to the service later reaches the alert, not the void.
+- The **LinkedIn envelope** Set node maps HeyReach / Aimfox fields from candidate names
+  (`lead.profile_url`, `message.text`, `message.created_at`, …, with `?event_type=` in the
+  webhook URL because HeyReach sends one event type per webhook) — none is confirmed by a
+  vendor doc; check it against one real delivery. A missing profile URL or time comes back
+  `invalid` → review, never a guessed key.
+- Vendor actions (stop / pause / suppress per vendor, CRM writes through 08, alerts) live in
+  sub-workflows with `REPLACE_…` ids: the lab does not pretend to know your accounts.
+  Sequencer and CRM sub-workflows are awaited, so a failed stop lands on the alert path.
+- `needs_body`: the sub-workflow fetches the reply text from the vendor's inbox API (not
+  wired: field names unconfirmed) and posts `{event_key, body_text}` to the internal
+  `reply-text` webhook (header auth) → `POST /v1/replies` (bearer) → the same outcome Switch.
+  A second fill answers 404 and is alerted, never routed twice.
+
+`tests/test_n8n.py` checks the JSON against the service: URL template and body keys match
+the routes and `FillBody`, every `IntakeOutcome` and `ActionKind` has a branch, error
+outputs lead to the alert, and [`examples/demo-deliveries.json`](examples/demo-deliveries.json)
+(11 synthetic `.example` deliveries, the LinkedIn ones passed through the Set node's
+field expressions) is replayed against the app to show each lands on its expected branch.
+Structure only: the workflow was not imported into or run on a live n8n.
 
 ## Eval set (`run_eval()` / `python -m replyrouting.evals`)
 
@@ -271,7 +318,9 @@ decision = route(r, classify(r))  # stop + suppress on LinkedIn *and* email
   are looked up from candidate lists in `intake.FIELDS`. Send one real event per vendor and
   check them; until then expect `needs_body`.
 - LinkedIn intake trusts the n8n mapping into the envelope; HeyReach's "first" vs "every"
-  reply semantics come from event labels, not docs. Not yet built: FastAPI and the n8n flow.
+  reply semantics come from event labels, not docs, and the envelope's source field names
+  are candidates. The n8n workflow is checked structurally and against the app offline; it
+  was never imported into a live n8n, and the inbox fetch for `needs_body` is not wired.
 - The LLM stage is tested against `FakeLLMClient` only: no live model call; the eval set's
   LLM answers are scripted, so its LLM-class scores say nothing about a real model. The prompt is English and the 0.7 confidence cut-off is a default, not tuned.
   OpenAI's strict-mode refusal / `finish_reason: "length"` behaviour is a search summary

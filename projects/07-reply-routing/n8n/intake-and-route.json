@@ -1,0 +1,1299 @@
+{
+  "name": "Reply intake -> respond -> route outcome and actions (marketing-automation-lab/07)",
+  "nodes": [
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000001",
+      "name": "Webhook: email reply in",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "e7b3d5a2-0007-4f1c-8a30-0000000000a1",
+      "notes": "Point Smartlead / Instantly / lemlist at <n8n>/webhook/reply-intake/<vendor>/<long random token>. The token is checked by the service (fail closed), not here; lemlist's body secret is checked there too (any token segment works for lemlist).",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "reply-intake/:vendor/:token",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000002",
+      "name": "Webhook: LinkedIn reply in",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "e7b3d5a2-0007-4f1c-8a30-0000000000a2",
+      "notes": "HeyReach (one event type per webhook: add ?event_type=MESSAGE_REPLY_RECEIVED etc. to the URL) and Aimfox. Vendor payload fields are not documented in any package read (R5 2026-10-26 / 2026-11-06): check the envelope mapping against one real delivery.",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "linkedin-intake/:vendor/:token",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000003",
+      "name": "Email: pass body through",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ],
+      "notes": "The body is forwarded untouched: event keys and the lemlist secret are read by the service.",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "as-route",
+              "name": "route",
+              "value": "intake",
+              "type": "string"
+            },
+            {
+              "id": "as-vendor",
+              "name": "vendor",
+              "value": "={{ $json.params.vendor }}",
+              "type": "string"
+            },
+            {
+              "id": "as-token",
+              "name": "token",
+              "value": "={{ $json.params.token }}",
+              "type": "string"
+            },
+            {
+              "id": "as-payload",
+              "name": "payload",
+              "value": "={{ $json.body }}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000004",
+      "name": "LinkedIn: map envelope",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ],
+      "notes": "Candidate field names, unconfirmed: message_at must be the message's time (it is part of the reply key), not the delivery time. A missing profile URL or time comes back as outcome invalid -> review, never a guess.",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "as-route",
+              "name": "route",
+              "value": "linkedin",
+              "type": "string"
+            },
+            {
+              "id": "as-vendor",
+              "name": "vendor",
+              "value": "={{ $json.params.vendor }}",
+              "type": "string"
+            },
+            {
+              "id": "as-token",
+              "name": "token",
+              "value": "={{ $json.params.token }}",
+              "type": "string"
+            },
+            {
+              "id": "as-payload",
+              "name": "payload",
+              "value": "={{ ({ event_type: $json.query.event_type || $json.body.event_type || $json.body.eventType || $json.body.type, profile_url: $json.body.lead?.profile_url || $json.body.lead?.linkedin_url || $json.body.profile_url || $json.body.linkedin_url, message_text: $json.body.message?.text || $json.body.message_text || $json.body.text, message_at: $json.body.message?.created_at || $json.body.message_at || $json.body.timestamp, campaign_id: $json.body.campaign?.id || $json.body.campaign_id, sender_account: $json.body.sender?.id || $json.body.account_id }) }}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000005",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        440,
+        150
+      ],
+      "notes": "One service URL. Sub-workflow ids for actions are set on the Execute nodes; the alert URL on the Alert node.",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-url",
+              "name": "reply_routing_url",
+              "value": "http://reply-routing:8007",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000006",
+      "name": "Intake (dedupe + classify + route)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        150
+      ],
+      "retryOnFail": false,
+      "onError": "continueErrorOutput",
+      "notes": "No n8n retry: the vendor's own retry re-sends, and the service's dedupe store makes that safe. neverError + full response: the service's status code (200 / 401 / 503 / 400 / 404 / 413) is passed back to the vendor unchanged. 10 s timeout stays under the senders' (search summaries).",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.reply_routing_url }}/v1/{{ $json.route }}/{{ encodeURIComponent($json.vendor) }}/{{ encodeURIComponent($json.token) }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000007",
+      "name": "Respond to vendor (service status)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        0
+      ],
+      "notes": "Answer first, act after: 401 lets Smartlead retry after a token fix, 503 makes the vendor resend after a crash (the key was released). Everything decided is 200.",
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ outcome: $json.body.outcome, reason: $json.body.reason }) }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000008",
+      "name": "Respond: service unreachable (503)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        400
+      ],
+      "notes": "Connection refused / timeout: nothing was recorded, so a 503 asks the vendor to resend.",
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ outcome: 'error', reason: 'reply routing unreachable' }) }}",
+        "options": {
+          "responseCode": 503
+        }
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000009",
+      "name": "Decision",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ JSON.stringify(Object.assign({ http_status: $json.statusCode }, $json.body)) }}",
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000010",
+      "name": "Route by outcome",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1340,
+        0
+      ],
+      "notes": "fallbackOutput 'extra' on purpose: Switch V3 drops unmatched items, so an outcome added to the service later lands on the alert path instead of vanishing.",
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "renameOutput": true,
+              "outputKey": "act: accepted",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--accepted",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "accepted",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "wait for text: needs_body",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--needs_body",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "needs_body",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "review: stale",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--stale",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "stale",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "review: invalid",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--invalid",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "invalid",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "alert: alert",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--alert",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "alert",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "alert: rejected",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--rejected",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "rejected",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "alert: error",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--error",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "error",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "done: duplicate",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--duplicate",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "duplicate",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "done: ignored",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--ignored",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "ignored",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "done: label_only",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--label_only",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "label_only",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000011",
+      "name": "One item per action",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        -300
+      ],
+      "parameters": {
+        "fieldToSplitOut": "actions",
+        "include": "selectedOtherFields",
+        "fieldsToInclude": "outcome, reply_class, needs_human_review, event",
+        "options": {}
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000012",
+      "name": "Review queue: log event",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1600,
+        100
+      ],
+      "notes": "stale (a replay after an outage, still a real reply) and invalid (no key, no readable time) go to a human queue, never dropped.",
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_review_queue_workflow_id"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000013",
+      "name": "Alert (ops channel)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        300
+      ],
+      "notes": "Sender alerts (lemlist sendLimitReached, Aimfox account_logged_out), unknown event types, rejected deliveries (token mis-configured) and processing errors. Body text is never in the alert.",
+      "parameters": {
+        "method": "POST",
+        "url": "REPLACE_ops_alert_webhook_url",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: `reply routing: ${$json.outcome || 'unknown outcome'} - ${$json.reason || $json.kind || ''} (${$json.event?.vendor || $json.vendor || '?'})` }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000014",
+      "name": "Done (no action)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        500
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000015",
+      "name": "Waiting for reply text: log key",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1600,
+        -100
+      ],
+      "notes": "needs_body: the vendor sent no reply text. The sub-workflow fetches it from the vendor's inbox API (field names unconfirmed per vendor) and posts {event_key, body_text} to the 'Reply text filled' webhook below. Never classify an empty body.",
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_needs_body_workflow_id"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000016",
+      "name": "Webhook: reply text filled",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -500
+      ],
+      "webhookId": "e7b3d5a2-0007-4f1c-8a30-0000000000a3",
+      "notes": "Body {event_key, body_text} from the inbox-fetch sub-workflow (or a human). Header auth on this one: it is internal.",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "reply-text",
+        "responseMode": "lastNode",
+        "authentication": "headerAuth",
+        "options": {}
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000017",
+      "name": "Fill body (classify + route once)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        -500
+      ],
+      "retryOnFail": false,
+      "onError": "continueErrorOutput",
+      "notes": "Same service URL as Config (this path does not pass through it). Bearer token credential (REPLYROUTING_API_TOKEN). 404 = unknown / already filled / evicted key: alert, do not re-post. 503 = deciding failed and the event was put back: safe to post again.",
+      "parameters": {
+        "method": "POST",
+        "url": "http://reply-routing:8007/v1/replies",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ event_key: $json.body.event_key, body_text: $json.body.body_text }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000018",
+      "name": "Route by action kind",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1840,
+        -300
+      ],
+      "notes": "One item per planned action (channel + key: email or LinkedIn URL). A reply on one channel plans a stop on the other too (cross-channel stop). Unknown kinds -> alert.",
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "renameOutput": true,
+              "outputKey": "sequencer: stop_sequences",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--stop_sequences",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "stop_sequences",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "sequencer: pause_sequences",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--pause_sequences",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "pause_sequences",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "sequencer: suppress",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--suppress",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "suppress",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "crm + data: crm_update",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--crm_update",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "crm_update",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "crm + data: mark_email_invalid",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--mark_email_invalid",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "mark_email_invalid",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "crm + data: record_soft_bounce",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--record_soft_bounce",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "record_soft_bounce",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "human: notify_human",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--notify_human",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "notify_human",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "human: referral_task",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--referral_task",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "referral_task",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "human: classify_with_llm",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--classify_with_llm",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "classify_with_llm",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "none: none",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route--none",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "none",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000019",
+      "name": "Execute: sequencer actions",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2100,
+        -500
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Stop / pause (until) / suppress per channel and key in Smartlead / Instantly / lemlist / HeyReach. Waits for the sub-workflow so a failed stop reaches the alert path instead of a green run.",
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_sequencer_actions_workflow_id"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000020",
+      "name": "Execute: CRM + data actions",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2100,
+        -300
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "crm_update via 08 (write-and-route), hard bounce -> 04 email status, soft bounce -> 02 per-mailbox bounce guard.",
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_crm_actions_workflow_id"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "e7b3d5a2-0007-4f1c-8a30-000000000021",
+      "name": "Execute: notify a human",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2100,
+        -100
+      ],
+      "notes": "Hot leads (priority high), referrals (a task, never an auto-enrolment) and replies the rules could not decide (classify_with_llm when no model is wired).",
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_notify_workflow_id"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook: email reply in": {
+      "main": [
+        [
+          {
+            "node": "Email: pass body through",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: LinkedIn reply in": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn: map envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: pass body through": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn: map envelope": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Intake (dedupe + classify + route)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intake (dedupe + classify + route)": {
+      "main": [
+        [
+          {
+            "node": "Respond to vendor (service status)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: service unreachable (503)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: service unreachable (503)": {
+      "main": [
+        [
+          {
+            "node": "Alert (ops channel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to vendor (service status)": {
+      "main": [
+        [
+          {
+            "node": "Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decision": {
+      "main": [
+        [
+          {
+            "node": "Route by outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by outcome": {
+      "main": [
+        [
+          {
+            "node": "One item per action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Waiting for reply text: log key",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Review queue: log event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Review queue: log event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert (ops channel)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert (ops channel)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert (ops channel)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done (no action)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done (no action)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done (no action)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert (ops channel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: reply text filled": {
+      "main": [
+        [
+          {
+            "node": "Fill body (classify + route once)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fill body (classify + route once)": {
+      "main": [
+        [
+          {
+            "node": "Route by outcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert (ops channel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per action": {
+      "main": [
+        [
+          {
+            "node": "Route by action kind",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by action kind": {
+      "main": [
+        [
+          {
+            "node": "Execute: sequencer actions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: sequencer actions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: sequencer actions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: CRM + data actions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: CRM + data actions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: CRM + data actions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: notify a human",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: notify a human",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: notify a human",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done (no action)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert (ops channel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: sequencer actions": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Alert (ops channel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: CRM + data actions": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Alert (ops channel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
