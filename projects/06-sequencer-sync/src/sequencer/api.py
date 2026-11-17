@@ -35,7 +35,7 @@ from .push import BatchResult, BatchStatus, PushReport, Transport, execute_plan,
 from .readback import IncompleteRead, MemberReader, read_members
 from .suppression import SuppressionList
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 MAX_LEADS = 1000
 Vendor = Literal["smartlead", "instantly", "lemlist"]
 Outcome = Literal["sent", "outcome_unknown", "failed", "skipped"]

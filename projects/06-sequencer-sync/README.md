@@ -169,6 +169,26 @@ the campaign). Any failed count, a short or excess total, or a body without coun
 batch `outcome_unknown`: keys stay reserved and `reconcile()` settles which leads landed —
 the answer never says which one failed. Counts land in `batches[].detail`.
 
+**Invite ledger (`sequencer.invites`, 0.1.1).** `used_this_week` should not be a counter
+you reset on Monday. `InviteLedger` keeps every invite the lab sent (sender, profile, time,
+vendor invite id) and derives what no LinkedIn tool reports (research R5, 2026-11-17):
+
+```
+ledger.apply(senders, now)          used_this_week = sends in the last 7 days, withdrawn ones
+   │                                included (withdrawing does not refund — search summaries)
+   │                                sender with an invite-limit error (e.g. 422
+   │                                cannot_resend_yet) → full for 7 days: its leads wait
+assign_senders(…, in_campaign=ledger.blocked_profiles(now))
+   │                                pending / accepted invite, or withdrawn < 21 days ago → held
+ledger.plan_sweep(now)              pending older than 21 days → withdraw (oldest first),
+                                    no vendor id → listed apart; nothing changes until
+                                    ledger.withdrawn(invite_id, at) after the cancel succeeded
+```
+
+The cancel call itself is the vendor's (Unipile v2 `POST …/relation-requests/{id}/cancel`;
+HeyReach and Aimfox expose none). Windows, the 21-day cut-off / re-invite block and the
+cooldown are `InvitePolicy` defaults taken from vendor guidance, not LinkedIn rules.
+
 `SuppressionList.add_profile()` blocks a person by LinkedIn profile, for rows that carry
 no email. HeyReach lead lists are not campaigns, so `workspace` is enforced as
 `all_campaigns` (`effective_scope` says so in the report).
