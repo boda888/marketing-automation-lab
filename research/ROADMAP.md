@@ -59,9 +59,10 @@ can apply, a catalogue row, or a lab roadmap item.
 - [x] HeyReach vs Aimfox vs Expandi / Waalaxy: multi-sender, limits per account, withdrawing invites, API / webhooks, n8n integration → [note](notes/2026-10-26-R5-linkedin-tools-api-limits.md) (from vendor n8n packages; Aimfox node third-party; Expandi has no package; prices only as search summary)
 - [ ] Open HeyReach API docs / pricing (DNS-blocked 2026-10-26, Postman documenter blocked 2026-11-06): does `MESSAGE_REPLY_RECEIVED` fire once per lead, webhook payload fields and signing; whether a lead already in the campaign counts as `updatedLeadsCount` in `AddLeadsToCampaignV2` (300 req/min and the V2 counts seen in a third-party CLI 2026-11-06)
 - [ ] Smartlead ↔ HeyReach / Instantly ↔ HeyReach native integrations: open the Smartlead help-center guide and check whether a reply on one channel pauses the other (vendor pages claim it, agency guides say no; all blocked 2026-11-06)
-- [ ] Pending-invite withdrawal: which tools withdraw automatically (Aimfox, HeyReach settings) and whether withdrawing frees weekly quota — no API call found in any package
+- [x] Pending-invite withdrawal: which tools withdraw over an API and whether withdrawing frees weekly quota → [note](notes/2026-11-17-R5-invite-withdrawal-limits-unipile.md) (Unipile v2 list / cancel from the vendor SDK; HeyReach / Aimfox expose none; "does not free quota" and the 3-week re-invite block only as search summaries)
+- [ ] Open LinkedIn Help + Unipile provider-limits / manage-invitations docs (DNS-blocked 2026-11-17): exact 422 `cannot_resend_yet` body, whether the re-invite block after a withdrawal is 3 weeks, and whether HeyReach / Aimfox auto-withdraw settings count withdrawals anywhere
 - [ ] Expandi API / webhooks (no npm package 2026-10-26)
-- [ ] Safe volume and account warm-up; renting sender profiles — risks and what practitioners report
+- [ ] Safe volume and account warm-up; renting sender profiles — risks and what practitioners report (2026-11-17: only vendor ranges ~100–200 / week found, as search summaries; need first-hand ramp data or LinkedIn's own wording)
 - [x] Combining LinkedIn and email in one sequence: who orchestrates (sequencer, n8n, Clay), dedupe across channels → [note](notes/2026-11-06-R5-heyreach-public-api-cross-channel.md) (native sync moves leads, not reply stops — search summary only; HeyReach campaign-level exclusions from a third-party CLI)
 
 ## R6 · Calls & AI voice
