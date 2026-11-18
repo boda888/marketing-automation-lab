@@ -174,7 +174,8 @@
     "2026-11-16: 07 reply routing 0.0.6 — FastAPI intake service (replyrouting.api): vendor / LinkedIn intake routes, needs_body fill-in once, status codes chosen for sender retries (401 rejected, 503 + key release on a crash, 200 otherwise), optional inline LLM stage, app_from_env; 14 API tests (181 total).",
     "2026-11-17 (morning): research R5 pending-invite withdrawal and invite limits — Unipile v2 invitation list / send / cancel and webhook events (relation.new, account.locked / status, no withdrawn / ignored event) from the vendor SDK 2.66.0 + n8n node 0.2.1 (no cancel op); quota facts (withdrawal does not refund, 3-week re-invite block, 422 cannot_resend_yet, ~100-200 / week) only as search summaries; STACK Unipile row, two INSIGHTS, ROADMAP 06 item.",
     "2026-11-17: 07 reply routing 0.1.0 (v0.1) — n8n/intake-and-route.json (two webhooks, LinkedIn envelope Set node, Intake with full response + never-error so the vendor gets the service's status, 503 on unreachable, Switch on outcome and action kind with fallback -> alert, awaited sequencer / CRM sub-workflows with error -> alert, needs_body fill via internal webhook -> /v1/replies) + examples/demo-deliveries.json (11 synthetic deliveries, every IntakeOutcome exercised) + tests/test_n8n.py (9 tests; 190 total).",
-    "2026-11-17: 06 sequencer sync 0.1.1 — sequencer.invites.InviteLedger: apply() sets used_this_week from sends in a rolling 7 days (withdrawn included) and fills a sender for 7 days after an invite-limit error; blocked_profiles() for assign_senders(in_campaign=); plan_sweep() plans withdrawal of pending invites > 21 days (no vendor id listed apart), withdrawn() records it (7 tests; 140 total)."
+    "2026-11-17: 06 sequencer sync 0.1.1 — sequencer.invites.InviteLedger: apply() sets used_this_week from sends in a rolling 7 days (withdrawn included) and fills a sender for 7 days after an invite-limit error; blocked_profiles() for assign_senders(in_campaign=); plan_sweep() plans withdrawal of pending invites > 21 days (no vendor id listed apart), withdrawn() records it (7 tests; 140 total).",
+    "2026-11-18 (morning): research R6 Bland and Synthflow call creation / DNC / webhooks — Bland /v1/calls fields (no idempotency, free-string outcome, no cost in CLI types), block rules (<= 10 per request), tcpa:* guard rails on persona / pathway / inbound, X-Webhook-Signature raw-body HMAC without timestamp (trigger check off by default, one uncleared account default webhook); Synthflow /v2/calls (call_id, eta), regional hosts, post-call webhook on the agent, consent_message = recording consent only, no DNC / cost / signing found; FCC 24-17 only as search summary. STACK Bland + new Synthflow row, two INSIGHTS, ROADMAP 14 adapter item."
   ],
   "next_steps": [
     "08 follow-ups (v0.1 shipped 2026-11-11): dry_run flag on /v1/write (plan only, no call); persistent IdMap + SeenEvents (sqlite) and a cross-process writer lock / shared RateBudget; read X-HubSpot-RateLimit-* headers into RateBudget; lifecycle stages, assignment / territory rules, field-level ownership (ROADMAP 08 second item).",
@@ -183,6 +184,7 @@
     "04 follow-ups: EmailCheck.from_millionverifier (ok / catch_all / unknown / disposable / invalid; result \"error\" or a non-empty error raises, never a verdict — R3 2026-11-15) and an optional catch-all score field (ZeroBounce 0–10, 0 = unscored) kept as provenance on the catch-all cohort; match against existing CRM records; persistent store for ClayEmail pending/results and ResultCache with a freshness window; FastAPI callback route for Clay (secret header check -> receive) plus an n8n push/callback example; consume 01's needs_enrichment / missing_fields; phone ladder found -> checked -> callable with Trestle / Twilio Lookup mappers (activity 50 / is_valid null = unknown; R3 note 2026-11-04); live DNS adapter for EmailPrecheck (opt-in [live] extra).",
     "02/03 follow-ups: 02 capacity-planner readiness gate (warm-up days + optional vendor warm-up reading as provenance + seed placement result for the current copy; missing evidence -> held; pre-warmed still ramps — R4 2026-11-16); opt-in live-DNS smoke test; DMARCbis vs published RFC text; ATS board adapter (Greenhouse / Lever / Ashby): hiring events from a first-seen diff over (previous complete pull, this pull], vendor dates as provenance only, failed / partial pull -> Unknown (R2 2026-11-14); Form D funding adapter (amendments merged into the round, pooled funds dropped, dated by dateOfFirstSale); page-change signal source from scrape diffs (status >= 400 -> Unknown; changeTracking scrape item and Firecrawl /monitor page event, missing statusCode stays Unknown; dedupe search-monitor hits per event — R2 notes 2026-10-23, 2026-11-03); tier boost for independently confirmed signals; 02 bounce guard per mailbox on a rolling 14-day window with catch-all sends as their own cohort.",
     "09 (current project from 2026-11-17): reliability kit per R9 note — per-item retry with backoff + Retry-After for idempotent calls only, generalise 06's SqlitePushLog reserve -> commit into a shared dedupe store, DLQ intake from node error outputs, error-workflow alert template, silent-schedule watchdog (incl. 06 pending(older_than), Firecrawl skipped_no_credits and Instantly webhooks auto-disabled after delivery failures until /resume — R4 2026-11-05; Pipedrive GET /v1/webhooks is_active / remove_reason / last_http_status and Attio webhook status degraded — R7 2026-11-10), rate budget per vendor key shared across executions / queue-mode workers, exposed as an acquire call returning wait ms and honouring Retry-After, n8n examples with explicit Batching and window-in-key Redis counters (R9 2026-11-12); ops-table writer for Airtable / sheets (R1 2026-11-02 note) and Supabase / Postgres via PostgREST merge-duplicates upsert with in-chunk dedupe by conflict key and bisect-on-failure (R1 2026-11-13 note).",
+    "14 (later): voice adapters for Retell / Vapi / ElevenLabs / Bland / Synthflow behind one interface — own idempotency key + lookup before redial for all but Retell, free-string outcomes (Bland completed / answered_by / error_message, Synthflow call_status) mapped with an unmapped fallback, cost None where absent, Bland X-Webhook-Signature with call id + event dedupe (no timestamp), unsigned Synthflow callbacks re-read by call id; one consent / DNC gate before any create-call (R6 2026-11-18).",
     "13 (later): GTM MCP server design rules from R8 — server-side read-only mode, upsert writes with per-row created / updated / failed, HTTP transport refuses to start without auth; ship an n8n MCP Server Trigger example with Bearer auth; confirm non-read tools by form elicitation when the client declares it, otherwise return a plan id and require an approval recorded outside the MCP session (R8 2026-11-11)."
   ],
   "known_gaps": [
@@ -242,22 +244,15 @@
     "07 LLM stage (2026-11-14): tested only with FakeLLMClient — no live model call; the 30-case eval set (2026-11-15) is synthetic with scripted LLM answers, so it checks rules and validation / fallback, not a real model or real reply distributions (no published benchmark found); English prompt; 0.7 confidence cut-off is an untuned default. Claude structured-output limits (refusal / max_tokens may break the schema, enum casing, unsupported min/max/length keywords) from the opened docs page; OpenAI strict-mode refusal field and finish_reason length from a search summary only (platform.openai.com ENOTFOUND). Only an Anthropic request builder exists, no OpenAI one.",
     "R4 2026-11-16: mailbox-infra prices (Zapmail, Mailforge / Infraforge) and warm-up timelines (Instantly >= 2 weeks + health > 90 %) are search summaries of mostly competitor pages, vendor sites DNS-blocked; Zapmail API from an unofficial MCP package; Warmforge / Instantly placement-result and warm-up-stats field names unknown (untyped in the packages read).",
     "07 service: tested with FastAPI TestClient only, never behind a real vendor webhook; needs_body waiting room in-process (lost on restart); 'Smartlead retries 401 but not 400' and 'Instantly 30 s timeout' come from search summaries (helpcenter.smartlead.ai, hookdeck.com ENOTFOUND 2026-11-16), not opened pages.",
-    "07 n8n workflow (2026-11-17): checked structurally and replayed offline against the FastAPI app with Python-resolved Set-node expressions; never imported into or executed on a live n8n. LinkedIn envelope source fields (lead.profile_url, message.text, message.created_at, ?event_type=) are candidates, the inbox fetch for needs_body and all vendor action sub-workflows are REPLACE_ placeholders. 06 InviteLedger defaults (7-day window, 21-day stale cut-off and re-invite block, 7-day limit cooldown) are vendor guidance (search summaries; linkedin.com / unipile.com DNS-blocked 2026-11-17), not LinkedIn rules; the 422 cannot_resend_yet body is unconfirmed."
+    "07 n8n workflow (2026-11-17): checked structurally and replayed offline against the FastAPI app with Python-resolved Set-node expressions; never imported into or executed on a live n8n. LinkedIn envelope source fields (lead.profile_url, message.text, message.created_at, ?event_type=) are candidates, the inbox fetch for needs_body and all vendor action sub-workflows are REPLACE_ placeholders. 06 InviteLedger defaults (7-day window, 21-day stale cut-off and re-invite block, 7-day limit cooldown) are vendor guidance (search summaries; linkedin.com / unipile.com DNS-blocked 2026-11-17), not LinkedIn rules; the 422 cannot_resend_yet body is unconfirmed.",
+    "R6 2026-11-18: Bland / Synthflow facts read from vendor n8n nodes + Bland CLI (and a third-party Synthflow package for regions, call answer and the 'legacy per-call webhook' claim), never called live; docs.bland.ai / docs.synthflow.ai / docs.fcc.gov DNS-blocked. Unknown: Bland and Synthflow pricing and cost fields, whether a Bland global block rule stops outbound dials, Synthflow webhook signing, TCPA rules for B2B business lines."
   ],
   "last_run": {
-    "date": "2026-11-17",
-    "commits": 4,
-    "notes": "Morning run, budget 4: R5 research, 07 n8n workflow -> v0.1.0, 06 InviteLedger, state update. Eval-gate CI step skipped: already enforced inside pytest."
+    "date": "2026-11-18",
+    "commits": 1,
+    "notes": "Morning run, budget 1: R6 research (Bland / Synthflow) with the state update folded in. Vendor docs and FCC hosts DNS-blocked; facts from npm packages only."
   },
   "run_log": [
-    {
-      "date": "2026-10-10",
-      "commits": 2,
-      "summary": "Initial scaffold and 01-icp-scoring v0.1.0 (33 tests passing).",
-      "sources": [
-        "https://abmatic.ai/blog/account-fit-score"
-      ]
-    },
     {
       "date": "2026-10-10",
       "commits": 4,
@@ -956,6 +951,21 @@
         "web search 'LinkedIn weekly invitation limit 2026 withdraw pending invitations automation' and 'Unipile provider limits LinkedIn invitations per day cannot_resend_yet' (2026-11-17; result summaries only)",
         "https://www.linkedin.com/help/linkedin/answer/a5394, https://www.unipile.com/linkedin-api-rate-limits/, https://developer.unipile.com/v2.0/docs/linkedin-manage-invitations — tried 2026-11-17, ENOTFOUND, not opened"
       ]
+    },
+    {
+      "date": "2026-11-18",
+      "commits": 1,
+      "summary": "Research R6: Bland (official n8n node 0.3.0 + CLI 0.10.1) — POST /v1/calls without idempotency, outcome as free strings (completed, status, answered_by, error_message), no cost field in CLI types, block rules (<= 10 numbers, is_global vs inbound_number), guard rails tcpa:ai_disclosure / recording_disclosure / opt_out with end_call / transfer on persona / pathway / inbound, X-Webhook-Signature = HMAC-SHA256 hex of raw body (no timestamp; verification off by default; account default webhook cannot be cleared). Synthflow (vendor n8n node 0.2.3 + third-party slates 0.2.2) — POST /v2/calls -> call_id / eta, regional hosts, post-call webhook on the agent, consent_message is recording consent, no DNC / cost / signing found. FCC 24-17 from a search summary only. Nothing run live.",
+      "sources": [
+        "https://registry.npmjs.org/@blandsdk/n8n-nodes-bland/-/n8n-nodes-bland-0.3.0.tgz (opened 2026-11-18; Send call, block rules, batch, campaign, trigger signature check, credentials)",
+        "https://registry.npmjs.org/@blandsdk/n8n-nodes-bland (opened 2026-11-18; maintainers, publish date)",
+        "https://registry.npmjs.org/bland-cli/-/bland-cli-0.10.1.tgz (opened 2026-11-18; types/api.d.ts, lib/callWait.js, lib/api.js, commands/guard.js)",
+        "https://registry.npmjs.org/@synthflow-ai/n8n-nodes-synthflow/-/n8n-nodes-synthflow-0.2.3.tgz (opened 2026-11-18; Synthflow.node.ts)",
+        "https://registry.npmjs.org/@slates-integrations/synthflow-ai/-/synthflow-ai-0.2.2.tgz (opened 2026-11-18; third-party SPEC.md + make_call schema)",
+        "https://registry.npmjs.org/-/v1/search?text=bland%20ai&size=10 (+ synthflow, aircall, kixie queries; opened 2026-11-18)",
+        "web searches 'FCC 24-17 declaratory ruling AI-generated voice TCPA ...' and 'Bland AI API send call do_not_call voicemail webhook call_id docs' (2026-11-18; search summaries, not opened)",
+        "docs.fcc.gov FCC-24-17A1.pdf, mayerbrown.com, docs.bland.ai, docs.synthflow.ai, developer.aircall.io, ecfr.gov, law.cornell.edu, ico.org.uk, legislation.gov.uk — tried 2026-11-18, DNS / no connection, not opened"
+      ]
     }
   ],
   "research": {
@@ -983,7 +993,7 @@
       },
       "R6": {
         "name": "Calls & AI voice",
-        "last_researched": "2026-11-08"
+        "last_researched": "2026-11-18"
       },
       "R7": {
         "name": "CRM, pipeline & reporting",
