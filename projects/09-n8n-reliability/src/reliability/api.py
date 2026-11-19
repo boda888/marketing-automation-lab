@@ -198,7 +198,7 @@ def create_app(
     now: Callable[[], float] = time.time,
     rand: Callable[[], float] = random.random,
 ) -> FastAPI:
-    app = FastAPI(title="n8n reliability kit", version="0.0.2")
+    app = FastAPI(title="n8n reliability kit", version="0.0.3")
 
     def check_token(authorization: str | None = Header(default=None)) -> None:
         if api_token is None:

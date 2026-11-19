@@ -10,6 +10,8 @@ carries no items, so the lead that failed is not named anywhere a person looks (
 
 v0.0.1 (started 2026-11-18): **per-item retries** (`reliability.retry`).
 v0.0.2 (2026-11-19): the same rule table over HTTP for n8n, `POST /v1/decide` (`reliability.api`).
+v0.0.3 (2026-11-19): the n8n loop that uses it, [`n8n/retry-loop.json`](n8n/retry-loop.json),
+replayed offline against the service.
 
 ## Per-item retries
 
@@ -94,6 +96,43 @@ After each attempt for **one** item, n8n posts what happened and branches on `ac
 - 200 for every decision, 422 for a body that cannot be decided (both or neither of
   `status` / `error`, bad policy), 401 without the bearer token when one is configured.
 
+## n8n loop: `n8n/retry-loop.json`
+
+A sub-workflow that pushes leads to a sequencer one at a time and asks `/v1/decide` after
+every attempt:
+
+```
+Leads in -> Collect leads -> Config -> One item per lead -> Loop over leads (batch 1)
+  loop -> First attempt -> Attempt -> Push lead (Never Error, full response, no Retry On Fail)
+            HTTP answer  -> Decide body: statusCode + headers ┐
+            no answer    -> Decide body: error.code          ┴-> Decide (POST /v1/decide)
+          -> Decision + lead -> Route by action
+               done  -> Next lead -> Loop
+               retry -> Wait (wait_ms / 1000 s) -> Next attempt -> Attempt   (same lead only)
+               stop  -> DLQ row -> DLQ: append row (sub-workflow, waited for) -> Next lead
+               other -> Alert -> Next lead
+  done -> All leads handled
+```
+
+- **Batch size 1** is load-bearing: n8n's Wait node reads its amount from item 0 only
+  (`getNodeParameter('amount', 0)` in n8n-nodes-base 2.48.4), and one lead per pass keeps a
+  retry from re-sending any other lead.
+- `attempt` and `lead` are re-read from the `Attempt` node, never from the vendor's answer,
+  so a lead survives an error item that carries nothing but `{error}`.
+- `Config.idempotent` is `false` for add-lead: a 5xx or a dropped connection after sending
+  ends `unknown` (DLQ, `safe_to_resend: false`) and is never pushed again. A
+  `Retry-After` above `max_wait_seconds` ends `deferred` with `retry_at_iso` instead of
+  holding the execution open.
+- The decide call uses a Header Auth credential (`Authorization: Bearer <token>`) and has
+  no continue-on-error: if the service is down the run fails loudly for the error workflow.
+
+`tests/test_n8n.py` replays [`examples/demo-loop.json`](examples/demo-loop.json) (8
+synthetic `.example` leads: 201, 429 + `Retry-After: 7`, 502, refused then 200, socket hang
+up, `Retry-After: 900`, 400, 429 × 4) through the workflow's own connections: Set
+expressions are resolved by a small evaluator, the push goes to a scripted vendor, decide
+goes to the FastAPI app. It checks every lead ends exactly once, push counts and waits per
+lead, and the DLQ rows (`unknown` ×2, `deferred`, `failed`, `exhausted`).
+
 ## Run it
 
 ```bash
@@ -103,8 +142,13 @@ python -m pytest -q
 
 ## Limits
 
-- No n8n loop workflow, DLQ store or shared rate budget yet (next steps in the root
-  ROADMAP 09). `run_items` waits in-process; for long waits use `deferred`.
+- No DLQ store, dedupe store or shared rate budget yet (next steps in the root ROADMAP 09):
+  the loop hands DLQ rows to a sub-workflow you provide. `run_items` waits in-process; for
+  long waits use `deferred`.
+- `retry-loop.json` was never imported into a live n8n; node parameters were checked
+  against the n8n-nodes-base 2.48.4 package source (Wait, SplitInBatches v3, Aggregate,
+  SplitOut, Switch v3, HTTP Request v3), and the replay's evaluator covers only the
+  expression forms the workflow uses.
 - The n8n error-item shape (where the Node.js error `code` sits on a continue-on-error item)
   was not checked against a live n8n: map it into `error.code` explicitly.
 - Offline tests with a scripted fake vendor; never run against a live vendor or a live n8n.

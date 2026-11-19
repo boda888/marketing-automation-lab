@@ -1,0 +1,891 @@
+{
+  "name": "09 · per-item retry loop (decide before re-send)",
+  "nodes": [
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000001",
+      "name": "Leads in (sub-workflow)",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        200
+      ],
+      "notes": "Called by the workflow that picked today's leads, one item per lead. Each lead needs a stable key (email here) that survives the loop.",
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000002",
+      "name": "Collect leads",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        220,
+        200
+      ],
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "leads",
+        "options": {}
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000003",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        440,
+        200
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "as-reliability_url",
+              "name": "reliability_url",
+              "value": "http://reliability:8009",
+              "type": "string"
+            },
+            {
+              "id": "as-vendor_url",
+              "name": "vendor_url",
+              "value": "https://api.sequencer.example/v1/campaigns/demo/leads",
+              "type": "string"
+            },
+            {
+              "id": "as-push_method",
+              "name": "push_method",
+              "value": "POST",
+              "type": "string"
+            },
+            {
+              "id": "as-idempotent",
+              "name": "idempotent",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "as-request_headers",
+              "name": "request_headers",
+              "value": "{}",
+              "type": "object"
+            },
+            {
+              "id": "as-policy",
+              "name": "policy",
+              "value": "{\"max_attempts\": 4, \"max_wait_seconds\": 300, \"max_backoff_seconds\": 60}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "notes": "One config item. idempotent=false: add-lead is a plain create, so a 5xx or a timeout after sending ends 'unknown' and is never re-sent blind. Set it true only for an upsert on a unique key, or put a vendor-documented Idempotency-Key into request_headers (and send the same header on the push)."
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000004",
+      "name": "One item per lead",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        660,
+        200
+      ],
+      "parameters": {
+        "fieldToSplitOut": "leads",
+        "include": "noOtherFields",
+        "options": {}
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000005",
+      "name": "Loop over leads",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        880,
+        200
+      ],
+      "notes": "Batch size 1 on purpose: the Wait node reads its amount from item 0 only, and one lead per pass keeps a retry from touching any other lead.",
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000006",
+      "name": "First attempt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "as-attempt",
+              "name": "attempt",
+              "value": 1,
+              "type": "number"
+            },
+            {
+              "id": "as-lead",
+              "name": "lead",
+              "value": "={{ $json }}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000007",
+      "name": "Attempt",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        300
+      ],
+      "notes": "Join point for the first attempt and every retry; later nodes read attempt and lead from here, so the lead never depends on the vendor's answer.",
+      "parameters": {}
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000008",
+      "name": "Push lead (one item)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        300
+      ],
+      "retryOnFail": false,
+      "onError": "continueErrorOutput",
+      "notes": "No Retry On Fail: it would re-run the call itself with a fixed wait and no Retry-After. Never Error + full response puts every HTTP status on the success output with headers; only 'no HTTP answer' (DNS, refused, timeout, reset) takes the error output.",
+      "parameters": {
+        "method": "={{ $('Config').first().json.push_method }}",
+        "url": "={{ $('Config').first().json.vendor_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.lead) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000009",
+      "name": "Decide body: HTTP answer",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1760,
+        200
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "as-attempt",
+              "name": "attempt",
+              "value": "={{ $('Attempt').item.json.attempt }}",
+              "type": "number"
+            },
+            {
+              "id": "as-method",
+              "name": "method",
+              "value": "={{ $('Config').first().json.push_method }}",
+              "type": "string"
+            },
+            {
+              "id": "as-statusCode",
+              "name": "statusCode",
+              "value": "={{ $json.statusCode }}",
+              "type": "number"
+            },
+            {
+              "id": "as-headers",
+              "name": "headers",
+              "value": "={{ $json.headers }}",
+              "type": "object"
+            },
+            {
+              "id": "as-request_headers",
+              "name": "request_headers",
+              "value": "={{ $('Config').first().json.request_headers }}",
+              "type": "object"
+            },
+            {
+              "id": "as-idempotent",
+              "name": "idempotent",
+              "value": "={{ $('Config').first().json.idempotent }}",
+              "type": "boolean"
+            },
+            {
+              "id": "as-key",
+              "name": "key",
+              "value": "={{ $('Attempt').item.json.lead.email }}",
+              "type": "string"
+            },
+            {
+              "id": "as-policy",
+              "name": "policy",
+              "value": "={{ $('Config').first().json.policy }}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000010",
+      "name": "Decide body: no HTTP answer",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1760,
+        420
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "as-attempt",
+              "name": "attempt",
+              "value": "={{ $('Attempt').item.json.attempt }}",
+              "type": "number"
+            },
+            {
+              "id": "as-method",
+              "name": "method",
+              "value": "={{ $('Config').first().json.push_method }}",
+              "type": "string"
+            },
+            {
+              "id": "as-error",
+              "name": "error",
+              "value": "={{ { code: $json.error?.code ?? $json.error?.cause?.code ?? null, message: $json.error?.message ?? null } }}",
+              "type": "object"
+            },
+            {
+              "id": "as-request_headers",
+              "name": "request_headers",
+              "value": "={{ $('Config').first().json.request_headers }}",
+              "type": "object"
+            },
+            {
+              "id": "as-idempotent",
+              "name": "idempotent",
+              "value": "={{ $('Config').first().json.idempotent }}",
+              "type": "boolean"
+            },
+            {
+              "id": "as-key",
+              "name": "key",
+              "value": "={{ $('Attempt').item.json.lead.email }}",
+              "type": "string"
+            },
+            {
+              "id": "as-policy",
+              "name": "policy",
+              "value": "={{ $('Config').first().json.policy }}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "notes": "Where n8n puts the Node.js error code on a continue-on-error item was not checked against a live n8n. A missing code is treated by the service as 'may have reached the vendor', so a create ends 'unknown' rather than being re-sent."
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000011",
+      "name": "Decide (POST /v1/decide)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        300
+      ],
+      "retryOnFail": false,
+      "notes": "One attempt in, one decision out. Header Auth credential: Authorization = Bearer <RELIABILITY_API_TOKEN>. No continue-on-error: if the decide service is down the execution fails loudly and the error workflow alerts, instead of a lead silently leaving the loop.",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.reliability_url }}/v1/decide",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 5000
+        }
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000012",
+      "name": "Decision + lead",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2200,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "as-decision",
+              "name": "decision",
+              "value": "={{ $json }}",
+              "type": "object"
+            },
+            {
+              "id": "as-lead",
+              "name": "lead",
+              "value": "={{ $('Attempt').item.json.lead }}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000013",
+      "name": "Route by action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2420,
+        300
+      ],
+      "notes": "fallbackOutput 'extra': an action the service adds later goes to the alert path instead of being dropped by Switch.",
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "renameOutput": true,
+              "outputKey": "done",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "action--done",
+                    "leftValue": "={{ $json.decision.action }}",
+                    "rightValue": "done",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "retry",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "action--retry",
+                    "leftValue": "={{ $json.decision.action }}",
+                    "rightValue": "retry",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "stop",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "action--stop",
+                    "leftValue": "={{ $json.decision.action }}",
+                    "rightValue": "stop",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000014",
+      "name": "Wait (wait_ms)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        460
+      ],
+      "notes": "Retry-After or capped backoff from the service, in seconds (wait_ms / 1000). Waits longer than the policy's max_wait_seconds never reach this node: they come back as stop + deferred with retry_at for the DLQ.",
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.decision.wait_ms / 1000 }}",
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000015",
+      "name": "Next attempt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2860,
+        460
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "as-attempt",
+              "name": "attempt",
+              "value": "={{ $json.decision.next_attempt }}",
+              "type": "number"
+            },
+            {
+              "id": "as-lead",
+              "name": "lead",
+              "value": "={{ $json.lead }}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "notes": "Back into the same call for this lead only; the attempt number comes from the service, so max_attempts is enforced in one place."
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000016",
+      "name": "DLQ row",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2640,
+        640
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "as-key",
+              "name": "key",
+              "value": "={{ $json.decision.dlq_row.key }}",
+              "type": "string"
+            },
+            {
+              "id": "as-outcome",
+              "name": "outcome",
+              "value": "={{ $json.decision.dlq_row.outcome }}",
+              "type": "string"
+            },
+            {
+              "id": "as-reason",
+              "name": "reason",
+              "value": "={{ $json.decision.dlq_row.reason }}",
+              "type": "string"
+            },
+            {
+              "id": "as-attempts",
+              "name": "attempts",
+              "value": "={{ $json.decision.dlq_row.attempts }}",
+              "type": "number"
+            },
+            {
+              "id": "as-last_status",
+              "name": "last_status",
+              "value": "={{ $json.decision.dlq_row.last_status }}",
+              "type": "number"
+            },
+            {
+              "id": "as-retry_at_iso",
+              "name": "retry_at_iso",
+              "value": "={{ $json.decision.retry_at_iso }}",
+              "type": "string"
+            },
+            {
+              "id": "as-safe_to_resend",
+              "name": "safe_to_resend",
+              "value": "={{ $json.decision.dlq_row.safe_to_resend }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {
+          "ignoreConversionErrors": true
+        }
+      },
+      "notes": "unknown = may already be in the campaign: read it back before any re-send (safe_to_resend false). failed = the vendor rejected it. deferred / exhausted = safe to re-queue (after retry_at for deferred). ignoreConversionErrors: last_status / retry_at_iso are null for some outcomes."
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000017",
+      "name": "DLQ: append row",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2860,
+        640
+      ],
+      "notes": "Your dead-letter table (sheet, Airtable, Postgres). Waits for the sub-workflow so a failed DLQ write fails the run instead of losing the row.",
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_dlq_workflow_id"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000018",
+      "name": "Alert: unknown action",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        820
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://alerts.ops.example/hooks/n8n",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: 'retry-loop: unexpected decision for ' + $json.lead.email, decision: $json.decision }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000019",
+      "name": "Next lead",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3080,
+        100
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000020",
+      "name": "All leads handled",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        60
+      ],
+      "notes": "Every lead ended here exactly once: done, or a DLQ row.",
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Leads in (sub-workflow)": {
+      "main": [
+        [
+          {
+            "node": "Collect leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect leads": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "One item per lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per lead": {
+      "main": [
+        [
+          {
+            "node": "Loop over leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop over leads": {
+      "main": [
+        [
+          {
+            "node": "All leads handled",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "First attempt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "First attempt": {
+      "main": [
+        [
+          {
+            "node": "Attempt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attempt": {
+      "main": [
+        [
+          {
+            "node": "Push lead (one item)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push lead (one item)": {
+      "main": [
+        [
+          {
+            "node": "Decide body: HTTP answer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Decide body: no HTTP answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide body: HTTP answer": {
+      "main": [
+        [
+          {
+            "node": "Decide (POST /v1/decide)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide body: no HTTP answer": {
+      "main": [
+        [
+          {
+            "node": "Decide (POST /v1/decide)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide (POST /v1/decide)": {
+      "main": [
+        [
+          {
+            "node": "Decision + lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decision + lead": {
+      "main": [
+        [
+          {
+            "node": "Route by action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by action": {
+      "main": [
+        [
+          {
+            "node": "Next lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait (wait_ms)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DLQ row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert: unknown action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (wait_ms)": {
+      "main": [
+        [
+          {
+            "node": "Next attempt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Next attempt": {
+      "main": [
+        [
+          {
+            "node": "Attempt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DLQ row": {
+      "main": [
+        [
+          {
+            "node": "DLQ: append row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DLQ: append row": {
+      "main": [
+        [
+          {
+            "node": "Next lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert: unknown action": {
+      "main": [
+        [
+          {
+            "node": "Next lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Next lead": {
+      "main": [
+        [
+          {
+            "node": "Loop over leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
