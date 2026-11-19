@@ -15,7 +15,7 @@ from .retry import (
     run_items,
 )
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 __all__ = [
     "IDEMPOTENT_METHODS",

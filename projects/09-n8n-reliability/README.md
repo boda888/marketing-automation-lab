@@ -9,6 +9,7 @@ carries no items, so the lead that failed is not named anywhere a person looks (
 [R9 2026-11-12](../../research/notes/2026-11-12-R9-n8n-rate-limits-queue-mode.md)).
 
 v0.0.1 (started 2026-11-18): **per-item retries** (`reliability.retry`).
+v0.0.2 (2026-11-19): the same rule table over HTTP for n8n, `POST /v1/decide` (`reliability.api`).
 
 ## Per-item retries
 
@@ -64,6 +65,35 @@ Why these rules:
   (route 429 items back into the same call); a 5xx or a timeout on a create is not, because
   the lead may already be in the campaign.
 
+## `POST /v1/decide` for an n8n loop
+
+```bash
+python -m pip install -e ".[api]"
+RELIABILITY_API_TOKEN=... uvicorn reliability.api:app_from_env --factory   # token optional
+```
+
+After each attempt for **one** item, n8n posts what happened and branches on `action`:
+
+```json
+{"attempt": 1, "method": "POST", "statusCode": 429, "headers": {"retry-after": "7"},
+ "request_headers": {}, "key": "ana@acme.example"}
+```
+
+→ `{"action": "retry", "wait_ms": 7000, "next_attempt": 2, "reason": "http_429", ...}`.
+`done` carries `outcome: "ok"`; `stop` carries `outcome`, `safe_to_resend` and a flat
+`dlq_row`; `deferred` adds `retry_at` (epoch) and `retry_at_iso` for a Wait-until or a DLQ row.
+
+- `statusCode` / `status` + response `headers` come from HTTP Request with *Never Error* and
+  the full response; with no HTTP answer send `error: {"code": "ECONNREFUSED"}` instead.
+  Only DNS (`ENOTFOUND`, `EAI_AGAIN`), refused / unreachable and TLS-certificate codes mean
+  "never left"; a timeout, a reset, an unknown or a missing code means "may have landed", so
+  a plain create ends `unknown` instead of being re-sent. `reached_vendor` overrides the code.
+- `request_headers` with an `Idempotency-Key` makes the call keyed (409 retry, 422 failed);
+  `"idempotent": true` marks a POST upsert on a unique key. Otherwise the method decides.
+- `policy` takes the `RetryPolicy` fields (unknown fields are a 422, not ignored).
+- 200 for every decision, 422 for a body that cannot be decided (both or neither of
+  `status` / `error`, bad policy), 401 without the bearer token when one is configured.
+
 ## Run it
 
 ```bash
@@ -73,8 +103,10 @@ python -m pytest -q
 
 ## Limits
 
-- Library only: no FastAPI route, n8n workflow, DLQ store or shared rate budget yet (next
-  steps in the root ROADMAP 09). The wait happens in-process; for long waits use `deferred`.
+- No n8n loop workflow, DLQ store or shared rate budget yet (next steps in the root
+  ROADMAP 09). `run_items` waits in-process; for long waits use `deferred`.
+- The n8n error-item shape (where the Node.js error `code` sits on a continue-on-error item)
+  was not checked against a live n8n: map it into `error.code` explicitly.
 - Offline tests with a scripted fake vendor; never run against a live vendor or a live n8n.
 - Which vendors honour `Idempotency-Key`, and whether a vendor's 429 can follow a processed
   request, is per vendor and not checked here; the caller decides `idempotent` / `keyed`.
