@@ -33,7 +33,21 @@ Answers are 200 for every decision; 422 only for a body that cannot be decided (
 neither of ``status`` / ``error``, a bad policy). With ``api_token`` set the route needs
 ``Authorization: Bearer <token>``.
 
-    uvicorn reliability.api:app_from_env --factory   # RELIABILITY_API_TOKEN optional
+Dedupe keys (``reliability.dedupe.KeyStore``), so a key is marked done only after the
+guarded call succeeded:
+
+- ``POST /v1/keys/claim`` ``{scope, key, stale_after_seconds?}`` -> ``status``:
+  ``reserved`` (go; keep ``token``), ``committed`` (skip), ``in_flight`` (skip this run),
+  ``stale`` (may have landed: read back, then ``/v1/keys/resolve``);
+- ``POST /v1/keys/commit`` / ``/v1/keys/release`` ``{scope, key, token}``: 409 for another
+  execution's token or a committed key, 404 without a reservation;
+- ``POST /v1/keys/resolve`` ``{scope, key, landed, force?}``: 409 while the reservation is
+  younger than ``stale_after`` unless ``force``;
+- ``GET /v1/keys/pending?scope=&older_than=`` for a watchdog.
+
+    uvicorn reliability.api:app_from_env --factory
+    # RELIABILITY_API_TOKEN optional; RELIABILITY_DB (SQLite path, default in-memory);
+    # RELIABILITY_STALE_AFTER seconds (default 900)
 """
 
 from __future__ import annotations
@@ -49,6 +63,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
+from .dedupe import AlreadyCommitted, KeyStore, NotReserved, StillInFlight, TokenMismatch
 from .retry import HttpResult, ItemResult, RetryPolicy, TransportError, decide, is_idempotent
 
 # Node.js / OpenSSL error codes raised before any request bytes reach the vendor.
@@ -192,13 +207,51 @@ def decide_request(
     return out
 
 
+class ClaimIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str = Field(min_length=1, max_length=200)
+    key: str = Field(min_length=1, max_length=512)
+    stale_after_seconds: float | None = Field(default=None, gt=0)
+
+
+class TokenIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str = Field(min_length=1, max_length=200)
+    key: str = Field(min_length=1, max_length=512)
+    token: str = Field(min_length=1, max_length=200)
+
+
+class ResolveIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str = Field(min_length=1, max_length=200)
+    key: str = Field(min_length=1, max_length=512)
+    landed: bool
+    force: bool = False
+
+
+def _key_errors(call: Callable[[], Any]) -> Any:
+    try:
+        return call()
+    except NotReserved as exc:
+        raise HTTPException(404, str(exc)) from None
+    except (TokenMismatch, StillInFlight, AlreadyCommitted) as exc:
+        raise HTTPException(409, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
 def create_app(
     *,
     api_token: str | None = None,
+    store: KeyStore | None = None,
     now: Callable[[], float] = time.time,
     rand: Callable[[], float] = random.random,
 ) -> FastAPI:
-    app = FastAPI(title="n8n reliability kit", version="0.0.3")
+    app = FastAPI(title="n8n reliability kit", version="0.0.4")
+    keys = store if store is not None else KeyStore(clock=now)
 
     def check_token(authorization: str | None = Header(default=None)) -> None:
         if api_token is None:
@@ -217,9 +270,61 @@ def create_app(
     def decide_route(body: DecideIn) -> dict[str, Any]:
         return decide_request(body, now=now, rand=rand)
 
+    @app.post("/v1/keys/claim", dependencies=[Depends(check_token)])
+    def claim_route(body: ClaimIn) -> dict[str, Any]:
+        c = _key_errors(
+            lambda: keys.claim(body.scope, body.key, stale_after=body.stale_after_seconds)
+        )
+        return {
+            "status": c.status,
+            "go": c.go,
+            "token": c.token,
+            "since": c.since,
+            "age_seconds": round(c.age_seconds, 3),
+        }
+
+    @app.post("/v1/keys/commit", dependencies=[Depends(check_token)])
+    def commit_route(body: TokenIn) -> dict[str, Any]:
+        _key_errors(lambda: keys.commit(body.scope, body.key, body.token))
+        return {"state": "committed"}
+
+    @app.post("/v1/keys/release", dependencies=[Depends(check_token)])
+    def release_route(body: TokenIn) -> dict[str, Any]:
+        _key_errors(lambda: keys.release(body.scope, body.key, body.token))
+        return {"state": "released"}
+
+    @app.post("/v1/keys/resolve", dependencies=[Depends(check_token)])
+    def resolve_route(body: ResolveIn) -> dict[str, Any]:
+        state = _key_errors(
+            lambda: keys.resolve(body.scope, body.key, landed=body.landed, force=body.force)
+        )
+        return {"state": state or "released"}
+
+    @app.get("/v1/keys/pending", dependencies=[Depends(check_token)])
+    def pending_route(scope: str | None = None, older_than: float = 0.0) -> dict[str, Any]:
+        rows = keys.pending(scope=scope, older_than=older_than)
+        return {
+            "count": len(rows),
+            "stale": sum(r.stale for r in rows),
+            "reservations": [
+                {
+                    "scope": r.scope,
+                    "key": r.key,
+                    "reserved_at": r.reserved_at,
+                    "age_seconds": round(r.age_seconds, 3),
+                    "stale": r.stale,
+                }
+                for r in rows
+            ],
+        }
+
     return app
 
 
 def app_from_env() -> FastAPI:
     token = os.environ.get("RELIABILITY_API_TOKEN") or None
-    return create_app(api_token=token)
+    store = KeyStore(
+        os.environ.get("RELIABILITY_DB") or ":memory:",
+        stale_after=float(os.environ.get("RELIABILITY_STALE_AFTER") or 900),
+    )
+    return create_app(api_token=token, store=store)

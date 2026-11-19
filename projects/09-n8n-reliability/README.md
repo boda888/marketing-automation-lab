@@ -12,6 +12,8 @@ v0.0.1 (started 2026-11-18): **per-item retries** (`reliability.retry`).
 v0.0.2 (2026-11-19): the same rule table over HTTP for n8n, `POST /v1/decide` (`reliability.api`).
 v0.0.3 (2026-11-19): the n8n loop that uses it, [`n8n/retry-loop.json`](n8n/retry-loop.json),
 replayed offline against the service.
+v0.0.4 (2026-11-19): **dedupe keys that commit only after success** (`reliability.dedupe`,
+`/v1/keys/*`).
 
 ## Per-item retries
 
@@ -133,6 +135,36 @@ expressions are resolved by a small evaluator, the push goes to a scripted vendo
 goes to the FastAPI app. It checks every lead ends exactly once, push counts and waits per
 lead, and the DLQ rows (`unknown` ×2, `deferred`, `failed`, `exhausted`).
 
+## Dedupe keys: claim → commit only after the call landed
+
+n8n's Remove Duplicates ("Remove Items Processed in Previous Executions") records a key
+**when the node runs** (`checkProcessedAndRecord` in n8n-nodes-base 2.48.4), before the push
+after it: if the push fails, the lead is already "seen" and the next run drops it. It also
+throws once stored keys + batch size exceed `historySize`. `KeyStore` splits the mark:
+
+| call | when | result |
+|---|---|---|
+| `claim(scope, key)` | before the push | `reserved` + `token` (go) · `committed` (skip: done) · `in_flight` (another execution holds it) · `stale` (reserved ≥ `stale_after` ago, never finished: may have landed) |
+| `commit(scope, key, token)` | push / decide ended `ok` | later claims return `committed`; repeating is a no-op |
+| `release(scope, key, token)` | it certainly did not land (`failed`, `exhausted`, `deferred`) | the next run can claim it again |
+| `resolve(scope, key, landed=)` | after a read-back of a `stale` key | landed → `committed`, not landed → released; refused while younger than `stale_after` unless `force` |
+| `pending(scope=, older_than=)` | watchdog | open reservations, oldest first, with `stale` |
+
+- A `stale` reservation is never handed to a new caller: a push that ended `unknown` keeps
+  its reservation, so the lead is not re-sent until someone reads the vendor back.
+- The token stops one execution from committing or releasing another one's reservation.
+- Scopes keep keys apart per target (`smartlead:campaign-42`), so "already in campaign A"
+  never blocks campaign B; global suppression stays a separate list.
+- SQLite (WAL, `INSERT OR IGNORE`): concurrent claims from separate connections reserve a
+  key exactly once (tested with 8 threads over 4 connections on one file).
+
+Over HTTP (same bearer token as `/v1/decide`): `POST /v1/keys/claim`
+`{scope, key, stale_after_seconds?}` → `{status, go, token, since, age_seconds}`;
+`POST /v1/keys/commit` and `/v1/keys/release` `{scope, key, token}` (409 another token or
+already committed, 404 no reservation); `POST /v1/keys/resolve` `{scope, key, landed,
+force?}`; `GET /v1/keys/pending?scope=&older_than=`. `RELIABILITY_DB` sets the SQLite path
+(default in-memory, lost on restart), `RELIABILITY_STALE_AFTER` the seconds (default 900).
+
 ## Run it
 
 ```bash
@@ -142,8 +174,10 @@ python -m pytest -q
 
 ## Limits
 
-- No DLQ store, dedupe store or shared rate budget yet (next steps in the root ROADMAP 09):
-  the loop hands DLQ rows to a sub-workflow you provide. `run_items` waits in-process; for
+- No DLQ store or shared rate budget yet (next steps in the root ROADMAP 09): the loop
+  hands DLQ rows to a sub-workflow you provide, and `retry-loop.json` does not call
+  `/v1/keys/*` yet. The key store is one SQLite file: several n8n workers share it only
+  through one service instance (no Postgres / Redis backend). `run_items` waits in-process; for
   long waits use `deferred`.
 - `retry-loop.json` was never imported into a live n8n; node parameters were checked
   against the n8n-nodes-base 2.48.4 package source (Wait, SplitInBatches v3, Aggregate,
