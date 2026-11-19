@@ -83,8 +83,10 @@ can apply, a catalogue row, or a lab roadmap item.
 - [x] CRM webhooks: HubSpot / Attio / Pipedrive signing, redelivery and what silently stops deliveries → [note](notes/2026-11-10-R7-crm-webhook-auth-retries.md) (signing from vendor SDKs; retry policies only as search summaries)
 - [ ] Custom objects and stage design for outbound in each CRM (signals, sequences, meetings as objects vs properties)
 - [ ] Confirm on live docs or a delivery: HubSpot v3 header names and Webhooks API timeout / batch size, Attio signature header + whether a timestamp is signed + retry schedule, Pipedrive retry schedule and auto-removal window
-- [ ] Funnel reporting from raw events (sent → replied → meeting → deal) by segment / signal; tools vs a sheet / Notion
-- [ ] Cost tracking: tool spend per hypothesis, cost per meeting
+- [x] Funnel reporting from raw events (sent → replied → meeting → deal) by segment / signal → [note](notes/2026-11-19-R7-funnel-reporting-raw-events.md) (email half from vendor CLIs: Smartlead event-date vs sent-time routes, Instantly meeting = lead label; docs hosts ENOTFOUND)
+- [ ] Funnel for LinkedIn and calls: what HeyReach / Unipile and the dialers expose per lead (send, accept, reply, meeting) and how a cross-channel meeting is attributed to one touch
+- [ ] Open Smartlead / Instantly API references when reachable: is Smartlead `reply_count` per lead or per message, does it include auto-replies, and what Instantly `expand_crm_events` changes in the overview
+- [ ] Cost tracking: tool spend per hypothesis, cost per meeting (formula only so far — (retainer + data / tool + labour) ÷ meetings, search summaries 2026-11-19; open: Clay credit usage per table via API, sequencer seat / mailbox cost per campaign)
 
 ## R8 · AI agents & MCP over the stack
 - [x] Which GTM tools ship MCP servers (Clay, HubSpot, Apollo, Smartlead, Airtable…); what an agent can safely do with them → [note](notes/2026-10-31-R8-gtm-mcp-servers-write-safety.md) (sourcing tools in the R1 note)

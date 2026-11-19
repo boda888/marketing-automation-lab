@@ -114,7 +114,7 @@ Pain: branches that fail silently.
 
 ## 10 · Reporting that reconciles
 Pain: dashboard numbers nobody trusts.
-- [ ] funnel by segment/signal computed from raw events; reconciliation checks
+- [ ] funnel by segment/signal computed from raw events; reconciliation checks: rates on the **send cohort** from a per-lead table, never event-dated aggregates divided by each other (Smartlead has event-date and `…-by-sent-time` routes; Instantly's analytics are event-dated only); reply rate = unique human replies / delivered (sent − bounces); a meeting counts from a CRM meeting object, a sequencer label (Instantly `interest_status` 2) only as a separately reported claim; the reconciliation check names the vendor's attribution and denominator; cost per meeting only when every spend line has a period and source ([R7 2026-11-19](research/notes/2026-11-19-R7-funnel-reporting-raw-events.md))
 - [ ] A/B test significance
 
 ## 11 · End-to-end
