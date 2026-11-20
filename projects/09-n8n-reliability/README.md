@@ -14,6 +14,8 @@ v0.0.3 (2026-11-19): the n8n loop that uses it, [`n8n/retry-loop.json`](n8n/retr
 replayed offline against the service.
 v0.0.4 (2026-11-19): **dedupe keys that commit only after success** (`reliability.dedupe`,
 `/v1/keys/*`).
+v0.0.5 (2026-11-20): **dead-letter store with a replay that refuses unsafe rows**
+(`reliability.dlq`, `/v1/dlq/*`).
 
 ## Per-item retries
 
@@ -165,6 +167,39 @@ already committed, 404 no reservation); `POST /v1/keys/resolve` `{scope, key, la
 force?}`; `GET /v1/keys/pending?scope=&older_than=`. `RELIABILITY_DB` sets the SQLite path
 (default in-memory, lost on restart), `RELIABILITY_STALE_AFTER` the seconds (default 900).
 
+## Dead-letter rows: one per key, replay only what is safe
+
+Every `stop` from `/v1/decide` carries a flat `dlq_row`; `POST /v1/dlq` stores it with the
+item's payload and where it came from, so the lead that failed is named in one table instead
+of an error-workflow alert that carries no items.
+
+```json
+{"scope": "smartlead:campaign-42", "row": {"key": "ana@acme.example", "outcome": "unknown", ...},
+ "payload": {"email": "ana@acme.example", "first_line": "..."},
+ "source": {"workflow": "push", "node": "Push lead", "execution_id": "77"}}
+```
+
+| outcome | `POST /v1/dlq/replay` | what a person does |
+|---|---|---|
+| `exhausted` | handed back with its payload | nothing; replay re-enters the loop at attempt 1 |
+| `deferred` | handed back once `retry_at` has passed, else `not_due` | nothing |
+| `unknown` | **refused** (`unsafe_to_resend`): may have landed | read the vendor back → `POST /v1/dlq/{id}/resolve {landed}`: landed → `resolved`; not landed → becomes `exhausted` (replayable) |
+| `failed` | **refused**: the vendor rejected the data | fix the data and push it again, or `POST /v1/dlq/{id}/discard` |
+
+- **One row per `(scope, key)`.** A repeat failure of the same lead (including after a
+  replay) updates the open row: `count` + 1, latest outcome / reason, `first_seen_at` kept.
+  A resolved or discarded key that fails again is a new row.
+- `safe_to_resend` is recomputed from the outcome on intake; the caller's value is ignored.
+- A replayed row moves to `replayed`, so a second replay call never hands it out twice;
+  `replays` counts redrives and `max_replays` (default 3) stops a poison item with
+  `replay_limit`. `dry_run: true` returns the same verdicts and changes nothing.
+- `GET /v1/dlq?state=open|replayed|resolved|discarded|all&scope=&outcome=` lists rows oldest
+  first; `GET /v1/dlq/summary` gives open rows by outcome, `open_unsafe` (unknown + failed)
+  and the oldest open age for an alert.
+- Like an SQS redrive, a replayed item is a new attempt sequence; unlike SQS, which redrives
+  every message, the store never hands back an item that may already have landed.
+- SQLite (`RELIABILITY_DLQ_DB`, default `RELIABILITY_DB`), payloads capped at 64 KB.
+
 ## Run it
 
 ```bash
@@ -174,9 +209,10 @@ python -m pytest -q
 
 ## Limits
 
-- No DLQ store or shared rate budget yet (next steps in the root ROADMAP 09): the loop
-  hands DLQ rows to a sub-workflow you provide, and `retry-loop.json` does not call
-  `/v1/keys/*` yet. The key store is one SQLite file: several n8n workers share it only
+- No shared rate budget yet (next steps in the root ROADMAP 09). `retry-loop.json` still
+  hands DLQ rows to a sub-workflow you provide (point it at `POST /v1/dlq`) and does not
+  call `/v1/keys/*` yet; there is no n8n replay workflow over `/v1/dlq/replay` yet, and
+  replay does not consult the key store (the loop's claim must do that). The key store is one SQLite file: several n8n workers share it only
   through one service instance (no Postgres / Redis backend). `run_items` waits in-process; for
   long waits use `deferred`.
 - `retry-loop.json` was never imported into a live n8n; node parameters were checked
@@ -188,6 +224,9 @@ python -m pytest -q
 - Offline tests with a scripted fake vendor; never run against a live vendor or a live n8n.
 - Which vendors honour `Idempotency-Key`, and whether a vendor's 429 can follow a processed
   request, is per vendor and not checked here; the caller decides `idempotent` / `keyed`.
+- DLQ redrive semantics compared with the Amazon SQS developer guide source on GitHub
+  (redrive = new message, alarm on arrivals, retention measured from the original enqueue);
+  docs.n8n.io and docs.aws.amazon.com did not resolve from the run environment (2026-11-20).
 - RFC 9110, the IETF draft page and the AWS backoff article did not resolve from the run
   environment (2026-11-18); the rules come from the draft's source on GitHub and urllib3's
   `retry.py`.

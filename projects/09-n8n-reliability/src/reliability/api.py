@@ -45,9 +45,20 @@ guarded call succeeded:
   younger than ``stale_after`` unless ``force``;
 - ``GET /v1/keys/pending?scope=&older_than=`` for a watchdog.
 
+Dead-letter rows (``reliability.dlq.DlqStore``), one per ``(scope, key)``:
+
+- ``POST /v1/dlq`` ``{scope, row: <dlq_row from /v1/decide>, payload?, source?}`` -> the
+  stored row (a repeat failure of the same key updates it; ``safe_to_resend`` is recomputed);
+- ``GET /v1/dlq?state=open&scope=&outcome=`` and ``GET /v1/dlq/summary?scope=`` for alerts;
+- ``POST /v1/dlq/replay`` ``{ids?, scope?, dry_run?}`` -> ``replay`` items with payloads plus
+  refusals (``unsafe_to_resend`` for unknown / failed, ``not_due``, ``replay_limit``);
+- ``POST /v1/dlq/{id}/resolve`` ``{landed, note?}`` after a read-back, and
+  ``POST /v1/dlq/{id}/discard`` ``{note?}``: 404 unknown id, 409 closed row.
+
     uvicorn reliability.api:app_from_env --factory
     # RELIABILITY_API_TOKEN optional; RELIABILITY_DB (SQLite path, default in-memory);
-    # RELIABILITY_STALE_AFTER seconds (default 900)
+    # RELIABILITY_STALE_AFTER seconds (default 900); RELIABILITY_DLQ_DB (default
+    # RELIABILITY_DB); RELIABILITY_MAX_REPLAYS (default 3)
 """
 
 from __future__ import annotations
@@ -64,6 +75,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from .dedupe import AlreadyCommitted, KeyStore, NotReserved, StillInFlight, TokenMismatch
+from .dlq import DlqStore, RowClosed, RowNotFound
 from .retry import HttpResult, ItemResult, RetryPolicy, TransportError, decide, is_idempotent
 
 # Node.js / OpenSSL error codes raised before any request bytes reach the vendor.
@@ -232,6 +244,47 @@ class ResolveIn(BaseModel):
     force: bool = False
 
 
+class DlqIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str = Field(min_length=1, max_length=200)
+    row: dict[str, Any]
+    payload: Any = None
+    source: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReplayIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[int] | None = Field(default=None, max_length=1000)
+    scope: str | None = Field(default=None, min_length=1, max_length=200)
+    dry_run: bool = False
+
+
+class ResolveRowIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    landed: bool
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class NoteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    note: str | None = Field(default=None, max_length=1000)
+
+
+def _dlq_errors(call: Callable[[], Any]) -> Any:
+    try:
+        return call()
+    except RowNotFound as exc:
+        raise HTTPException(404, str(exc)) from None
+    except RowClosed as exc:
+        raise HTTPException(409, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
 def _key_errors(call: Callable[[], Any]) -> Any:
     try:
         return call()
@@ -247,11 +300,13 @@ def create_app(
     *,
     api_token: str | None = None,
     store: KeyStore | None = None,
+    dlq: DlqStore | None = None,
     now: Callable[[], float] = time.time,
     rand: Callable[[], float] = random.random,
 ) -> FastAPI:
-    app = FastAPI(title="n8n reliability kit", version="0.0.4")
+    app = FastAPI(title="n8n reliability kit", version="0.0.5")
     keys = store if store is not None else KeyStore(clock=now)
+    dead = dlq if dlq is not None else DlqStore(clock=now)
 
     def check_token(authorization: str | None = Header(default=None)) -> None:
         if api_token is None:
@@ -318,6 +373,63 @@ def create_app(
             ],
         }
 
+    @app.post("/v1/dlq", dependencies=[Depends(check_token)])
+    def dlq_intake_route(body: DlqIn) -> dict[str, Any]:
+        row = _dlq_errors(
+            lambda: dead.intake(
+                body.row, scope=body.scope, payload=body.payload, source=body.source
+            )
+        )
+        return row.as_dict()
+
+    @app.get("/v1/dlq", dependencies=[Depends(check_token)])
+    def dlq_list_route(
+        state: str | None = "open",
+        scope: str | None = None,
+        outcome: str | None = None,
+        limit: int = 500,
+    ) -> dict[str, Any]:
+        if state == "all":
+            state = None
+        rows = dead.rows(state=state, scope=scope, outcome=outcome, limit=limit)  # type: ignore[arg-type]
+        return {"count": len(rows), "rows": [r.as_dict() for r in rows]}
+
+    @app.get("/v1/dlq/summary", dependencies=[Depends(check_token)])
+    def dlq_summary_route(scope: str | None = None) -> dict[str, Any]:
+        return dead.summary(scope=scope)
+
+    @app.post("/v1/dlq/replay", dependencies=[Depends(check_token)])
+    def dlq_replay_route(body: ReplayIn) -> dict[str, Any]:
+        items = dead.replay(body.ids, scope=body.scope, dry_run=body.dry_run)
+        listed = [
+            {
+                "id": i.id,
+                "status": i.status,
+                "go": i.go,
+                "scope": i.scope,
+                "key": i.key,
+                "payload": i.payload,
+                "retry_at": i.retry_at,
+                "reason": i.reason,
+            }
+            for i in items
+        ]
+        return {
+            "dry_run": body.dry_run,
+            "replay": [i for i in listed if i["go"]],
+            "refused": [i for i in listed if not i["go"]],
+        }
+
+    @app.post("/v1/dlq/{row_id}/resolve", dependencies=[Depends(check_token)])
+    def dlq_resolve_route(row_id: int, body: ResolveRowIn) -> dict[str, Any]:
+        return _dlq_errors(
+            lambda: dead.resolve(row_id, landed=body.landed, note=body.note)
+        ).as_dict()
+
+    @app.post("/v1/dlq/{row_id}/discard", dependencies=[Depends(check_token)])
+    def dlq_discard_route(row_id: int, body: NoteIn) -> dict[str, Any]:
+        return _dlq_errors(lambda: dead.discard(row_id, note=body.note)).as_dict()
+
     return app
 
 
@@ -327,4 +439,8 @@ def app_from_env() -> FastAPI:
         os.environ.get("RELIABILITY_DB") or ":memory:",
         stale_after=float(os.environ.get("RELIABILITY_STALE_AFTER") or 900),
     )
-    return create_app(api_token=token, store=store)
+    dlq = DlqStore(
+        os.environ.get("RELIABILITY_DLQ_DB") or os.environ.get("RELIABILITY_DB") or ":memory:",
+        max_replays=int(os.environ.get("RELIABILITY_MAX_REPLAYS") or 3),
+    )
+    return create_app(api_token=token, store=store, dlq=dlq)

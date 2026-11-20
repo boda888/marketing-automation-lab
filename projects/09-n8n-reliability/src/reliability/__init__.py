@@ -9,6 +9,7 @@ from .dedupe import (
     StillInFlight,
     TokenMismatch,
 )
+from .dlq import DlqRow, DlqStore, ReplayItem, RowClosed, RowNotFound
 from .retry import (
     IDEMPOTENT_METHODS,
     RETRYABLE_STATUSES,
@@ -24,7 +25,7 @@ from .retry import (
     run_items,
 )
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 
 __all__ = [
     "AlreadyCommitted",
@@ -32,12 +33,17 @@ __all__ = [
     "RETRYABLE_STATUSES",
     "Claim",
     "Decision",
+    "DlqRow",
+    "DlqStore",
     "HttpResult",
     "ItemResult",
     "KeyStore",
     "NotReserved",
+    "ReplayItem",
     "Reservation",
     "RetryPolicy",
+    "RowClosed",
+    "RowNotFound",
     "RunReport",
     "StillInFlight",
     "TokenMismatch",
