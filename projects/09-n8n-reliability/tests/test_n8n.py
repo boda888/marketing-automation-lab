@@ -106,16 +106,25 @@ def run_set(node, item, ctx):
 # --- the replay -------------------------------------------------------------------------
 
 
+SERVICE = "http://reliability:8009"
+ALERTS = ("Alert: unknown action", "Alert: claim needs review")
+
+
 class Replay:
-    def __init__(self, client, demo):
+    def __init__(self, client, entries):
         self.client = client
-        self.script = {d["lead"]["email"]: list(d["answers"]) for d in demo["leads"]}
+        self.script = {d["lead"]["email"]: list(d["answers"]) for d in entries}
+        self.leads = [d["lead"] for d in entries]
         self.pushes = {}
         self.waits = {}
         self.ends = {}
         self.dlq = []
         self.alerts = []
-        self.decide_calls = 0
+        self.calls = {}  # service path -> bodies, in order
+
+    @property
+    def decide_calls(self):
+        return len(self.calls.get("/v1/decide", []))
 
     def step(self, name, item, ctx):
         """Run one node on one item -> (output index, item out)."""
@@ -138,13 +147,11 @@ class Replay:
             return 0, item
         if name == "Push lead (one item)":
             return self.push(node, item, ctx)
-        if name == "Decide (POST /v1/decide)":
-            return self.decide(node, item, ctx)
-        if name == DLQ:
-            return self.dlq_intake(node, item, ctx)
-        if name == "Alert: unknown action":
-            self.alerts.append(item)
+        if name in ALERTS:
+            self.alerts.append((name, item))
             return 0, item
+        if kind == "httpRequest":
+            return self.service(node, item, ctx)
         raise AssertionError(f"replay does not know node {name!r}")
 
     def push(self, node, item, ctx):
@@ -159,27 +166,24 @@ class Replay:
             return 1, {"error": answer["error"]}
         return 0, {"statusCode": answer["status"], "headers": answer.get("headers", {}), "body": {}}
 
-    def decide(self, node, item, ctx):
+    def service(self, node, item, ctx):
+        """Any call to the reliability service goes to the FastAPI app; non-200 fails the run."""
         params = node["parameters"]
+        assert params["method"] == "POST" and params["genericAuthType"] == "httpHeaderAuth"
         url = evaluate(params["url"], item, ctx)
-        assert url == "http://reliability:8009/v1/decide"
+        assert url.startswith(SERVICE + "/v1/"), url
+        path = url.removeprefix(SERVICE)
         body = evaluate(params["jsonBody"], item, ctx)
-        self.decide_calls += 1
-        r = self.client.post("/v1/decide", json=body, headers={"Authorization": f"Bearer {TOKEN}"})
-        assert r.status_code == 200, r.text
-        return 0, r.json()
-
-    def dlq_intake(self, node, item, ctx):
-        params = node["parameters"]
-        assert evaluate(params["url"], item, ctx) == "http://reliability:8009/v1/dlq"
-        body = evaluate(params["jsonBody"], item, ctx)
-        r = self.client.post("/v1/dlq", json=body, headers={"Authorization": f"Bearer {TOKEN}"})
-        assert r.status_code == 200, r.text
-        self.dlq.append(r.json())
+        self.calls.setdefault(path, []).append(body)
+        r = self.client.post(path, json=body, headers={"Authorization": f"Bearer {TOKEN}"})
+        assert r.status_code == 200, (path, r.text)
+        if path == "/v1/dlq":
+            self.dlq.append(r.json())
         return 0, r.json()
 
     def drive(self, item, ctx):
         """One lead from the loop output until it is handed back to the loop."""
+        ctx = dict(ctx)  # node outputs of this pass only; Config stays visible
         name = targets(LOOP, 1)[0]
         for _ in range(200):
             output, item = self.step(name, item, ctx)
@@ -187,18 +191,17 @@ class Replay:
             (name,) = targets(name, output)
             if name == LOOP:
                 return item
-            if name == "Next lead":
-                decided = ctx["Decision + lead"]  # DLQ / alert paths carry no lead fields
-                self.ends[decided["lead"]["email"]] = decided
+            if name == "Next lead":  # DLQ / alert paths carry no lead fields: read the pass
+                end = ctx.get("Decision + lead") or ctx["Claim + lead"]
+                self.ends[end["lead"]["email"]] = end
         raise AssertionError("lead never returned to the loop")
 
     def run(self):
         ctx = {}
-        items = [d["lead"] for d in DEMO["leads"]]
         (collect,) = targets("Leads in (sub-workflow)")
         agg = NODES[collect]["parameters"]
         assert agg["aggregate"] == "aggregateAllItemData"
-        one = {agg["destinationFieldName"]: items}
+        one = {agg["destinationFieldName"]: self.leads}
         (config,) = targets(collect)
         ctx[config] = run_set(NODES[config], one, ctx)
         (split,) = targets(config)
@@ -209,11 +212,27 @@ class Replay:
         return targets(LOOP, 0)
 
 
+class Clock:
+    def __init__(self, t):
+        self.t = float(t)
+
+    def __call__(self):
+        return self.t
+
+
 @pytest.fixture()
-def replay():
-    now = float(DEMO["now"])
-    app = create_app(api_token=TOKEN, now=lambda: now, rand=lambda: 0.5)
-    r = Replay(TestClient(app), DEMO)
+def clock():
+    return Clock(DEMO["now"])
+
+
+@pytest.fixture()
+def client(clock):
+    return TestClient(create_app(api_token=TOKEN, now=clock, rand=lambda: 0.5))
+
+
+@pytest.fixture()
+def replay(client):
+    r = Replay(client, DEMO["leads"])
     r.finished = r.run()
     return r
 
@@ -234,6 +253,7 @@ def test_loop_takes_one_lead_per_pass_and_retries_re_enter_the_same_call():
     assert NODES[LOOP]["parameters"]["batchSize"] == 1
     assert NODES[LOOP]["typeVersion"] == 3  # outputs: 0 done, 1 loop
     assert targets(LOOP, 0) == ["All leads handled"]
+    assert targets(LOOP, 1) == ["Claim body"]
     assert targets("Wait (wait_ms)") == ["Next attempt"]
     assert targets("Next attempt") == ["Attempt"]
     assert targets("Attempt") == ["Push lead (one item)"]
@@ -251,12 +271,12 @@ def test_loop_takes_one_lead_per_pass_and_retries_re_enter_the_same_call():
 def test_switch_covers_every_action_and_unknown_actions_alert():
     assert switch_values("Route by action") == ["done", "retry", "stop"]
     assert NODES["Route by action"]["parameters"]["options"]["fallbackOutput"] == "extra"
-    assert targets("Route by action", 0) == ["Next lead"]
+    assert targets("Route by action", 0) == ["Commit key (POST /v1/keys/commit)"]
     assert targets("Route by action", 1) == ["Wait (wait_ms)"]
     assert targets("Route by action", 2) == ["DLQ intake body"]
     assert targets("Route by action", 3) == ["Alert: unknown action"]
     assert targets("DLQ intake body") == [DLQ]
-    assert targets(DLQ) == ["Next lead"]
+    assert targets(DLQ) == ["Key after stop"]
 
 
 def test_dlq_write_is_authenticated_and_fails_the_run_when_it_cannot_store():
@@ -357,8 +377,115 @@ def test_replay_hands_back_only_rows_that_cannot_have_landed(replay):
 
 def test_unexpected_action_takes_the_alert_branch():
     client = TestClient(create_app(api_token=TOKEN))
-    r = Replay(client, DEMO)
+    r = Replay(client, DEMO["leads"])
     ctx = {"Attempt": {"attempt": 1, "lead": {"email": "x@y.example"}}}
     item = {"decision": {"action": "pause"}, "lead": {"email": "x@y.example"}}
     output, _ = r.step("Route by action", item, ctx)
     assert targets("Route by action", output) == ["Alert: unknown action"]
+
+
+# --- dedupe keys: claim before the push, commit on done, release what never landed --------
+
+AUTH = {"Authorization": f"Bearer {TOKEN}"}
+SCOPE = "sequencer:campaign-demo"
+LANDED = {"ana@acme.example", "ben@birch.example", "dev@dune.example"}
+MAY_HAVE_LANDED = {"cara@cobalt.example", "eli@elm.example"}
+NEVER_LANDED = {"fay@fjord.example", "gus@gale.example", "hal@heath.example"}
+
+
+def second_run(client, answer=None):
+    """Same leads again; only the leads in `answer` have a scripted vendor reply."""
+    answer = answer or {}
+    entries = [
+        {"lead": d["lead"], "answers": answer.get(d["lead"]["email"], [])} for d in DEMO["leads"]
+    ]
+    r = Replay(client, entries)
+    r.finished = r.run()
+    return r
+
+
+def test_every_reliability_call_is_authenticated_and_fails_the_run_loudly():
+    service = [
+        n
+        for n in WF["nodes"]
+        if n["type"] == "n8n-nodes-base.httpRequest" and "reliability_url" in n["parameters"]["url"]
+    ]
+    paths = sorted(n["parameters"]["url"].split("}}")[-1] for n in service)
+    assert paths == [
+        "/v1/decide",
+        "/v1/dlq",
+        "/v1/keys/claim",
+        "/v1/keys/commit",
+        "/v1/keys/release",
+    ]
+    for n in service:
+        assert n["parameters"]["genericAuthType"] == "httpHeaderAuth", n["name"]
+        assert "onError" not in n and n["retryOnFail"] is False, n["name"]
+
+
+def test_only_a_fresh_reservation_is_pushed_and_unknown_keeps_its_key():
+    assert switch_values("Route by claim") == ["reserved", "committed", "in_flight", "stale"]
+    assert targets("Route by claim", 0) == ["First attempt"]
+    assert (
+        targets("Route by claim", 1)
+        == targets("Route by claim", 2)
+        == ["Skip: already pushed or in flight"]
+    )
+    assert (
+        targets("Route by claim", 3)
+        == targets("Route by claim", 4)
+        == ["Alert: claim needs review"]
+    )
+    assert switch_values("Key after stop") == ["unknown", "failed", "exhausted", "deferred"]
+    assert targets("Key after stop", 0) == ["Keep reservation (may have landed)"]
+    for out in (1, 2, 3):
+        assert targets("Key after stop", out) == ["Release key (POST /v1/keys/release)"]
+    assert targets("Key after stop", 4) == ["Alert: unknown action"]
+
+
+def test_first_run_commits_what_landed_and_releases_what_never_did(replay):
+    commits = {b["key"] for b in replay.calls["/v1/keys/commit"]}
+    releases = {b["key"] for b in replay.calls["/v1/keys/release"]}
+    assert commits == LANDED and releases == NEVER_LANDED
+    tokens = {
+        b["token"] for b in replay.calls["/v1/keys/commit"] + replay.calls["/v1/keys/release"]
+    }
+    assert len(tokens) == 6 and None not in tokens  # each lead's own claim token
+    pending = replay.client.get("/v1/keys/pending", params={"scope": SCOPE}, headers=AUTH).json()
+    assert {r["key"] for r in pending["reservations"]} == MAY_HAVE_LANDED
+
+
+def test_second_run_skips_pushed_and_in_flight_leads_and_retries_only_released_ones(replay, clock):
+    clock.t += 60
+    again = second_run(replay.client, {e: [{"status": 201}] for e in NEVER_LANDED})
+    assert again.finished == ["All leads handled"]
+    assert again.pushes == dict.fromkeys(NEVER_LANDED, 1)  # no other lead reaches the vendor
+    for email in LANDED:
+        assert again.ends[email]["claim"]["status"] == "committed"
+    for email in MAY_HAVE_LANDED:
+        assert again.ends[email]["claim"]["status"] == "in_flight"
+    for email in NEVER_LANDED:
+        assert again.ends[email]["decision"]["outcome"] == "ok"
+    assert again.alerts == [] and again.dlq == []
+
+
+def test_an_old_reservation_that_may_have_landed_alerts_instead_of_re_sending(replay, clock):
+    clock.t += 901  # RELIABILITY_STALE_AFTER default: 900 s
+    again = second_run(replay.client, {e: [{"status": 201}] for e in NEVER_LANDED})
+    assert set(again.pushes) == NEVER_LANDED
+    reviewed = {item["lead"]["email"] for name, item in again.alerts}
+    assert reviewed == MAY_HAVE_LANDED
+    assert {name for name, _ in again.alerts} == {"Alert: claim needs review"}
+    for email in MAY_HAVE_LANDED:
+        assert email not in again.pushes
+
+
+def test_a_dlq_replay_of_a_lead_that_landed_since_is_skipped_by_its_claim(replay, clock):
+    clock.t += 60
+    second_run(replay.client, {e: [{"status": 201}] for e in NEVER_LANDED})
+    handed = replay.client.post("/v1/dlq/replay", json={}, headers=AUTH).json()["replay"]
+    assert [i["key"] for i in handed] == ["hal@heath.example"]  # the DLQ row is still open
+    third = Replay(replay.client, [{"lead": i["payload"], "answers": []} for i in handed])
+    third.run()
+    assert third.pushes == {}  # committed in run 2: the replayed payload is not pushed again
+    assert third.ends["hal@heath.example"]["claim"]["status"] == "committed"

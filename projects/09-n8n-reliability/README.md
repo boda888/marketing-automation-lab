@@ -18,6 +18,9 @@ v0.0.5 (2026-11-20): **dead-letter store with a replay that refuses unsafe rows*
 (`reliability.dlq`, `/v1/dlq/*`).
 v0.0.6 (2026-11-21): the loop's stop branch writes to `POST /v1/dlq` (lead as payload,
 workflow + execution id as source) instead of a sub-workflow you had to provide.
+v0.0.7 (2026-11-21): the loop **claims a dedupe key before every push**, commits it on `done`,
+releases it after a stop that certainly did not land and keeps it reserved after `unknown`,
+so a re-run or a DLQ replay never re-sends a lead that is already in the campaign.
 
 ## Per-item retries
 
@@ -104,18 +107,24 @@ After each attempt for **one** item, n8n posts what happened and branches on `ac
 
 ## n8n loop: `n8n/retry-loop.json`
 
-A sub-workflow that pushes leads to a sequencer one at a time and asks `/v1/decide` after
-every attempt:
+A sub-workflow that pushes leads to a sequencer one at a time, claims each lead's key first
+and asks `/v1/decide` after every attempt:
 
 ```
 Leads in -> Collect leads -> Config -> One item per lead -> Loop over leads (batch 1)
-  loop -> First attempt -> Attempt -> Push lead (Never Error, full response, no Retry On Fail)
+  loop -> Claim body -> Claim key (POST /v1/keys/claim) -> Claim + lead -> Route by claim
+            committed / in_flight -> Skip (logged) -> Next lead
+            stale / other         -> Alert: claim needs review -> Next lead
+            reserved -> First attempt (+ token)
+  -> Attempt -> Push lead (Never Error, full response, no Retry On Fail)
             HTTP answer  -> Decide body: statusCode + headers ┐
             no answer    -> Decide body: error.code          ┴-> Decide (POST /v1/decide)
           -> Decision + lead -> Route by action
-               done  -> Next lead -> Loop
+               done  -> Commit key (POST /v1/keys/commit) -> Next lead -> Loop
                retry -> Wait (wait_ms / 1000 s) -> Next attempt -> Attempt   (same lead only)
-               stop  -> DLQ intake body -> DLQ (POST /v1/dlq) -> Next lead
+               stop  -> DLQ intake body -> DLQ (POST /v1/dlq) -> Key after stop
+                          unknown                     -> Keep reservation -> Next lead
+                          failed / exhausted / deferred -> Release key (POST /v1/keys/release) -> Next lead
                other -> Alert -> Next lead
   done -> All leads handled
 ```
@@ -137,6 +146,18 @@ Leads in -> Collect leads -> Config -> One item per lead -> Loop over leads (bat
   `$workflow` in n8n-workflow 2.16.0 `workflow-data-proxy.js`, `$execution.id` in n8n-core
   2.16.1 `get-additional-keys.js`). Same credential, no continue-on-error: a failed write
   fails the run instead of losing the row.
+- **Dedupe key per person and target**: `claim {scope, key: email}` before the first
+  attempt; the token rides along every attempt (`Attempt` → `Decision + lead` →
+  `Next attempt`) so only this execution can commit or release it. `committed` (pushed by an
+  earlier run) and `in_flight` (another execution holds it) are skipped and logged, never an
+  error that stops the batch; `stale` (reserved ≥ `RELIABILITY_STALE_AFTER` ago, never
+  finished) goes to a review alert and is not pushed until someone reads the vendor back and
+  calls `POST /v1/keys/resolve`.
+- The key is committed only after a 2xx, released only after `failed` / `exhausted` /
+  `deferred` (read from the outcome the DLQ stored), and kept after `unknown`. A replayed DLQ
+  payload re-enters the same loop, so its claim is what stops a lead that landed in a later
+  run from being pushed twice. A 409 on commit / release (another token) fails the run: it
+  means two executions touched one key.
 
 `tests/test_n8n.py` replays [`examples/demo-loop.json`](examples/demo-loop.json) (8
 synthetic `.example` leads: 201, 429 + `Retry-After: 7`, 502, refused then 200, socket hang
@@ -146,6 +167,10 @@ goes to the FastAPI app. It checks every lead ends exactly once, push counts and
 lead, and the DLQ rows the service stored (`unknown` ×2, `deferred`, `failed`, `exhausted`,
 each with the lead as payload and the execution as source), and that a dry-run replay right
 after the run hands back only the `exhausted` lead (`unknown` refused, `deferred` not due).
+Further runs on the same service check the keys: run 2 pushes only the three released leads
+(the landed ones are `committed`, the `unknown` ones `in_flight`); 901 s later the `unknown`
+ones are `stale` and alert instead of being pushed; a DLQ replay of a lead that landed in run 2
+is skipped by its claim.
 
 ## Dedupe keys: claim → commit only after the call landed
 
@@ -219,11 +244,14 @@ python -m pytest -q
 
 ## Limits
 
-- No shared rate budget yet (next steps in the root ROADMAP 09). `retry-loop.json` does not
-  call `/v1/keys/*` yet; there is no n8n replay workflow over `/v1/dlq/replay` yet, and
+- No shared rate budget yet (next steps in the root ROADMAP 09). There is no n8n replay workflow over `/v1/dlq/replay` yet, and
   replay does not consult the key store (the loop's claim must do that). The key store is one SQLite file: several n8n workers share it only
   through one service instance (no Postgres / Redis backend). `run_items` waits in-process; for
   long waits use `deferred`.
+- Releasing a `deferred` key lets the next scheduled run push that lead before `retry_at`
+  (it will most likely be deferred again and bump the same DLQ row); a run that dies between
+  push and commit leaves a reservation that turns `stale`, which is the intended "read back
+  first" state, not a re-send.
 - `retry-loop.json` was never imported into a live n8n; node parameters were checked
   against the n8n-nodes-base 2.48.4 package source (Wait, SplitInBatches v3, Aggregate,
   SplitOut, Switch v3, HTTP Request v3), and the replay's evaluator covers only the
