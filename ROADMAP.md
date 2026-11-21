@@ -83,7 +83,7 @@ Pain: one bad model response ships to the whole list.
 - [ ] generator → reviewer → deterministic QA; JSON-schema-validated output
 - [ ] citation guard: every claim cites a signal/enrichment fact with source URL; no evidence → no line
 - [ ] provider abstraction (Anthropic / OpenAI) + deterministic fake LLM for tests
-- [ ] eval set and scorer (groundedness, length, banned phrases)
+- [ ] eval set and scorer (groundedness, length, banned phrases), scored by a deterministic checker, not only LLM-judge rubrics; it must include no-signal rows (expect `no_hook_found` → segment line), stale-signal rows (refused) and rows whose scraped text carries an injected instruction (never reaches the copy) ([R8 2026-11-21](research/notes/2026-11-21-R8-outbound-skills-guardrails-evals.md))
 - [ ] prompt ↔ JSON-schema consistency check; campaign geography passed explicitly, never inferred from HQ or contact location
 
 ## 06 · Sequencer sync — v0.1.0 (2026-11-04)

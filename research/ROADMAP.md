@@ -93,7 +93,8 @@ can apply, a catalogue row, or a lab roadmap item.
 - [ ] HubSpot's remote MCP server (used by Claude's connector): open the vendor docs when reachable — tool list per scope, whether writes are upserts, how partial failures and the per-write confirmation work (endpoint / OAuth / GA date as search summaries and the dev server's elicitation gate in the [2026-11-11 note](notes/2026-11-11-R8-agent-write-confirmation-elicitation.md); docs still ENOTFOUND)
 - [ ] Clay as an MCP / connector: confirm on clay.com or docs.clay.com what an agent can do (read tables, run enrichments, spend credits) and how credits are capped per call (npm `@clayhq/clay-mcp` is clay.earth, not Clay.com; connector facts so far search summaries only — 2026-11-11 note)
 - [x] How an MCP server makes a human confirm a write (elicitation), and whether that holds when the agent runs in n8n → [note](notes/2026-11-11-R8-agent-write-confirmation-elicitation.md) (n8n's client declares no elicitation: confirmations degrade to a model-settable flag)
-- [ ] Claude skills / agents for research, first lines and reply drafting: guardrails, review steps, eval practice
+- [x] Claude skills / agents for research, first lines and reply drafting: guardrails, review steps, eval practice → [note](notes/2026-11-21-R8-outbound-skills-guardrails-evals.md) (Anthropic skill docs + a community cold-email skill; prose guardrails, LLM-judged evals without prospect data)
+- [ ] Score a community cold-email skill (or the lab's 05 prompts) against a no-signal / stale-signal / injected-text set with a live model — how often does it invent a hook?
 - [ ] Agent-run workflows vs n8n: when each is the right tool
 
 ## R9 · Orchestration & reliability

@@ -182,7 +182,8 @@
     "2026-11-19 (morning): 09 n8n reliability 0.0.2 — FastAPI POST /v1/decide (reliability.api) over decide(): statusCode + headers or an error code in, action / outcome / wait_ms / next_attempt / retry_at(_iso) / safe_to_resend / dlq_row out; only DNS / refused / unreachable / TLS-cert codes count as never sent, unknown or missing codes -> may have landed; Idempotency-Key from request_headers makes the call keyed; optional bearer token; 422 for undecidable bodies. 74 offline tests.",
     "2026-11-19 (evening): 09 n8n reliability 0.0.3 — n8n/retry-loop.json: Loop Over Items batch 1 (Wait reads its amount from item 0 only, n8n-nodes-base 2.48.4) -> push (Never Error, full response, no Retry On Fail, error output for no answer) -> /v1/decide -> Switch done / retry (Wait wait_ms -> same call, attempt from the service) / stop (DLQ row sub-workflow) / unknown -> alert; replayed offline over 8 synthetic leads (examples/demo-loop.json) through the workflow's own connections with a scripted vendor and the FastAPI app.",
     "2026-11-19 (evening): 09 n8n reliability 0.0.4 — KeyStore (reliability.dedupe, SQLite WAL): claim -> reserved + token / committed / in_flight / stale, commit only after success, release when it certainly did not land, resolve(landed=) after a read-back of a stale key, pending() for a watchdog, scoped keys; POST /v1/keys/claim|commit|release|resolve, GET /v1/keys/pending. 98 offline tests.",
-    "2026-11-20 (evening): 09 n8n reliability 0.0.5 — DlqStore (reliability.dlq, SQLite WAL): intake of /v1/decide dlq_rows with payload + source, one active row per (scope, key) (repeat failures bump count, first_seen_at kept), safe_to_resend recomputed from outcome, replay hands back payloads only for exhausted rows and deferred rows past retry_at, refuses unknown / failed (unsafe_to_resend), not_due, replay_limit (max_replays 3), dry_run; resolve(landed=) after read-back (not landed -> exhausted, replayable), discard, summary (open by outcome, open_unsafe, oldest open age); FastAPI /v1/dlq, /v1/dlq/summary, /v1/dlq/replay, /v1/dlq/{id}/resolve|discard. 116 offline tests."
+    "2026-11-20 (evening): 09 n8n reliability 0.0.5 — DlqStore (reliability.dlq, SQLite WAL): intake of /v1/decide dlq_rows with payload + source, one active row per (scope, key) (repeat failures bump count, first_seen_at kept), safe_to_resend recomputed from outcome, replay hands back payloads only for exhausted rows and deferred rows past retry_at, refuses unknown / failed (unsafe_to_resend), not_due, replay_limit (max_replays 3), dry_run; resolve(landed=) after read-back (not landed -> exhausted, replayable), discard, summary (open by outcome, open_unsafe, oldest open age); FastAPI /v1/dlq, /v1/dlq/summary, /v1/dlq/replay, /v1/dlq/{id}/resolve|discard. 116 offline tests.",
+    "2026-11-21 research R8: Claude skills for first lines / reply drafting — Anthropic eval-first + plan-validate-execute guidance, community cold-email skill guardrails, autonomy table and evals (no prospect-data cases); ROADMAP 05 eval item edited"
   ],
   "next_steps": [
     "09 (current project from 2026-11-17): reliability kit per R9 note — retry engine (0.0.1), POST /v1/decide (0.0.2), n8n retry-loop.json replayed offline (0.0.3) and KeyStore dedupe + /v1/keys/* (0.0.4) and DlqStore + /v1/dlq/* (0.0.5) done; next: point retry-loop.json's DLQ branch at POST /v1/dlq (scope + payload + source {workflow, node, execution_id}) and add an n8n replay workflow over /v1/dlq/replay that feeds handed-back payloads into the same loop and alerts on /v1/dlq/summary open_unsafe; wire /v1/keys into retry-loop.json (claim before push: committed / in_flight -> skip + log, stale -> review; commit on done, release on failed / exhausted / deferred, keep unknown reserved), error-workflow alert template, silent-schedule watchdog over KeyStore.pending(stale) and 06 pending(older_than) (plus Firecrawl skipped_no_credits and Instantly webhooks auto-disabled after delivery failures until /resume — R4 2026-11-05; Pipedrive GET /v1/webhooks is_active / remove_reason / last_http_status and Attio webhook status degraded — R7 2026-11-10), rate budget per vendor key shared across executions / queue-mode workers exposed as an acquire call returning wait ms and honouring Retry-After, n8n examples with explicit Batching and window-in-key Redis counters (R9 2026-11-12); ops-table writer for Airtable / sheets (R1 2026-11-02 note) and Supabase / Postgres via PostgREST merge-duplicates upsert with in-chunk dedupe by conflict key and bisect-on-failure (R1 2026-11-13 note); then a 09 v0.1 (README problem -> architecture -> run it -> limits, root README table).",
@@ -255,21 +256,15 @@
     "07 n8n workflow (2026-11-17): checked structurally and replayed offline against the FastAPI app with Python-resolved Set-node expressions; never imported into or executed on a live n8n. LinkedIn envelope source fields (lead.profile_url, message.text, message.created_at, ?event_type=) are candidates, the inbox fetch for needs_body and all vendor action sub-workflows are REPLACE_ placeholders. 06 InviteLedger defaults (7-day window, 21-day stale cut-off and re-invite block, 7-day limit cooldown) are vendor guidance (search summaries; linkedin.com / unipile.com DNS-blocked 2026-11-17), not LinkedIn rules; the 422 cannot_resend_yet body is unconfirmed.",
     "R6 2026-11-18: Bland / Synthflow facts read from vendor n8n nodes + Bland CLI (and a third-party Synthflow package for regions, call answer and the 'legacy per-call webhook' claim), never called live; docs.bland.ai / docs.synthflow.ai / docs.fcc.gov DNS-blocked. Unknown: Bland and Synthflow pricing and cost fields, whether a Bland global block rule stops outbound dials, Synthflow webhook signing, TCPA rules for B2B business lines.",
     "09: retry rules (RFC 9110 idempotent methods, Idempotency-Key 409 / 422) taken from urllib3's retry.py and the IETF draft's GitHub source; rfc-editor.org, ietf.org, datatracker.ietf.org and aws.amazon.com did not resolve from the run environment (2026-11-18). Which vendors honour Idempotency-Key, and whether any vendor's 429 can follow a processed create, is unchecked; tests use a scripted fake vendor only. n8n/retry-loop.json (2026-11-19) never imported into a live n8n: node parameters checked against the n8n-nodes-base 2.48.4 package source, and the offline replay's evaluator covers only the workflow's own expression forms; where n8n puts the Node.js error code on a continue-on-error HTTP item ($json.error.code vs error.cause.code) is unconfirmed. KeyStore is single-file SQLite (no Postgres / Redis backend) and is not yet called from the n8n loop. DlqStore (2026-11-20) is single-file SQLite, tested offline only; replay does not consult KeyStore (a committed key could be replayed if a row was intaken after a later success elsewhere — the loop's claim is the guard); redrive semantics compared with the SQS developer guide's GitHub source only (docs.n8n.io, docs.aws.amazon.com, docs.cloud.google.com unreachable 2026-11-20).",
-    "R7 2026-11-19: funnel facts read from @smartlead/cli 0.1.0, @instantlyai/cli 0.2.7 and n8n-nodes-instantly (npm), never called live; api.smartlead.ai, developer.instantly.ai, developers.hubspot.com, clay.com and practitioner blogs ENOTFOUND / proxy 403. Unknown: whether Smartlead reply_count is per lead or per message and includes auto-replies, what Instantly expand_crm_events changes, the exact HubSpot no-show outcome spelling. 09 /v1/decide: the n8n continue-on-error item shape (where the Node.js error code sits) was not checked on a live n8n."
+    "R7 2026-11-19: funnel facts read from @smartlead/cli 0.1.0, @instantlyai/cli 0.2.7 and n8n-nodes-instantly (npm), never called live; api.smartlead.ai, developer.instantly.ai, developers.hubspot.com, clay.com and practitioner blogs ENOTFOUND / proxy 403. Unknown: whether Smartlead reply_count is per lead or per message and includes auto-replies, what Instantly expand_crm_events changes, the exact HubSpot no-show outcome spelling. 09 /v1/decide: the n8n continue-on-error item shape (where the Node.js error code sits) was not checked on a live n8n.",
+    "07 reply routing has no reply-drafting gate yet: when drafts are added, positive / info / objection / referral must go draft → human send until >= 100 drafts reviewed, with a daily auto-send cap (R8 2026-11-21)"
   ],
   "last_run": {
-    "date": "2026-11-20",
+    "date": "2026-11-21",
     "commits": 1,
-    "notes": "Evening run, budget 1: 09 0.0.5 DLQ store + /v1/dlq/* with replay that refuses unsafe rows, state update folded in."
+    "notes": "Morning run, budget 1: research R8 (skills guardrails + evals), state update folded in; no code."
   },
   "run_log": [
-    {
-      "date": "2026-10-14",
-      "commits": 3,
-      "summary": "02 v0.0.5: sending-capacity & warmup planner (capacity.py) and POST /v1/capacity with a .example request; 157 tests in 02 (01: 33).",
-      "sources": [],
-      "research_note": "Opened nothing: WebFetch of knowledge.workspace.google.com (Gmail sending limits), learn.microsoft.com (Exchange Online limits) and prospeo.io failed (ENOTFOUND); curl to those and help.instantly.ai got no connection. Web-search summaries (not opened pages) reported Google Workspace 2,000 messages/user/day over a rolling 24h, Exchange Online 10,000 recipients/day, and third-party guides citing ~30 campaign emails/mailbox/day for Instantly with a slow ramp adding 2/day; all are CapacityPolicy parameters."
-    },
     {
       "date": "2026-10-15",
       "commits": 2,
@@ -989,6 +984,21 @@
         "https://raw.githubusercontent.com/awsdocs/amazon-sqs-developer-guide/main/doc_source/sqs-dead-letter-queues.md (opened 2026-11-20; maxReceiveCount redrive policy, redriven messages are new messages, alarm on DLQ arrivals, retention from original enqueue time)",
         "https://docs.n8n.io/flow-logic/error-handling/ (ENOTFOUND 2026-11-20, not used)"
       ]
+    },
+    {
+      "date": "2026-11-21",
+      "commits": 1,
+      "summary": "Research R8: Claude Agent Skills for first lines and reply drafting — Anthropic docs (build evals first, plan -> validate -> execute, untrusted fetched content), marketingskills cold-email 2.2.7 (facts-then-angle with source URL, no_hook_found, reply autonomy table, 9 LLM-judged evals with no prospect data); ROADMAP 05 eval item now requires no-signal / stale / injected rows. HubSpot docs still ENOTFOUND.",
+      "sources": [
+        "https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices.md (opened 2026-11-21)",
+        "https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview.md (opened 2026-11-21; security considerations)",
+        "https://raw.githubusercontent.com/coreyhaines31/marketingskills/main/skills/cold-email/SKILL.md (opened 2026-11-21)",
+        "https://raw.githubusercontent.com/coreyhaines31/marketingskills/main/skills/cold-email/references/personalization.md (opened 2026-11-21)",
+        "https://raw.githubusercontent.com/coreyhaines31/marketingskills/main/skills/cold-email/references/reply-handling.md (opened 2026-11-21)",
+        "https://raw.githubusercontent.com/coreyhaines31/marketingskills/main/skills/cold-email/evals/evals.json (opened 2026-11-21)",
+        "WebSearch: Claude cold-email skills guardrails / evals (summary only; skills.sh Snyk review not opened, proxy refused)",
+        "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server (ENOTFOUND 2026-11-21, not used)"
+      ]
     }
   ],
   "research": {
@@ -1024,7 +1034,7 @@
       },
       "R8": {
         "name": "AI agents & MCP over the stack",
-        "last_researched": "2026-11-11"
+        "last_researched": "2026-11-21"
       },
       "R9": {
         "name": "Orchestration & reliability",
