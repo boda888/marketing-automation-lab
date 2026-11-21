@@ -2,8 +2,8 @@
 
 The replay walks the workflow's own connections: Set assignments and node expressions are
 resolved by a small evaluator below (only the expression forms the workflow uses), the
-push goes to a scripted vendor from examples/demo-loop.json, the decide call goes to the
-FastAPI app and the Switch picks its branch from the response. A lead's path is therefore
+push goes to a scripted vendor from examples/demo-loop.json, the decide and DLQ calls go to
+the FastAPI app and the Switch picks its branch from the response. A lead's path is therefore
 decided by the JSON file, not by the test.
 """
 
@@ -21,6 +21,8 @@ NODES = {n["name"]: n for n in WF["nodes"]}
 DEMO = json.loads((ROOT / "examples" / "demo-loop.json").read_text())
 TOKEN = "demo-reliability-token-0123456789"
 LOOP = "Loop over leads"
+DLQ = "DLQ (POST /v1/dlq)"
+WORKFLOW_META = {"$workflow.name": "push-demo", "$execution.id": "77"}  # n8n's built-ins
 
 
 def targets(name, output=0):
@@ -49,6 +51,10 @@ def _term(expr, item, ctx):
     expr = expr.strip()
     if expr == "null":
         return None
+    if m := re.fullmatch(r"'([^']*)'", expr):
+        return m.group(1)
+    if expr in WORKFLOW_META:
+        return WORKFLOW_META[expr]
     if m := _JSON.match(expr):
         return _walk(item, m.group(1))
     if m := _REF.match(expr):
@@ -130,13 +136,12 @@ class Replay:
             email = item["lead"]["email"]
             self.waits.setdefault(email, []).append(evaluate(params["amount"], item, ctx))
             return 0, item
-        if kind == "executeWorkflow":
-            self.dlq.append(item)
-            return 0, item
         if name == "Push lead (one item)":
             return self.push(node, item, ctx)
         if name == "Decide (POST /v1/decide)":
             return self.decide(node, item, ctx)
+        if name == DLQ:
+            return self.dlq_intake(node, item, ctx)
         if name == "Alert: unknown action":
             self.alerts.append(item)
             return 0, item
@@ -162,6 +167,15 @@ class Replay:
         self.decide_calls += 1
         r = self.client.post("/v1/decide", json=body, headers={"Authorization": f"Bearer {TOKEN}"})
         assert r.status_code == 200, r.text
+        return 0, r.json()
+
+    def dlq_intake(self, node, item, ctx):
+        params = node["parameters"]
+        assert evaluate(params["url"], item, ctx) == "http://reliability:8009/v1/dlq"
+        body = evaluate(params["jsonBody"], item, ctx)
+        r = self.client.post("/v1/dlq", json=body, headers={"Authorization": f"Bearer {TOKEN}"})
+        assert r.status_code == 200, r.text
+        self.dlq.append(r.json())
         return 0, r.json()
 
     def drive(self, item, ctx):
@@ -239,11 +253,20 @@ def test_switch_covers_every_action_and_unknown_actions_alert():
     assert NODES["Route by action"]["parameters"]["options"]["fallbackOutput"] == "extra"
     assert targets("Route by action", 0) == ["Next lead"]
     assert targets("Route by action", 1) == ["Wait (wait_ms)"]
-    assert targets("Route by action", 2) == ["DLQ row"]
+    assert targets("Route by action", 2) == ["DLQ intake body"]
     assert targets("Route by action", 3) == ["Alert: unknown action"]
-    assert targets("DLQ: append row") == ["Next lead"]
-    dlq = NODES["DLQ: append row"]["parameters"]["options"]
-    assert dlq["waitForSubWorkflow"] is True
+    assert targets("DLQ intake body") == [DLQ]
+    assert targets(DLQ) == ["Next lead"]
+
+
+def test_dlq_write_is_authenticated_and_fails_the_run_when_it_cannot_store():
+    from reliability.api import DlqIn
+
+    dlq = NODES[DLQ]
+    assert dlq["type"] == "n8n-nodes-base.httpRequest"
+    assert dlq["parameters"]["genericAuthType"] == "httpHeaderAuth"
+    assert "onError" not in dlq and dlq["retryOnFail"] is False
+    assert assigned("DLQ intake body") == set(DlqIn.model_fields)
 
 
 def assigned(name):
@@ -294,7 +317,7 @@ def test_a_possible_landing_is_never_pushed_again(replay):
 def test_retry_after_beyond_the_policy_is_a_deferred_row_not_a_long_wait(replay):
     (row,) = [r for r in replay.dlq if r["key"] == "fay@fjord.example"]
     assert row["reason"] == "http_429" and row["last_status"] == 429
-    assert row["retry_at_iso"] == "2027-01-15T08:15:00+00:00"  # now + 900 s
+    assert row["retry_at"] == DEMO["now"] + 900
     assert "fay@fjord.example" not in replay.waits
 
 
@@ -302,6 +325,34 @@ def test_only_failed_leads_reach_the_dlq_and_waits_follow_the_service(replay):
     assert len(replay.dlq) == 5
     assert {r["key"] for r in replay.dlq}.isdisjoint({"ana@acme.example", "ben@birch.example"})
     assert replay.decide_calls == sum(d["expect"]["pushes"] for d in DEMO["leads"])
+
+
+def test_dlq_rows_carry_the_lead_scope_and_the_execution_that_failed(replay):
+    listed = replay.client.get(
+        "/v1/dlq",
+        params={"scope": "sequencer:campaign-demo"},
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    ).json()
+    assert listed["count"] == 5
+    for row in listed["rows"]:
+        lead = next(d["lead"] for d in DEMO["leads"] if d["lead"]["email"] == row["key"])
+        assert row["payload"] == lead  # replay can hand back the exact lead
+        assert row["source"] == {
+            "workflow": "push-demo",
+            "node": "Push lead (one item)",
+            "execution_id": "77",
+        }
+        assert row["state"] == "open" and row["count"] == 1
+
+
+def test_replay_hands_back_only_rows_that_cannot_have_landed(replay):
+    auth = {"Authorization": f"Bearer {TOKEN}"}
+    out = replay.client.post("/v1/dlq/replay", json={"dry_run": True}, headers=auth).json()
+    # exhausted is replayable now; deferred only after retry_at (900 s after the run)
+    assert [i["key"] for i in out["replay"]] == ["hal@heath.example"]
+    refused = {i["key"]: i["status"] for i in out["refused"]}
+    assert refused["cara@cobalt.example"] == refused["eli@elm.example"] == "unsafe_to_resend"
+    assert refused["fay@fjord.example"] == "not_due"
 
 
 def test_unexpected_action_takes_the_alert_branch():

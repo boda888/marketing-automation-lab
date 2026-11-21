@@ -55,6 +55,12 @@
               "type": "string"
             },
             {
+              "id": "as-scope",
+              "name": "scope",
+              "value": "sequencer:campaign-demo",
+              "type": "string"
+            },
+            {
               "id": "as-push_method",
               "name": "push_method",
               "value": "POST",
@@ -83,7 +89,7 @@
         "includeOtherFields": true,
         "options": {}
       },
-      "notes": "One config item. idempotent=false: add-lead is a plain create, so a 5xx or a timeout after sending ends 'unknown' and is never re-sent blind. Set it true only for an upsert on a unique key, or put a vendor-documented Idempotency-Key into request_headers (and send the same header on the push)."
+      "notes": "One config item. idempotent=false: add-lead is a plain create, so a 5xx or a timeout after sending ends 'unknown' and is never re-sent blind. Set it true only for an upsert on a unique key, or put a vendor-documented Idempotency-Key into request_headers (and send the same header on the push). scope names the target (vendor:campaign) for dead-letter rows, so one lead failing in campaign A never blocks campaign B."
     },
     {
       "id": "c4d9e1f0-0009-4b2a-9c10-000000000004",
@@ -510,7 +516,7 @@
     },
     {
       "id": "c4d9e1f0-0009-4b2a-9c10-000000000016",
-      "name": "DLQ row",
+      "name": "DLQ intake body",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
@@ -521,77 +527,59 @@
         "assignments": {
           "assignments": [
             {
-              "id": "as-key",
-              "name": "key",
-              "value": "={{ $json.decision.dlq_row.key }}",
+              "id": "as-scope",
+              "name": "scope",
+              "value": "={{ $('Config').first().json.scope }}",
               "type": "string"
             },
             {
-              "id": "as-outcome",
-              "name": "outcome",
-              "value": "={{ $json.decision.dlq_row.outcome }}",
-              "type": "string"
+              "id": "as-row",
+              "name": "row",
+              "value": "={{ $json.decision.dlq_row }}",
+              "type": "object"
             },
             {
-              "id": "as-reason",
-              "name": "reason",
-              "value": "={{ $json.decision.dlq_row.reason }}",
-              "type": "string"
+              "id": "as-payload",
+              "name": "payload",
+              "value": "={{ $json.lead }}",
+              "type": "object"
             },
             {
-              "id": "as-attempts",
-              "name": "attempts",
-              "value": "={{ $json.decision.dlq_row.attempts }}",
-              "type": "number"
-            },
-            {
-              "id": "as-last_status",
-              "name": "last_status",
-              "value": "={{ $json.decision.dlq_row.last_status }}",
-              "type": "number"
-            },
-            {
-              "id": "as-retry_at_iso",
-              "name": "retry_at_iso",
-              "value": "={{ $json.decision.retry_at_iso }}",
-              "type": "string"
-            },
-            {
-              "id": "as-safe_to_resend",
-              "name": "safe_to_resend",
-              "value": "={{ $json.decision.dlq_row.safe_to_resend }}",
-              "type": "boolean"
+              "id": "as-source",
+              "name": "source",
+              "value": "={{ { workflow: $workflow.name, node: 'Push lead (one item)', execution_id: $execution.id } }}",
+              "type": "object"
             }
           ]
         },
         "includeOtherFields": false,
-        "options": {
-          "ignoreConversionErrors": true
-        }
+        "options": {}
       },
-      "notes": "unknown = may already be in the campaign: read it back before any re-send (safe_to_resend false). failed = the vendor rejected it. deferred / exhausted = safe to re-queue (after retry_at for deferred). ignoreConversionErrors: last_status / retry_at_iso are null for some outcomes."
+      "notes": "The service stores one row per (scope, key) with the lead as payload and recomputes safe_to_resend from the outcome: unknown = may already be in the campaign (read it back, POST /v1/dlq/{id}/resolve), failed = the vendor rejected it (fix or discard), deferred / exhausted = POST /v1/dlq/replay hands the payload back. source names the execution so the failure can be found in n8n."
     },
     {
       "id": "c4d9e1f0-0009-4b2a-9c10-000000000017",
-      "name": "DLQ: append row",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
+      "name": "DLQ (POST /v1/dlq)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         2860,
         640
       ],
-      "notes": "Your dead-letter table (sheet, Airtable, Postgres). Waits for the sub-workflow so a failed DLQ write fails the run instead of losing the row.",
+      "notes": "Same Header Auth credential as Decide. No continue-on-error: a failed DLQ write fails the run for the error workflow instead of losing the row.",
       "parameters": {
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "REPLACE_dlq_workflow_id"
-        },
+        "method": "POST",
+        "url": "={{ $('Config').first().json.reliability_url }}/v1/dlq",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
         "options": {
-          "waitForSubWorkflow": true
+          "timeout": 5000
         }
-      }
+      },
+      "retryOnFail": false
     },
     {
       "id": "c4d9e1f0-0009-4b2a-9c10-000000000018",
@@ -800,7 +788,7 @@
         ],
         [
           {
-            "node": "DLQ row",
+            "node": "DLQ intake body",
             "type": "main",
             "index": 0
           }
@@ -836,28 +824,6 @@
         ]
       ]
     },
-    "DLQ row": {
-      "main": [
-        [
-          {
-            "node": "DLQ: append row",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "DLQ: append row": {
-      "main": [
-        [
-          {
-            "node": "Next lead",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Alert: unknown action": {
       "main": [
         [
@@ -874,6 +840,28 @@
         [
           {
             "node": "Loop over leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DLQ intake body": {
+      "main": [
+        [
+          {
+            "node": "DLQ (POST /v1/dlq)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DLQ (POST /v1/dlq)": {
+      "main": [
+        [
+          {
+            "node": "Next lead",
             "type": "main",
             "index": 0
           }

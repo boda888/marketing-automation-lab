@@ -16,6 +16,8 @@ v0.0.4 (2026-11-19): **dedupe keys that commit only after success** (`reliabilit
 `/v1/keys/*`).
 v0.0.5 (2026-11-20): **dead-letter store with a replay that refuses unsafe rows**
 (`reliability.dlq`, `/v1/dlq/*`).
+v0.0.6 (2026-11-21): the loop's stop branch writes to `POST /v1/dlq` (lead as payload,
+workflow + execution id as source) instead of a sub-workflow you had to provide.
 
 ## Per-item retries
 
@@ -113,7 +115,7 @@ Leads in -> Collect leads -> Config -> One item per lead -> Loop over leads (bat
           -> Decision + lead -> Route by action
                done  -> Next lead -> Loop
                retry -> Wait (wait_ms / 1000 s) -> Next attempt -> Attempt   (same lead only)
-               stop  -> DLQ row -> DLQ: append row (sub-workflow, waited for) -> Next lead
+               stop  -> DLQ intake body -> DLQ (POST /v1/dlq) -> Next lead
                other -> Alert -> Next lead
   done -> All leads handled
 ```
@@ -129,13 +131,21 @@ Leads in -> Collect leads -> Config -> One item per lead -> Loop over leads (bat
   holding the execution open.
 - The decide call uses a Header Auth credential (`Authorization: Bearer <token>`) and has
   no continue-on-error: if the service is down the run fails loudly for the error workflow.
+- A `stop` is stored with `POST /v1/dlq`: `scope` from `Config.scope` (`vendor:campaign`),
+  `row` = the decision's `dlq_row`, `payload` = the lead (what replay hands back) and
+  `source` = `{workflow: $workflow.name, node, execution_id: $execution.id}` (n8n built-ins:
+  `$workflow` in n8n-workflow 2.16.0 `workflow-data-proxy.js`, `$execution.id` in n8n-core
+  2.16.1 `get-additional-keys.js`). Same credential, no continue-on-error: a failed write
+  fails the run instead of losing the row.
 
 `tests/test_n8n.py` replays [`examples/demo-loop.json`](examples/demo-loop.json) (8
 synthetic `.example` leads: 201, 429 + `Retry-After: 7`, 502, refused then 200, socket hang
 up, `Retry-After: 900`, 400, 429 × 4) through the workflow's own connections: Set
 expressions are resolved by a small evaluator, the push goes to a scripted vendor, decide
 goes to the FastAPI app. It checks every lead ends exactly once, push counts and waits per
-lead, and the DLQ rows (`unknown` ×2, `deferred`, `failed`, `exhausted`).
+lead, and the DLQ rows the service stored (`unknown` ×2, `deferred`, `failed`, `exhausted`,
+each with the lead as payload and the execution as source), and that a dry-run replay right
+after the run hands back only the `exhausted` lead (`unknown` refused, `deferred` not due).
 
 ## Dedupe keys: claim → commit only after the call landed
 
@@ -209,8 +219,7 @@ python -m pytest -q
 
 ## Limits
 
-- No shared rate budget yet (next steps in the root ROADMAP 09). `retry-loop.json` still
-  hands DLQ rows to a sub-workflow you provide (point it at `POST /v1/dlq`) and does not
+- No shared rate budget yet (next steps in the root ROADMAP 09). `retry-loop.json` does not
   call `/v1/keys/*` yet; there is no n8n replay workflow over `/v1/dlq/replay` yet, and
   replay does not consult the key store (the loop's claim must do that). The key store is one SQLite file: several n8n workers share it only
   through one service instance (no Postgres / Redis backend). `run_items` waits in-process; for
