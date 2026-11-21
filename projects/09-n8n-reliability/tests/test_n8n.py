@@ -489,3 +489,112 @@ def test_a_dlq_replay_of_a_lead_that_landed_since_is_skipped_by_its_claim(replay
     third.run()
     assert third.pushes == {}  # committed in run 2: the replayed payload is not pushed again
     assert third.ends["hal@heath.example"]["claim"]["status"] == "committed"
+
+
+# --- n8n/dlq-replay.json: scheduled replay of safe rows + alert on rows that need a person --
+
+RWF = json.loads((ROOT / "n8n" / "dlq-replay.json").read_text())
+RNODES = {n["name"]: n for n in RWF["nodes"]}
+
+
+def rtargets(name, output=0):
+    main = RWF["connections"].get(name, {}).get("main", [])
+    return [link["node"] for link in main[output]] if output < len(main) else []
+
+
+def tick(client, answers=None):
+    """One schedule tick of dlq-replay.json; the sub-workflow call runs retry-loop.json."""
+    answers = answers or {}
+    out = {"pushed": None, "alerts": [], "replay": None}
+    (config,) = rtargets("Every 30 minutes")
+    ctx = {config: run_set(RNODES[config], {}, {})}
+    replay_node, summary_node = rtargets(config)
+    for name in (replay_node, summary_node):
+        params = RNODES[name]["parameters"]
+        assert params["genericAuthType"] == "httpHeaderAuth"
+        path = evaluate(params["url"], ctx[config], ctx).removeprefix(SERVICE)
+        if params["method"] == "POST":
+            body = evaluate(params["jsonBody"], ctx[config], ctx)
+            r = client.post(path, json=body, headers=AUTH)
+        else:
+            query = {
+                p["name"]: evaluate(p["value"], ctx[config], ctx)
+                for p in params["queryParameters"]["parameters"]
+            }
+            r = client.get(path, params=query, headers=AUTH)
+        assert r.status_code == 200, r.text
+        ctx[name] = r.json()
+    out["replay"] = ctx[replay_node]
+    # replay branch: Split Out (noOtherFields spreads each row) -> raw Set -> sub-workflow
+    (split,) = rtargets(replay_node)
+    rows = ctx[replay_node][RNODES[split]["parameters"]["fieldToSplitOut"]]
+    (to_lead,) = rtargets(split)
+    assert RNODES[to_lead]["parameters"]["mode"] == "raw"
+    leads = [evaluate(RNODES[to_lead]["parameters"]["jsonOutput"], row, ctx) for row in rows]
+    (sub,) = rtargets(to_lead)
+    if leads:  # n8n runs no node below an empty Split Out
+        entries = [{"lead": lead, "answers": answers.get(lead["email"], [])} for lead in leads]
+        out["pushed"] = Replay(client, entries)
+        assert out["pushed"].run() == ["All leads handled"]
+    # summary branch: IF open_unsafe > 0 -> alert
+    (check,) = rtargets(summary_node)
+    cond = RNODES[check]["parameters"]["conditions"]["conditions"][0]
+    assert cond["operator"] == {"type": "number", "operation": "gt"}
+    hit = evaluate(cond["leftValue"], ctx[summary_node], ctx) > cond["rightValue"]
+    for name in rtargets(check, 0 if hit else 1):
+        out["alerts"].append((name, ctx[summary_node]))
+    return out
+
+
+def test_replay_workflow_targets_the_same_scope_and_the_retry_loop():
+    loop_scope = {
+        a["name"]: a["value"] for a in NODES["Config"]["parameters"]["assignments"]["assignments"]
+    }
+    replay_cfg = {
+        a["name"]: a["value"] for a in RNODES["Config"]["parameters"]["assignments"]["assignments"]
+    }
+    assert replay_cfg["scope"] == loop_scope["scope"]
+    assert replay_cfg["reliability_url"] == loop_scope["reliability_url"]
+    sub = RNODES["Push again (retry-loop)"]["parameters"]
+    assert sub["mode"] == "once" and sub["options"]["waitForSubWorkflow"] is True
+    assert sub["workflowId"]["value"] == "REPLACE_retry_loop_workflow_id"
+    for n in RWF["nodes"]:
+        if "reliability_url" in n["parameters"].get("url", ""):
+            assert "onError" not in n and n["retryOnFail"] is False, n["name"]
+    assert rtargets("Needs a person?", 1) == []  # nothing to do on a clean store
+
+
+def test_tick_pushes_only_safe_rows_once_and_alerts_on_rows_replay_never_touches(replay, clock):
+    clock.t += 901  # fay's Retry-After (900 s) has passed
+    first = tick(
+        replay.client,
+        {"fay@fjord.example": [{"status": 201}], "hal@heath.example": [{"status": 201}]},
+    )
+    assert first["pushed"].pushes == {"fay@fjord.example": 1, "hal@heath.example": 1}
+    assert {e: end["decision"]["outcome"] for e, end in first["pushed"].ends.items()} == {
+        "fay@fjord.example": "ok",
+        "hal@heath.example": "ok",
+    }
+    refused = {i["key"] for i in first["replay"]["refused"]}
+    assert refused == {"cara@cobalt.example", "eli@elm.example", "gus@gale.example"}
+    ((alert, summary),) = first["alerts"]
+    assert alert == "Alert: DLQ needs a read-back" and summary["open_unsafe"] == 3
+
+    second = tick(replay.client)  # same rows are 'replayed' now: nothing is handed out twice
+    assert second["pushed"] is None and second["replay"]["replay"] == []
+
+
+def test_tick_is_quiet_once_a_person_resolved_the_unsafe_rows(replay):
+    rows = replay.client.get("/v1/dlq", headers=AUTH).json()["rows"]
+    for row in rows:
+        if row["outcome"] == "unknown":  # read back: they did land
+            r = replay.client.post(
+                f"/v1/dlq/{row['id']}/resolve", json={"landed": True}, headers=AUTH
+            )
+            assert r.status_code == 200 and r.json()["state"] == "resolved"
+        if row["outcome"] == "failed":
+            r = replay.client.post(f"/v1/dlq/{row['id']}/discard", json={}, headers=AUTH)
+            assert r.status_code == 200 and r.json()["state"] == "discarded"
+    quiet = tick(replay.client, {"hal@heath.example": [{"status": 201}]})
+    assert quiet["alerts"] == []
+    assert quiet["pushed"].pushes == {"hal@heath.example": 1}  # fay is not due yet

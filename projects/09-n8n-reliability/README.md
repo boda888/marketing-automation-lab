@@ -21,6 +21,9 @@ workflow + execution id as source) instead of a sub-workflow you had to provide.
 v0.0.7 (2026-11-21): the loop **claims a dedupe key before every push**, commits it on `done`,
 releases it after a stop that certainly did not land and keeps it reserved after `unknown`,
 so a re-run or a DLQ replay never re-sends a lead that is already in the campaign.
+v0.0.8 (2026-11-21): [`n8n/dlq-replay.json`](n8n/dlq-replay.json), a scheduled replay of the
+rows the store calls safe, fed back through the same loop, plus an alert while
+`open_unsafe` > 0.
 
 ## Per-item retries
 
@@ -235,6 +238,31 @@ of an error-workflow alert that carries no items.
   every message, the store never hands back an item that may already have landed.
 - SQLite (`RELIABILITY_DLQ_DB`, default `RELIABILITY_DB`), payloads capped at 64 KB.
 
+## n8n replay: `n8n/dlq-replay.json`
+
+```
+Every 30 minutes -> Config (reliability_url, scope = retry-loop's scope)
+  -> Replay due rows (POST /v1/dlq/replay {scope}) -> One item per replayed row (Split Out)
+       -> Lead from payload (Set, raw JSON) -> Push again (Execute Workflow: retry-loop, once, waited for)
+  -> DLQ summary (GET /v1/dlq/summary?scope=) -> Needs a person? (open_unsafe > 0)
+       true -> Alert: DLQ needs a read-back
+```
+
+- Only `exhausted` rows and `deferred` rows past `retry_at` come back, once each (they move
+  to `replayed`); `unknown` / `failed` are refused and keep the alert firing until someone
+  resolves (read-back) or discards (bad data) them.
+- The payload re-enters `retry-loop.json`, so each lead claims its key again: a lead that
+  landed in a later run is skipped as `committed`, a lead that fails again bumps the same DLQ
+  row (`count` + 1, `replays` towards `max_replays`).
+- An empty `replay` list gives Split Out no items, so the sub-workflow does not run on a quiet
+  tick (n8n-nodes-base 2.48.4 `SplitOut`: a missing / empty field yields nothing; with
+  `noOtherFields` an object element is spread into the item).
+
+The replay test runs a tick against the same service after the demo: 901 s later it pushes
+`fay` (deferred, now due) and `hal` (exhausted) once each, refuses `cara`, `eli` (unknown) and
+`gus` (failed) and alerts with `open_unsafe: 3`; a second tick hands out nothing; once the
+unknown rows are resolved and the failed one discarded, the tick is quiet.
+
 ## Run it
 
 ```bash
@@ -244,8 +272,9 @@ python -m pytest -q
 
 ## Limits
 
-- No shared rate budget yet (next steps in the root ROADMAP 09). There is no n8n replay workflow over `/v1/dlq/replay` yet, and
-  replay does not consult the key store (the loop's claim must do that). The key store is one SQLite file: several n8n workers share it only
+- No shared rate budget yet (next steps in the root ROADMAP 09). `POST /v1/dlq/replay` does not consult the key store (the loop's claim does), and
+  resolving an `unknown` DLQ row does not resolve its key: call `POST /v1/keys/resolve` too,
+  or the reservation stays `stale` and every run alerts on it. The key store is one SQLite file: several n8n workers share it only
   through one service instance (no Postgres / Redis backend). `run_items` waits in-process; for
   long waits use `deferred`.
 - Releasing a `deferred` key lets the next scheduled run push that lead before `retry_at`
