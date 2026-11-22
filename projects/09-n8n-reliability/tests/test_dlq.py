@@ -260,3 +260,91 @@ def test_dlq_routes_need_the_token(clock):
     assert c.post("/v1/dlq/replay", json={}).status_code == 401
     ok = c.get("/v1/dlq/summary", headers={"Authorization": "Bearer s3cret"})
     assert ok.status_code == 200
+
+
+# --- resolve carries the read-back over to the dedupe key ----------------------------------
+
+
+def keyed_api(clock):
+    from reliability import KeyStore
+
+    keys = KeyStore(clock=clock, stale_after=900)
+    c = TestClient(create_app(now=clock, rand=lambda: 0.5, dlq=DlqStore(clock=clock), store=keys))
+    return c, keys
+
+
+def unknown_row_with_reserved_key(c, email):
+    claim = c.post("/v1/keys/claim", json={"scope": SCOPE, "key": email}).json()
+    assert claim["status"] == "reserved"
+    return c.post(
+        "/v1/dlq", json={"scope": SCOPE, "row": row(email, "unknown"), "payload": lead(email)}
+    ).json()["id"]
+
+
+def test_resolve_not_landed_releases_the_key_so_the_replay_can_claim_it(clock):
+    c, keys = keyed_api(clock)
+    rid = unknown_row_with_reserved_key(c, "kr@acme.example")
+    # a fresh reservation (younger than stale_after): the loop that wrote the row is done
+    r = c.post(f"/v1/dlq/{rid}/resolve", json={"landed": False}).json()
+    assert r["key_state"] == "released" and r["safe_to_resend"] is True
+    assert keys.pending() == []
+    assert c.post("/v1/keys/claim", json={"scope": SCOPE, "key": "kr@acme.example"}).json()[
+        "status"
+    ] == ("reserved")
+
+
+def test_resolve_landed_commits_the_key_so_it_is_never_pushed_again(clock):
+    c, keys = keyed_api(clock)
+    rid = unknown_row_with_reserved_key(c, "kl@acme.example")
+    clock.t += 3600  # stale by now: without the resolve every claim would alert
+    r = c.post(f"/v1/dlq/{rid}/resolve", json={"landed": True, "note": "in campaign"}).json()
+    assert r["state"] == "resolved" and r["key_state"] == "committed"
+    claim = c.post("/v1/keys/claim", json={"scope": SCOPE, "key": "kl@acme.example"}).json()
+    assert claim["status"] == "committed" and claim["go"] is False
+    assert keys.counts() == {"reserved": 0, "committed": 1}
+
+
+def test_resolve_without_a_reservation_reports_not_reserved(clock):
+    c, keys = keyed_api(clock)
+    rid = c.post("/v1/dlq", json={"scope": SCOPE, "row": row("kn@acme.example", "unknown")}).json()[
+        "id"
+    ]
+    r = c.post(f"/v1/dlq/{rid}/resolve", json={"landed": True}).json()
+    assert r["key_state"] == "not_reserved" and keys.counts()["committed"] == 0
+
+
+def test_resolve_leaves_a_committed_key_committed(clock):
+    c, keys = keyed_api(clock)
+    claim = c.post("/v1/keys/claim", json={"scope": SCOPE, "key": "kc@acme.example"}).json()
+    keys.commit(SCOPE, "kc@acme.example", claim["token"])
+    rid = c.post(
+        "/v1/dlq", json={"scope": SCOPE, "row": row("kc@acme.example", "exhausted")}
+    ).json()["id"]
+    r = c.post(f"/v1/dlq/{rid}/resolve", json={"landed": False}).json()
+    assert r["key_state"] == "committed" and keys.counts()["committed"] == 1
+
+
+def test_replayed_row_does_not_take_a_fresh_key_from_the_replay(clock):
+    c, keys = keyed_api(clock)
+    email = "kp@acme.example"
+    rid = c.post(
+        "/v1/dlq", json={"scope": SCOPE, "row": row(email, "exhausted"), "payload": lead(email)}
+    ).json()["id"]
+    assert [i["id"] for i in c.post("/v1/dlq/replay", json={}).json()["replay"]] == [rid]
+    replay_claim = c.post("/v1/keys/claim", json={"scope": SCOPE, "key": email}).json()
+    assert replay_claim["status"] == "reserved"  # the replay execution holds the key
+    r = c.post(f"/v1/dlq/{rid}/resolve", json={"landed": True}).json()
+    assert r["state"] == "resolved" and r["key_state"] == "in_flight"
+    # the replay still owns its reservation and can commit it
+    keys.commit(SCOPE, email, replay_claim["token"])
+    assert keys.counts() == {"reserved": 0, "committed": 1}
+
+
+def test_key_is_untouched_when_the_dlq_resolve_is_refused(clock):
+    c, keys = keyed_api(clock)
+    email = "kf@acme.example"
+    c.post("/v1/keys/claim", json={"scope": SCOPE, "key": email})
+    rid = c.post("/v1/dlq", json={"scope": SCOPE, "row": row(email, "failed")}).json()["id"]
+    assert c.post(f"/v1/dlq/{rid}/resolve", json={"landed": False}).status_code == 422
+    assert c.post("/v1/dlq/4242/resolve", json={"landed": False}).status_code == 404
+    assert [p.key for p in keys.pending()] == [email]

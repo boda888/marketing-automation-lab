@@ -24,6 +24,9 @@ so a re-run or a DLQ replay never re-sends a lead that is already in the campaig
 v0.0.8 (2026-11-21): [`n8n/dlq-replay.json`](n8n/dlq-replay.json), a scheduled replay of the
 rows the store calls safe, fed back through the same loop, plus an alert while
 `open_unsafe` > 0.
+v0.0.9 (2026-11-22): `POST /v1/dlq/{id}/resolve` also resolves the row's dedupe key (same
+scope + key) and reports `key_state`, so one read-back clears both the DLQ row and the
+reservation the loop kept after `unknown`.
 
 ## Per-item retries
 
@@ -221,7 +224,7 @@ of an error-workflow alert that carries no items.
 |---|---|---|
 | `exhausted` | handed back with its payload | nothing; replay re-enters the loop at attempt 1 |
 | `deferred` | handed back once `retry_at` has passed, else `not_due` | nothing |
-| `unknown` | **refused** (`unsafe_to_resend`): may have landed | read the vendor back → `POST /v1/dlq/{id}/resolve {landed}`: landed → `resolved`; not landed → becomes `exhausted` (replayable) |
+| `unknown` | **refused** (`unsafe_to_resend`): may have landed | read the vendor back → `POST /v1/dlq/{id}/resolve {landed}`: landed → `resolved`; not landed → becomes `exhausted` (replayable); the key follows (below) |
 | `failed` | **refused**: the vendor rejected the data | fix the data and push it again, or `POST /v1/dlq/{id}/discard` |
 
 - **One row per `(scope, key)`.** A repeat failure of the same lead (including after a
@@ -236,6 +239,15 @@ of an error-workflow alert that carries no items.
   and the oldest open age for an alert.
 - Like an SQS redrive, a replayed item is a new attempt sequence; unlike SQS, which redrives
   every message, the store never hands back an item that may already have landed.
+- **Resolve carries over to the key.** `POST /v1/dlq/{id}/resolve` also calls
+  `KeyStore.resolve(scope, key, landed)` and returns `key_state`: `committed` (landed: never
+  pushed again), `released` (not landed: the replay's claim reserves it), `not_reserved`
+  (the loop already released it, or the workflow does not claim keys), `in_flight` (the row
+  was `replayed` and the replay execution holds a fresh reservation: left to its holder).
+  For an `open` row the key is resolved even while younger than `stale_after`: the loop that
+  wrote the row has finished. A refused resolve (404 / 409 / 422) leaves the key alone.
+  Unlike AWS Powertools idempotency, which lets an `INPROGRESS` record be re-run once its
+  in-progress expiry passes, a stale reservation here is never re-run without a read-back.
 - SQLite (`RELIABILITY_DLQ_DB`, default `RELIABILITY_DB`), payloads capped at 64 KB.
 
 ## n8n replay: `n8n/dlq-replay.json`
@@ -272,9 +284,10 @@ python -m pytest -q
 
 ## Limits
 
-- No shared rate budget yet (next steps in the root ROADMAP 09). `POST /v1/dlq/replay` does not consult the key store (the loop's claim does), and
-  resolving an `unknown` DLQ row does not resolve its key: call `POST /v1/keys/resolve` too,
-  or the reservation stays `stale` and every run alerts on it. The key store is one SQLite file: several n8n workers share it only
+- No shared rate budget yet (next steps in the root ROADMAP 09). `POST /v1/dlq/replay` does not consult the key store (the loop's claim does).
+  The DLQ and the key store may be two SQLite files: a crash between the row update and the
+  key resolve leaves the key reserved (call `POST /v1/keys/resolve`); a stale key with no
+  DLQ row (the run died before intake) still needs `POST /v1/keys/resolve`. The key store is one SQLite file: several n8n workers share it only
   through one service instance (no Postgres / Redis backend). `run_items` waits in-process; for
   long waits use `deferred`.
 - Releasing a `deferred` key lets the next scheduled run push that lead before `retry_at`

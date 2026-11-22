@@ -1030,7 +1030,7 @@
         3300,
         560
       ],
-      "notes": "The reservation turns stale after RELIABILITY_STALE_AFTER and is never handed out again until POST /v1/keys/resolve (and POST /v1/dlq/{id}/resolve) after a read-back.",
+      "notes": "The reservation turns stale after RELIABILITY_STALE_AFTER and is never handed out again until a read-back: POST /v1/dlq/{id}/resolve resolves the DLQ row and this key together (POST /v1/keys/resolve for a key without a DLQ row).",
       "parameters": {}
     },
     {

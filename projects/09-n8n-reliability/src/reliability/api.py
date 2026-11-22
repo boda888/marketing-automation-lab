@@ -53,7 +53,9 @@ Dead-letter rows (``reliability.dlq.DlqStore``), one per ``(scope, key)``:
 - ``POST /v1/dlq/replay`` ``{ids?, scope?, dry_run?}`` -> ``replay`` items with payloads plus
   refusals (``unsafe_to_resend`` for unknown / failed, ``not_due``, ``replay_limit``);
 - ``POST /v1/dlq/{id}/resolve`` ``{landed, note?}`` after a read-back, and
-  ``POST /v1/dlq/{id}/discard`` ``{note?}``: 404 unknown id, 409 closed row.
+  ``POST /v1/dlq/{id}/discard`` ``{note?}``: 404 unknown id, 409 closed row. Resolve also
+  resolves the row's dedupe key (same scope + key) and reports ``key_state``:
+  ``committed`` / ``released`` / ``not_reserved`` / ``in_flight`` (see ``resolve_key``).
 
     uvicorn reliability.api:app_from_env --factory
     # RELIABILITY_API_TOKEN optional; RELIABILITY_DB (SQLite path, default in-memory);
@@ -69,13 +71,13 @@ import random
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from .dedupe import AlreadyCommitted, KeyStore, NotReserved, StillInFlight, TokenMismatch
-from .dlq import DlqStore, RowClosed, RowNotFound
+from .dlq import DlqRow, DlqStore, RowClosed, RowNotFound
 from .retry import HttpResult, ItemResult, RetryPolicy, TransportError, decide, is_idempotent
 
 # Node.js / OpenSSL error codes raised before any request bytes reach the vendor.
@@ -296,6 +298,31 @@ def _key_errors(call: Callable[[], Any]) -> Any:
         raise HTTPException(422, str(exc)) from None
 
 
+KeyState = Literal["committed", "released", "not_reserved", "in_flight"]
+
+
+def resolve_key(
+    keys: KeyStore, scope: str, key: str, *, landed: bool, row: DlqRow | None
+) -> KeyState:
+    """Carry a DLQ read-back over to the row's dedupe key, so it does not stay reserved.
+
+    The loop keeps the key reserved when a push ends ``unknown``; without this, the
+    reservation turns ``stale`` and every later claim alerts although a person already
+    read the vendor back. ``force`` only for a row that is ``open`` (no replay running):
+    a ``replayed`` row's key may be held by the replay execution, so a fresh reservation
+    there is left to its holder (``in_flight``). No reservation (released by the loop, or
+    the workflow does not claim keys) -> ``not_reserved``. A committed key stays committed.
+    """
+    force = row is not None and row.state == "open"
+    try:
+        state = keys.resolve(scope, key, landed=landed, force=force)
+    except NotReserved:
+        return "not_reserved"
+    except StillInFlight:
+        return "in_flight"
+    return state or "released"
+
+
 def create_app(
     *,
     api_token: str | None = None,
@@ -304,7 +331,7 @@ def create_app(
     now: Callable[[], float] = time.time,
     rand: Callable[[], float] = random.random,
 ) -> FastAPI:
-    app = FastAPI(title="n8n reliability kit", version="0.0.8")
+    app = FastAPI(title="n8n reliability kit", version="0.0.9")
     keys = store if store is not None else KeyStore(clock=now)
     dead = dlq if dlq is not None else DlqStore(clock=now)
 
@@ -422,9 +449,11 @@ def create_app(
 
     @app.post("/v1/dlq/{row_id}/resolve", dependencies=[Depends(check_token)])
     def dlq_resolve_route(row_id: int, body: ResolveRowIn) -> dict[str, Any]:
-        return _dlq_errors(
-            lambda: dead.resolve(row_id, landed=body.landed, note=body.note)
-        ).as_dict()
+        before = dead.get(row_id)
+        row = _dlq_errors(lambda: dead.resolve(row_id, landed=body.landed, note=body.note))
+        out = row.as_dict()
+        out["key_state"] = resolve_key(keys, row.scope, row.key, landed=body.landed, row=before)
+        return out
 
     @app.post("/v1/dlq/{row_id}/discard", dependencies=[Depends(check_token)])
     def dlq_discard_route(row_id: int, body: NoteIn) -> dict[str, Any]:
