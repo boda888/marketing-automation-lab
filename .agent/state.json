@@ -61,8 +61,8 @@
       "id": "09-n8n-reliability",
       "path": "projects/09-n8n-reliability",
       "status": "in_progress",
-      "summary": "Per-item retry engine (decide() rule table: Retry-After then capped backoff, creates never re-sent after a possible landing -> unknown, Idempotency-Key 409/422, deferred + retry_at, DLQ rows); FastAPI POST /v1/decide; n8n retry-loop.json (Loop Over Items batch 1 -> claim key -> push -> /v1/decide -> Wait / same call / POST /v1/dlq; commit on done, release on failed / exhausted / deferred, unknown kept reserved) and dlq-replay.json (scheduled /v1/dlq/replay through the same loop + open_unsafe alert), both replayed offline; KeyStore dedupe (claim -> commit only after success, tokens, scopes, stale reservations never re-handed, resolve after read-back) + /v1/keys/*; DlqStore + /v1/dlq/* (one row per scope+key, replay only exhausted / due deferred, unknown / failed refused until read-back or fix, max_replays, summary); 128 tests.",
-      "version": "0.0.8"
+      "summary": "Per-item retry engine (decide() rule table: Retry-After then capped backoff, creates never re-sent after a possible landing -> unknown, Idempotency-Key 409/422, deferred + retry_at, DLQ rows); FastAPI POST /v1/decide; n8n retry-loop.json (Loop Over Items batch 1 -> claim key -> push -> /v1/decide -> Wait / same call / POST /v1/dlq; commit on done, release on failed / exhausted / deferred, unknown kept reserved) and dlq-replay.json (scheduled /v1/dlq/replay through the same loop + open_unsafe alert), both replayed offline; KeyStore dedupe (claim -> commit only after success, tokens, scopes, stale reservations never re-handed, resolve after read-back) + /v1/keys/*; DlqStore + /v1/dlq/* (one row per scope+key, replay only exhausted / due deferred, unknown / failed refused until read-back or fix, max_replays, summary; resolve also resolves the row's key and reports key_state); 134 tests.",
+      "version": "0.0.9"
     },
     {
       "id": "10-reporting",
@@ -185,10 +185,11 @@
     "2026-11-20 (evening): 09 n8n reliability 0.0.5 — DlqStore (reliability.dlq, SQLite WAL): intake of /v1/decide dlq_rows with payload + source, one active row per (scope, key) (repeat failures bump count, first_seen_at kept), safe_to_resend recomputed from outcome, replay hands back payloads only for exhausted rows and deferred rows past retry_at, refuses unknown / failed (unsafe_to_resend), not_due, replay_limit (max_replays 3), dry_run; resolve(landed=) after read-back (not landed -> exhausted, replayable), discard, summary (open by outcome, open_unsafe, oldest open age); FastAPI /v1/dlq, /v1/dlq/summary, /v1/dlq/replay, /v1/dlq/{id}/resolve|discard. 116 offline tests.",
     "2026-11-21 research R8: Claude skills for first lines / reply drafting — Anthropic eval-first + plan-validate-execute guidance, community cold-email skill guardrails, autonomy table and evals (no prospect-data cases); ROADMAP 05 eval item edited",
     "2026-11-21 09 n8n reliability 0.0.6–0.0.8: retry-loop.json stop branch posts to /v1/dlq (lead payload, $workflow.name / $execution.id source); loop claims a /v1/keys key before each push (committed / in_flight skip, stale alert, commit on done, release on failed / exhausted / deferred, unknown kept); n8n/dlq-replay.json replays safe rows through the loop and alerts on open_unsafe; 128 offline tests",
-    "2026-11-22 research R9: vendor rate-limit table (Instantly workspace-wide 100/s + 6,000/min, Smartlead admin-key pool, Apollo minute + hour + day with usage_stats endpoint, Pipedrive token budget + 2 s burst, HubSpot / Attio from R7) — numbers from search summaries; lemlist CLI 0.4.0 retries 429 always and 5xx only on idempotent methods; pipedrive SDK 36.1.0+ WithHttpInfo exposes Retry-After, no retries"
+    "2026-11-22 research R9: vendor rate-limit table (Instantly workspace-wide 100/s + 6,000/min, Smartlead admin-key pool, Apollo minute + hour + day with usage_stats endpoint, Pipedrive token budget + 2 s burst, HubSpot / Attio from R7) — numbers from search summaries; lemlist CLI 0.4.0 retries 429 always and 5xx only on idempotent methods; pipedrive SDK 36.1.0+ WithHttpInfo exposes Retry-After, no retries",
+    "2026-11-22 09 n8n reliability 0.0.9: POST /v1/dlq/{id}/resolve also resolves the row's dedupe key (KeyStore.resolve, force only for open rows) and reports key_state committed / released / not_reserved / in_flight; a refused resolve leaves the key alone; 134 offline tests"
   ],
   "next_steps": [
-    "09 (current project from 2026-11-17): reliability kit per R9 note — retry engine (0.0.1), POST /v1/decide (0.0.2), n8n retry-loop.json replayed offline (0.0.3), KeyStore + /v1/keys/* (0.0.4), DlqStore + /v1/dlq/* (0.0.5), loop -> POST /v1/dlq (0.0.6), loop claims / commits / releases keys (0.0.7) and n8n dlq-replay.json with open_unsafe alert (0.0.8) done; next: resolving an unknown DLQ row should resolve its key in the same call (POST /v1/dlq/{id}/resolve -> KeyStore.resolve(scope, key, landed)), otherwise the reservation stays stale; error-workflow alert template; silent-schedule watchdog over KeyStore.pending(stale) and 06 pending(older_than) (plus Firecrawl skipped_no_credits and Instantly webhooks auto-disabled after delivery failures until /resume — R4 2026-11-05; Pipedrive GET /v1/webhooks is_active / remove_reason / last_http_status and Attio webhook status degraded — R7 2026-11-10), rate budget per vendor account scope (workspace / company / admin-key pool, not per key) shared across executions / queue-mode workers, several windows at once (s / min / h / day, all must pass), cost per endpoint (Pipedrive tokens), exposed as an acquire call returning wait ms and honouring Retry-After; seed limits from the R9 2026-11-22 table, marked search summary, n8n examples with explicit Batching and window-in-key Redis counters (R9 2026-11-12); ops-table writer for Airtable / sheets (R1 2026-11-02 note) and Supabase / Postgres via PostgREST merge-duplicates upsert with in-chunk dedupe by conflict key and bisect-on-failure (R1 2026-11-13 note); then a 09 v0.1 (README problem -> architecture -> run it -> limits, root README table).",
+    "09 (current project from 2026-11-17): reliability kit per R9 note — retry engine (0.0.1), POST /v1/decide (0.0.2), n8n retry-loop.json replayed offline (0.0.3), KeyStore + /v1/keys/* (0.0.4), DlqStore + /v1/dlq/* (0.0.5), loop -> POST /v1/dlq (0.0.6), loop claims / commits / releases keys (0.0.7), n8n dlq-replay.json with open_unsafe alert (0.0.8) and DLQ resolve resolving its key with key_state (0.0.9) done; next (rate budget first): error-workflow alert template; silent-schedule watchdog over KeyStore.pending(stale) and 06 pending(older_than) (plus Firecrawl skipped_no_credits and Instantly webhooks auto-disabled after delivery failures until /resume — R4 2026-11-05; Pipedrive GET /v1/webhooks is_active / remove_reason / last_http_status and Attio webhook status degraded — R7 2026-11-10), rate budget per vendor account scope (workspace / company / admin-key pool, not per key) shared across executions / queue-mode workers, several windows at once (s / min / h / day, all must pass), cost per endpoint (Pipedrive tokens), exposed as an acquire call returning wait ms and honouring Retry-After; seed limits from the R9 2026-11-22 table, marked search summary, n8n examples with explicit Batching and window-in-key Redis counters (R9 2026-11-12); ops-table writer for Airtable / sheets (R1 2026-11-02 note) and Supabase / Postgres via PostgREST merge-duplicates upsert with in-chunk dedupe by conflict key and bisect-on-failure (R1 2026-11-13 note); then a 09 v0.1 (README problem -> architecture -> run it -> limits, root README table).",
     "08 follow-ups (v0.1 shipped 2026-11-11): dry_run flag on /v1/write (plan only, no call); persistent IdMap + SeenEvents (sqlite) and a cross-process writer lock / shared RateBudget; read X-HubSpot-RateLimit-* headers into RateBudget; lifecycle stages, assignment / territory rules, field-level ownership (ROADMAP 08 second item).",
     "06 follow-ups: wire InviteLedger into /v1/push (ledger.apply on senders, blocked_profiles as in_campaign, a persistent invite table) and a Unipile cancel adapter for plan_sweep (POST /v2/{account_id}/users/me/relation-requests/{id}/cancel; 422 cannot_resend_yet -> record_limit_error) (R5 2026-11-17); wire HeyReachAdapter.public into /v1/push (memberships per profile via GetCampaignsForLead, plan_linkedin_push); HeyReach campaign-level exclusions (excludeContactedFromOtherCampaigns, excludeHasOtherAccConversations, excludeListId) reported in the push report (R5 2026-11-06); lemlist member read-back (then /v1/reconcile for lemlist); Instantly wiring in the API; push-log rows scoped by (vendor, campaign) for a per-campaign watchdog; Waalaxy duplicate booleans in the dedupe_scope mapping.",
     "07 follow-ups (v0.1 shipped 2026-11-17): optional live Anthropic transport (stdlib urllib) behind an opt-in flag with a timeout under the sender's, scored with client_for= on the eval set (the gate already runs inside pytest via main(DATASET) == 0, so no separate CI step); persistent needs_body store (SQLite) so a restart does not lose waiting events; inbox-fetch sub-workflow per vendor for needs_body once reply-text field names are confirmed; sender lock / disconnect events (Unipile account.locked / account.status.disconnected, R5 2026-11-17) as alerts alongside Aimfox account_logged_out; grow the eval set with paraphrase groups; confirm reply-text and LinkedIn envelope field names and vendor retry / timeout behaviour from one real delivery per vendor.",
@@ -264,17 +265,10 @@
   ],
   "last_run": {
     "date": "2026-11-22",
-    "commits": 1,
-    "notes": "Morning research run, budget 1: R9 vendor rate-limit table (state folded into the research commit)."
+    "commits": 2,
+    "notes": "Evening run, budget 2: 09 0.0.9 DLQ resolve carries the read-back over to the dedupe key."
   },
   "run_log": [
-    {
-      "date": "2026-10-16",
-      "commits": 1,
-      "summary": "02 v0.0.8: DMARCbis policy rules in check_dmarc/parse_dmarc: t=y testing step-down, pct historic, np for non-existent subdomains, invalid/missing p or invalid sp/np -> p=none with a valid rua; 246 tests in 02 (01: 33).",
-      "sources": [],
-      "research_note": "Re-opened draft-ietf-dmarc-dmarcbis-41 (raw.githubusercontent.com, already in the previous run's sources) for §3.2.13, §4.7 (np, p, sp, t), §4.8, §4.10.1 and Appendix A.6. rfc-editor.org/rfc/rfc9989.txt and datatracker.ietf.org/doc/rfc9989 got proxy 403 again, so the published RFC text is still unverified."
-    },
     {
       "date": "2026-10-18",
       "commits": 2,
@@ -1006,6 +1000,14 @@
         "https://registry.npmjs.org/pipedrive/-/pipedrive-36.3.1.tgz (opened 2026-11-22; v2 base.js interceptors, no retries)",
         "https://raw.githubusercontent.com/pipedrive/client-nodejs/master/CHANGELOG.md (opened 2026-11-22; 36.1.0 WithHttpInfo)",
         "WebSearch: Instantly, Smartlead, Pipedrive, Apollo rate limits (summaries only; vendor pages ENOTFOUND / proxy 403)"
+      ]
+    },
+    {
+      "date": "2026-11-22",
+      "commits": 2,
+      "summary": "09 n8n reliability 0.0.9: POST /v1/dlq/{id}/resolve resolves the row's KeyStore key in the same call (landed -> committed, not landed -> released, replayed row with a fresh reservation -> in_flight, none -> not_reserved), README contrasts AWS Powertools idempotency (INPROGRESS re-run after expiry, record deleted on exception) with never re-running a stale key without a read-back; 134 offline tests; no live n8n.",
+      "sources": [
+        "https://raw.githubusercontent.com/aws-powertools/powertools-lambda-python/develop/docs/utilities/idempotency.md"
       ]
     }
   ],
