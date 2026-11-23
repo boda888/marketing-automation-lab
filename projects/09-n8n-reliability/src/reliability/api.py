@@ -60,12 +60,25 @@ Dead-letter rows (``reliability.dlq.DlqStore``), one per ``(scope, key)``:
     uvicorn reliability.api:app_from_env --factory
     # RELIABILITY_API_TOKEN optional; RELIABILITY_DB (SQLite path, default in-memory);
     # RELIABILITY_STALE_AFTER seconds (default 900); RELIABILITY_DLQ_DB (default
-    # RELIABILITY_DB); RELIABILITY_MAX_REPLAYS (default 3)
+    # RELIABILITY_DB); RELIABILITY_MAX_REPLAYS (default 3); RELIABILITY_RATE_DB (default
+    # RELIABILITY_DB): one file shared by every worker, or each worker has its own budget
+
+Shared rate budget (``reliability.ratebudget.RateBudget``), one per vendor account scope:
+
+- ``POST /v1/rate/scopes`` ``{scope, preset | windows: [{seconds, limit}]}`` (presets from
+  ``GET /v1/rate/presets``, numbers are search summaries — check your plan);
+- ``POST /v1/rate/acquire`` ``{scope, cost?}`` before each vendor call -> ``granted``, or
+  ``wait_ms`` + ``blocked_by`` (a window or ``retry_after``): Wait ``wait_ms``, ask again.
+  404 for a scope never configured (no silent "unlimited"), 422 for a cost above a limit;
+- ``POST /v1/rate/penalty`` ``{scope, retry_after_seconds? | headers?}`` after a 429:
+  blocks the whole scope for every caller until ``Retry-After`` has passed;
+- ``GET /v1/rate/usage?scope=`` for a dashboard.
 """
 
 from __future__ import annotations
 
 import hmac
+import math
 import os
 import random
 import time
@@ -78,7 +91,16 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from .dedupe import AlreadyCommitted, KeyStore, NotReserved, StillInFlight, TokenMismatch
 from .dlq import DlqRow, DlqStore, RowClosed, RowNotFound
-from .retry import HttpResult, ItemResult, RetryPolicy, TransportError, decide, is_idempotent
+from .ratebudget import PRESETS, Grant, RateBudget, UnknownScope
+from .retry import (
+    HttpResult,
+    ItemResult,
+    RetryPolicy,
+    TransportError,
+    decide,
+    is_idempotent,
+    retry_after_seconds,
+)
 
 # Node.js / OpenSSL error codes raised before any request bytes reach the vendor.
 NOT_SENT_CODES = frozenset(
@@ -298,6 +320,64 @@ def _key_errors(call: Callable[[], Any]) -> Any:
         raise HTTPException(422, str(exc)) from None
 
 
+class WindowIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    seconds: float = Field(gt=0)
+    limit: int = Field(ge=1)
+
+
+class ScopeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str = Field(min_length=1, max_length=200)
+    preset: str | None = None
+    windows: list[WindowIn] | None = Field(default=None, min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def _one_source(self) -> ScopeIn:
+        if (self.preset is None) == (self.windows is None):
+            raise ValueError("send exactly one of preset or windows")
+        return self
+
+
+class AcquireIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str = Field(min_length=1, max_length=200)
+    cost: int = Field(default=1, ge=1)
+
+
+class PenaltyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str = Field(min_length=1, max_length=200)
+    retry_after_seconds: float | None = Field(default=None, ge=0)
+    headers: dict[str, Any] = Field(default_factory=dict)
+
+
+def _rate_errors(call: Callable[[], Any]) -> Any:
+    try:
+        return call()
+    except UnknownScope as exc:
+        raise HTTPException(404, str(exc)) from None
+    except ValueError as exc:  # CostTooHigh included: waiting would never help
+        raise HTTPException(422, str(exc)) from None
+
+
+def grant_body(grant: Grant, now: float) -> dict[str, Any]:
+    return {
+        "granted": grant.granted,
+        "wait_ms": grant.wait_ms,
+        "retry_at": None if grant.granted else now + grant.wait_seconds,
+        "blocked_by": grant.blocked_by,
+        "usage": [
+            {"seconds": u.seconds, "limit": u.limit, "used": u.used, "remaining": u.remaining}
+            for u in grant.usage
+        ],
+    }
+
+
 KeyState = Literal["committed", "released", "not_reserved", "in_flight"]
 
 
@@ -328,12 +408,14 @@ def create_app(
     api_token: str | None = None,
     store: KeyStore | None = None,
     dlq: DlqStore | None = None,
+    rates: RateBudget | None = None,
     now: Callable[[], float] = time.time,
     rand: Callable[[], float] = random.random,
 ) -> FastAPI:
-    app = FastAPI(title="n8n reliability kit", version="0.0.9")
+    app = FastAPI(title="n8n reliability kit", version="0.0.10")
     keys = store if store is not None else KeyStore(clock=now)
     dead = dlq if dlq is not None else DlqStore(clock=now)
+    budget = rates if rates is not None else RateBudget(clock=now)
 
     def check_token(authorization: str | None = Header(default=None)) -> None:
         if api_token is None:
@@ -459,6 +541,46 @@ def create_app(
     def dlq_discard_route(row_id: int, body: NoteIn) -> dict[str, Any]:
         return _dlq_errors(lambda: dead.discard(row_id, note=body.note)).as_dict()
 
+    @app.get("/v1/rate/presets", dependencies=[Depends(check_token)])
+    def rate_presets_route() -> dict[str, Any]:
+        return {
+            name: {
+                "windows": [{"seconds": w.seconds, "limit": w.limit} for w in p.windows],
+                "scope": p.scope,
+                "confidence": p.confidence,
+                "source": p.source,
+            }
+            for name, p in PRESETS.items()
+        }
+
+    @app.post("/v1/rate/scopes", dependencies=[Depends(check_token)])
+    def rate_configure_route(body: ScopeIn) -> dict[str, Any]:
+        spec = body.preset or [(w.seconds, w.limit) for w in body.windows or []]
+        _rate_errors(lambda: budget.configure(body.scope, spec))
+        return _rate_errors(lambda: budget.usage(body.scope))
+
+    @app.get("/v1/rate/usage", dependencies=[Depends(check_token)])
+    def rate_usage_route(scope: str) -> dict[str, Any]:
+        return _rate_errors(lambda: budget.usage(scope))
+
+    @app.post("/v1/rate/acquire", dependencies=[Depends(check_token)])
+    def rate_acquire_route(body: AcquireIn) -> dict[str, Any]:
+        grant = _rate_errors(lambda: budget.acquire(body.scope, body.cost))
+        return {"scope": body.scope, **grant_body(grant, now())}
+
+    @app.post("/v1/rate/penalty", dependencies=[Depends(check_token)])
+    def rate_penalty_route(body: PenaltyIn) -> dict[str, Any]:
+        seconds = body.retry_after_seconds
+        if seconds is None and body.headers:
+            seconds = retry_after_seconds(_str_headers(body.headers), now=now)
+        until = _rate_errors(lambda: budget.penalize(body.scope, seconds))
+        return {
+            "scope": body.scope,
+            "blocked_until": until,
+            "wait_ms": max(math.ceil((until - now()) * 1000), 0),
+            "retry_after_seconds": seconds,
+        }
+
     return app
 
 
@@ -472,4 +594,7 @@ def app_from_env() -> FastAPI:
         os.environ.get("RELIABILITY_DLQ_DB") or os.environ.get("RELIABILITY_DB") or ":memory:",
         max_replays=int(os.environ.get("RELIABILITY_MAX_REPLAYS") or 3),
     )
-    return create_app(api_token=token, store=store, dlq=dlq)
+    rates = RateBudget(
+        os.environ.get("RELIABILITY_RATE_DB") or os.environ.get("RELIABILITY_DB") or ":memory:"
+    )
+    return create_app(api_token=token, store=store, dlq=dlq, rates=rates)

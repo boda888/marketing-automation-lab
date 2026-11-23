@@ -10,6 +10,16 @@ from .dedupe import (
     TokenMismatch,
 )
 from .dlq import DlqRow, DlqStore, ReplayItem, RowClosed, RowNotFound
+from .ratebudget import (
+    PRESETS,
+    CostTooHigh,
+    Grant,
+    Preset,
+    RateBudget,
+    UnknownScope,
+    Window,
+    WindowUsage,
+)
 from .retry import (
     IDEMPOTENT_METHODS,
     RETRYABLE_STATUSES,
@@ -25,9 +35,17 @@ from .retry import (
     run_items,
 )
 
-__version__ = "0.0.9"
+__version__ = "0.0.10"
 
 __all__ = [
+    "PRESETS",
+    "CostTooHigh",
+    "Grant",
+    "Preset",
+    "RateBudget",
+    "UnknownScope",
+    "Window",
+    "WindowUsage",
     "AlreadyCommitted",
     "IDEMPOTENT_METHODS",
     "RETRYABLE_STATUSES",

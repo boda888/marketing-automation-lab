@@ -28,6 +28,10 @@ v0.0.9 (2026-11-22): `POST /v1/dlq/{id}/resolve` also resolves the row's dedupe 
 scope + key) and reports `key_state`, so one read-back clears both the DLQ row and the
 reservation the loop kept after `unknown`.
 
+v0.0.10 (2026-11-23): **shared rate budget per vendor account scope** (`reliability.ratebudget`,
+`/v1/rate/*`): several windows at once, a cost per call, `Retry-After` blocking the scope for
+every caller, one SQLite file shared by every worker.
+
 ## Per-item retries
 
 ```python
@@ -275,6 +279,50 @@ The replay test runs a tick against the same service after the demo: 901 s later
 `gus` (failed) and alerts with `open_unsafe: 3`; a second tick hands out nothing; once the
 unknown rows are resolved and the failed one discarded, the tick is quiet.
 
+## Rate budget: one per account, shared by every execution
+
+n8n paces per execution (HTTP Request Batching, Wait), so two workflows on the same
+Instantly workspace, or five queue-mode workers, each spend the whole limit. Most vendors
+count the **account**, not the key: Instantly the workspace across keys and API versions,
+Smartlead the admin-key pool, Attio the workspace, Pipedrive the company (research
+[R9 2026-11-22](../../research/notes/2026-11-22-R9-vendor-rate-limits-table.md)).
+
+```python
+from reliability import RateBudget
+
+rates = RateBudget("/data/rate.db")  # every worker opens the same file
+rates.configure("apollo:team-1", "apollo_basic")  # 200 / min, 400 / h, 2,000 / day
+rates.configure("pipedrive:co-7", [(86400, 30000)])  # tokens per day, set from your plan
+
+g = rates.acquire("apollo:team-1")  # never sleeps
+g.granted, g.wait_ms, g.blocked_by  # False, 3480000, "3600s": the hour window is full
+rates.acquire("pipedrive:co-7", cost=40)  # a search costs more than a list
+rates.penalize("apollo:team-1", 120)  # the vendor said 429 + retry-after: 120
+```
+
+- **All windows must pass.** A single rate passes the minute check and then hits Apollo's
+  daily wall at noon; here the answer names the window that blocks (`60s`, `3600s`,
+  `86400s`) and how long until enough old calls leave it.
+- **Sliding log, at least as strict as the vendor's fixed windows:** at most `limit` cost
+  units in any interval of that length, so a fixed-window vendor never sees more.
+- **`Retry-After` overrides the windows** for the whole scope: the vendor's count includes
+  callers this budget never saw. No header → the shortest window's length. A shorter hint
+  never shortens a longer block.
+- **Fails closed:** a scope that was never configured is a 404, not "unlimited"; a cost
+  above a window's limit is a 422 (waiting would never help).
+- **Cross-process:** each acquire runs in `BEGIN IMMEDIATE` on the shared file, so two
+  workers cannot both take the last slot (tested with two processes: 40 + 40 tries, 50 granted).
+- **Presets** (`GET /v1/rate/presets`): `instantly`, `smartlead_admin_pool`,
+  `smartlead_client_key`, `apollo_basic` / `_professional` / `_free`, `hubspot_app`,
+  `attio_reads` / `_writes`, `heyreach`, each with its scope, source and confidence. Every
+  number is a web-search summary of the vendor's page; none of those pages could be opened
+  from the run environment. Pipedrive has no preset: its token budget depends on the plan.
+
+In n8n, before each vendor call: `POST /v1/rate/acquire {scope, cost}` → If `granted` →
+call; else Wait `wait_ms` and ask again. After a 429: `POST /v1/rate/penalty {scope,
+headers: $json.headers}` (the full-response headers; lists and lowercase names are read),
+then hand the attempt to `/v1/decide` as before.
+
 ## Run it
 
 ```bash
@@ -284,7 +332,11 @@ python -m pytest -q
 
 ## Limits
 
-- No shared rate budget yet (next steps in the root ROADMAP 09). `POST /v1/dlq/replay` does not consult the key store (the loop's claim does).
+- The rate budget has no queue: a refused caller asks again after `wait_ms`, so callers are
+  not served in arrival order and a busy scope can starve one of them. It counts only calls
+  that went through `acquire`; anything else on the same account is seen only through a
+  429's `Retry-After`. Vendor limits in the presets are search summaries; the retry loop and
+  replay workflows do not call `/v1/rate/acquire` yet. `POST /v1/dlq/replay` does not consult the key store (the loop's claim does).
   The DLQ and the key store may be two SQLite files: a crash between the row update and the
   key resolve leaves the key reserved (call `POST /v1/keys/resolve`); a stale key with no
   DLQ row (the run died before intake) still needs `POST /v1/keys/resolve`. The key store is one SQLite file: several n8n workers share it only
