@@ -187,7 +187,8 @@
     "2026-11-21 09 n8n reliability 0.0.6–0.0.8: retry-loop.json stop branch posts to /v1/dlq (lead payload, $workflow.name / $execution.id source); loop claims a /v1/keys key before each push (committed / in_flight skip, stale alert, commit on done, release on failed / exhausted / deferred, unknown kept); n8n/dlq-replay.json replays safe rows through the loop and alerts on open_unsafe; 128 offline tests",
     "2026-11-22 research R9: vendor rate-limit table (Instantly workspace-wide 100/s + 6,000/min, Smartlead admin-key pool, Apollo minute + hour + day with usage_stats endpoint, Pipedrive token budget + 2 s burst, HubSpot / Attio from R7) — numbers from search summaries; lemlist CLI 0.4.0 retries 429 always and 5xx only on idempotent methods; pipedrive SDK 36.1.0+ WithHttpInfo exposes Retry-After, no retries",
     "2026-11-22 09 n8n reliability 0.0.9: POST /v1/dlq/{id}/resolve also resolves the row's dedupe key (KeyStore.resolve, force only for open rows) and reports key_state committed / released / not_reserved / in_flight; a refused resolve leaves the key alone; 134 offline tests",
-    "2026-11-23 09 n8n reliability 0.0.10: RateBudget + /v1/rate/{scopes,acquire,penalty,usage,presets} — one budget per vendor account scope shared by every worker via one SQLite file (BEGIN IMMEDIATE; two-process test), several sliding windows all must pass, cost per call (Pipedrive tokens), non-blocking acquire returning wait_ms + blocking window, 429 Retry-After (header or seconds) blocks the scope, unknown scope 404, cost above a limit 422; presets for Instantly, Smartlead, Apollo tiers, HubSpot, Attio, HeyReach marked search summary; 153 offline tests"
+    "2026-11-23 09 n8n reliability 0.0.10: RateBudget + /v1/rate/{scopes,acquire,penalty,usage,presets} — one budget per vendor account scope shared by every worker via one SQLite file (BEGIN IMMEDIATE; two-process test), several sliding windows all must pass, cost per call (Pipedrive tokens), non-blocking acquire returning wait_ms + blocking window, 429 Retry-After (header or seconds) blocks the scope, unknown scope 404, cost above a limit 422; presets for Instantly, Smartlead, Apollo tiers, HubSpot, Attio, HeyReach marked search summary; 153 offline tests",
+    "2026-11-24 research R1: lookalike sourcing note (Ocean v3 lookalikeDomains API, paging + credit traps, seed hygiene, exclude-before-people-search); STACK rows Ocean.io / Exa / Explorium"
   ],
   "next_steps": [
     "09 (current project from 2026-11-17): reliability kit per R9 note — retry engine, /v1/decide, retry-loop.json, KeyStore, DlqStore, loop -> DLQ, key claims, dlq-replay.json, DLQ resolve -> key (0.0.1–0.0.9) and shared RateBudget + /v1/rate/* (0.0.10, 2026-11-23) done; next: wire /v1/rate/acquire (Wait wait_ms, ask again) and /v1/rate/penalty on 429 into retry-loop.json with a scope + cost per push, replayed offline across two parallel executions; error-workflow alert template; silent-schedule watchdog over KeyStore.pending(stale) and 06 pending(older_than) (plus Firecrawl skipped_no_credits and Instantly webhooks auto-disabled after delivery failures until /resume — R4 2026-11-05; Pipedrive GET /v1/webhooks is_active / remove_reason / last_http_status and Attio webhook status degraded — R7 2026-11-10); Apollo usage_stats pre-flight seeding the budget's used count (0 credits, R9 2026-11-22); ops-table writer for Airtable / sheets (R1 2026-11-02 note) and Supabase / Postgres via PostgREST merge-duplicates upsert with in-chunk dedupe by conflict key and bisect-on-failure (R1 2026-11-13 note); then a 09 v0.1 (README problem -> architecture -> run it -> limits, root README table).",
@@ -265,22 +266,11 @@
     "R9 2026-11-22: every vendor rate-limit number (Instantly, Smartlead, Apollo, Pipedrive, HeyReach) is a web-search summary — docs.attio.com, pipedrive.readme.io, developer.instantly.ai, docs.apollo.io, api.smartlead.ai, developer.lemlist.com ENOTFOUND / proxy 403; lemlist and Clay webhook limits not found; whether each vendor sends Retry-After unconfirmed. Since 2026-11-23 these numbers seed the 09 RateBudget presets (still marked search summary). 09 RateBudget: sliding-log windows on one SQLite file (no Redis / Postgres backend, no fair queue); BEGIN IMMEDIATE semantics from the CPython sqlite3 docs plus knowledge (sqlite.org ENOTFOUND 2026-11-23); cross-process sharing tested with two local processes only, never with live n8n queue-mode workers."
   ],
   "last_run": {
-    "date": "2026-11-23",
-    "commits": 2,
-    "notes": "Evening run, budget 2: 09 0.0.10 shared rate budget per vendor account scope."
+    "date": "2026-11-24",
+    "commits": 1,
+    "notes": "Morning run, budget 1: research R1 lookalike sourcing (Ocean.io / Clay / Exa / Explorium), state folded in."
   },
   "run_log": [
-    {
-      "date": "2026-10-18",
-      "commits": 4,
-      "summary": "02 v0.1.0: PREFLIGHT_ORG_DOMAIN (last-two / psl / tree-walk) with ORG_DOMAIN_TEMPERROR; assign_batch + POST /v1/schedule + n8n capacity-before-schedule; README pain -> architecture -> run -> limits; 279 tests in 02 (01: 33). current_project -> 03.",
-      "sources": [
-        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/nodes-base/nodes/HttpRequest/HttpRequest.node.ts",
-        "https://raw.githubusercontent.com/n8n-io/n8n/master/packages/workflow/src/interfaces.ts",
-        "https://raw.githubusercontent.com/publicsuffix/list/main/README.md"
-      ],
-      "research_note": "HttpRequest.node.ts: versions 1-4.5 (default 4.5), so the workflow's 4.2 is still a valid version; interfaces.ts INode: retryOnFail, maxTries, waitBetweenTries, onError are node-level fields. PSL README: maintained by volunteers, points users to publicsuffix.org (supports not bundling the list). WebFetch/curl to www.rfc-editor.org/rfc/rfc9989.txt and docs.n8n.io failed (ENOTFOUND), so DMARCbis RFC text is still unverified."
-    },
     {
       "date": "2026-10-19",
       "commits": 1,
@@ -1009,6 +999,19 @@
         "https://raw.githubusercontent.com/redis/redis-doc/master/commands/incr.md (opened 2026-11-23; 'Rate limiter' patterns: per-second key + EXPIRE, single-counter race conditions)",
         "https://www.sqlite.org/lang_transaction.html and https://docs.apollo.io/reference/rate-limits (ENOTFOUND 2026-11-23, not used)"
       ]
+    },
+    {
+      "date": "2026-11-24",
+      "commits": 1,
+      "summary": "Research R1: lookalike sourcing — Ocean.io v3 company search with lookalikeDomains (seed domains normalised, size ≤ 100 + searchAfter), node \"Return All\" throws at page 100 after up to 10,000 paid rows, 1 credit per result per node text vs 0.2 in a docs summary (conflict), no exclude field in packages; Clay ≤ 10 seeds + preview (search summary); Exa findSimilar deprecated → search(\"pages similar to\"); Explorium MCP 0.2.11 has no lookalike tool. ROADMAP 04 CRM-match item extended to exclude known accounts before paid people lookups. Vendor doc hosts DNS-blocked.",
+      "sources": [
+        "https://registry.npmjs.org/n8n-nodes-ocean/-/n8n-nodes-ocean-1.0.8.tgz (opened 2026-11-24)",
+        "https://registry.npmjs.org/ocean-agent-cli/-/ocean-agent-cli-0.1.12.tgz (opened 2026-11-24)",
+        "https://raw.githubusercontent.com/exa-labs/exa-py/master/exa_py/api.py (opened 2026-11-24)",
+        "https://pypi.org/pypi/exa-py/json (opened 2026-11-24)",
+        "https://files.pythonhosted.org/packages/8a/ac/8785325474d0b6675a19ef64f5c59c93df1a1b4cd6c09c5ef1faac48d596/explorium_mcp_server-0.2.11-py3-none-any.whl (opened 2026-11-24)",
+        "WebSearch: Clay / Ocean.io lookalike docs, changelog, community (summaries only; ocean.io, clay.com, docs.exa.ai, explorium hosts ENOTFOUND)"
+      ]
     }
   ],
   "research": {
@@ -1016,7 +1019,7 @@
     "tracks": {
       "R1": {
         "name": "Account & contact sourcing",
-        "last_researched": "2026-11-13"
+        "last_researched": "2026-11-24"
       },
       "R2": {
         "name": "Signals & research",

@@ -10,7 +10,9 @@ can apply, a catalogue row, or a lab roadmap item.
 - [x] Which sourcing tools expose an MCP server or API that an agent (Claude) can drive directly; what that changes in the workflow → [note](notes/2026-10-22-R1-sourcing-mcp-servers.md)
 - [ ] Does Clay ship a first-party MCP server or agent API (not found in the MCP registry on 2026-10-22); check Clay docs when reachable
 - [ ] Apollo credits per MCP tool call (search vs match vs bulk match) and whether MCP calls count against API rate limits
-- [ ] Lookalike sourcing from best customers: how tools do it, input format, quality checks
+- [x] Lookalike sourcing from best customers: how tools do it, input format, quality checks → [note](notes/2026-11-24-R1-lookalike-sourcing-ocean-exa.md) (Ocean API shape from third-party n8n node + CLI; Exa / Explorium from SDK / MCP source; Clay + prices only search summaries)
+- [ ] Ocean.io first-party (docs / pricing DNS-blocked 2026-11-24): credits per lookalike result (1 vs 0.2), whether `excludeDomains` exists on v3 company search, rate limits; measure on a trial key with `credits/balance` before / after 100 rows
+- [ ] Lookalike quality on the owner's own seed sets (run outside the repo): ICP pass rate Ocean vs Apollo lookalikes vs Exa "pages similar to" on the same 10 seeds
 - [x] Airtable as the ops database behind Clay: API limits, upsert on duplicate keys, n8n node batching / polling, client retries → [note](notes/2026-11-02-R1-airtable-ops-db-sync.md) (behaviour from n8n + airtable.js source; limits only as search summary)
 - [ ] Open Airtable's own API reference (blocked 2026-11-02): confirm 5 req/s per base, 30 s penalty, `performUpsert` multiple-match error text, records per base per plan, and what Airtable automations count against
 - [x] Postgres / Supabase instead of Airtable as the ops DB: when practitioners switch (row counts, cost, concurrency), and how Clay writes to it (HTTP API column vs Supabase integration) → [note](notes/2026-11-13-R1-supabase-ops-db-clay-n8n.md) (upsert / transaction / paging behaviour from n8n + PostgREST + Postgres source; plan limits from Supabase docs source; Clay side only search summaries)
