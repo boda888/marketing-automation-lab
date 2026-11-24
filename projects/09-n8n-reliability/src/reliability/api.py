@@ -18,7 +18,9 @@ for **one** item after **one** attempt, what to do next:
 - ``idempotent``: set ``true`` for a POST upsert on a unique key; left out, it follows the
   method (RFC 9110 §9.2.2) or the key;
 - ``policy`` (optional): ``RetryPolicy`` fields; ``key`` (optional): the item's key for the
-  DLQ row.
+  DLQ row;
+- ``rate_scope`` (optional): on a 429 the shared rate budget of that scope is blocked until
+  ``Retry-After`` (``rate_blocked_until`` in the answer), as ``/v1/rate/penalty`` would.
 
 Error codes count as "never left this machine" only for DNS, refused / unreachable and TLS
 certificate failures (the same split as 08's transport). Any other or missing code is
@@ -67,8 +69,10 @@ Shared rate budget (``reliability.ratebudget.RateBudget``), one per vendor accou
 
 - ``POST /v1/rate/scopes`` ``{scope, preset | windows: [{seconds, limit}]}`` (presets from
   ``GET /v1/rate/presets``, numbers are search summaries — check your plan);
-- ``POST /v1/rate/acquire`` ``{scope, cost?}`` before each vendor call -> ``granted``, or
-  ``wait_ms`` + ``blocked_by`` (a window or ``retry_after``): Wait ``wait_ms``, ask again.
+- ``POST /v1/rate/acquire`` ``{scope, cost?, max_wait_ms?, key?, attempt?}`` before each
+  vendor call -> ``granted`` + ``action``: ``go``, ``wait`` (``wait_ms`` + ``blocked_by``, a
+  window or ``retry_after``: Wait, ask again) or, past ``max_wait_ms``, ``stop`` with a
+  deferred ``dlq_row`` shaped like a ``/v1/decide`` stop (the call was never made).
   404 for a scope never configured (no silent "unlimited"), 422 for a cost above a limit;
 - ``POST /v1/rate/penalty`` ``{scope, retry_after_seconds? | headers?}`` after a 429:
   blocks the whole scope for every caller until ``Retry-After`` has passed;
@@ -155,6 +159,7 @@ class DecideIn(BaseModel):
     idempotent: bool | None = None
     policy: PolicyIn | None = None
     key: str | None = Field(default=None, max_length=512)
+    rate_scope: str | None = Field(default=None, min_length=1, max_length=200)
 
     @model_validator(mode="after")
     def _one_result(self) -> DecideIn:
@@ -241,6 +246,37 @@ def decide_request(
         out["safe_to_resend"] = item.safe_to_resend
         out["dlq_row"] = item.dlq_row()
     return out
+
+
+def acquire_decision(body: AcquireIn, grant: Grant, now: float) -> dict[str, Any]:
+    """A grant as a loop action: ``go`` (call now), ``wait`` (Wait ``wait_ms``, ask again)
+    or ``stop`` when the wait is longer than ``max_wait_ms``.
+
+    ``stop`` has the shape of a ``/v1/decide`` stop (``outcome`` deferred, ``retry_at``,
+    ``dlq_row``), so the workflow's existing stop path stores it and releases the key: the
+    call was never made, so the row is safe to resend. ``attempts`` counts calls made.
+    """
+    out = grant_body(grant, now)
+    if grant.granted:
+        return {**out, "action": "go", "outcome": None, "dlq_row": None}
+    if body.max_wait_ms is None or grant.wait_ms <= body.max_wait_ms:
+        return {**out, "action": "wait", "outcome": None, "dlq_row": None}
+    item = ItemResult(
+        key=body.key if body.key is not None else "",
+        outcome="deferred",
+        attempts=body.attempt - 1,
+        reason=f"rate_budget_{grant.blocked_by}",
+        retry_at=out["retry_at"],
+    )
+    return {
+        **out,
+        "action": "stop",
+        "outcome": "deferred",
+        "reason": item.reason,
+        "retry_at_iso": datetime.fromtimestamp(out["retry_at"], UTC).isoformat(),
+        "safe_to_resend": item.safe_to_resend,
+        "dlq_row": item.dlq_row(),
+    }
 
 
 class ClaimIn(BaseModel):
@@ -346,6 +382,9 @@ class AcquireIn(BaseModel):
 
     scope: str = Field(min_length=1, max_length=200)
     cost: int = Field(default=1, ge=1)
+    max_wait_ms: int | None = Field(default=None, ge=0)
+    key: str | None = Field(default=None, max_length=512)
+    attempt: int = Field(default=1, ge=1)
 
 
 class PenaltyIn(BaseModel):
@@ -412,7 +451,7 @@ def create_app(
     now: Callable[[], float] = time.time,
     rand: Callable[[], float] = random.random,
 ) -> FastAPI:
-    app = FastAPI(title="n8n reliability kit", version="0.0.10")
+    app = FastAPI(title="n8n reliability kit", version="0.0.11")
     keys = store if store is not None else KeyStore(clock=now)
     dead = dlq if dlq is not None else DlqStore(clock=now)
     budget = rates if rates is not None else RateBudget(clock=now)
@@ -432,7 +471,15 @@ def create_app(
 
     @app.post("/v1/decide", dependencies=[Depends(check_token)])
     def decide_route(body: DecideIn) -> dict[str, Any]:
-        return decide_request(body, now=now, rand=rand)
+        out = decide_request(body, now=now, rand=rand)
+        out["rate_blocked_until"] = None
+        if body.rate_scope is not None and body.status == 429:
+            # the vendor counts the account: one 429 blocks the scope for every caller
+            seconds = retry_after_seconds(_str_headers(body.headers), now=now)
+            out["rate_blocked_until"] = _rate_errors(
+                lambda: budget.penalize(body.rate_scope, seconds)  # type: ignore[arg-type]
+            )
+        return out
 
     @app.post("/v1/keys/claim", dependencies=[Depends(check_token)])
     def claim_route(body: ClaimIn) -> dict[str, Any]:
@@ -566,7 +613,7 @@ def create_app(
     @app.post("/v1/rate/acquire", dependencies=[Depends(check_token)])
     def rate_acquire_route(body: AcquireIn) -> dict[str, Any]:
         grant = _rate_errors(lambda: budget.acquire(body.scope, body.cost))
-        return {"scope": body.scope, **grant_body(grant, now())}
+        return {"scope": body.scope, **acquire_decision(body, grant, now())}
 
     @app.post("/v1/rate/penalty", dependencies=[Depends(check_token)])
     def rate_penalty_route(body: PenaltyIn) -> dict[str, Any]:

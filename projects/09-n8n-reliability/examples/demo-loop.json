@@ -1,6 +1,11 @@
 {
   "now": 1800000000,
   "about": "Synthetic leads on .example domains and what a scripted sequencer answers on each attempt. 'status' is an HTTP answer on the success output (Never Error); 'error' is an item on the error output (no HTTP answer). Not recorded from a real vendor.",
+  "rate": {
+    "scope": "sequencer:workspace-demo",
+    "windows": [{"seconds": 1, "limit": 10}, {"seconds": 60, "limit": 600}],
+    "about": "The shared budget the replay configures before running (POST /v1/rate/scopes). Fay is last because her 429 with Retry-After 400 blocks the whole workspace for 400 s: any lead after her in the same run would be deferred by the budget."
+  },
   "leads": [
     {
       "lead": {"email": "ana@acme.example", "first_name": "Ana", "company": "Acme"},
@@ -28,11 +33,6 @@
       "expect": {"end": "dlq", "outcome": "unknown", "pushes": 1, "waits_s": [], "safe_to_resend": false}
     },
     {
-      "lead": {"email": "fay@fjord.example", "first_name": "Fay", "company": "Fjord"},
-      "answers": [{"status": 429, "headers": {"Retry-After": "900"}}],
-      "expect": {"end": "dlq", "outcome": "deferred", "pushes": 1, "waits_s": [], "safe_to_resend": true}
-    },
-    {
       "lead": {"email": "gus@gale.example", "first_name": "Gus", "company": "Gale"},
       "answers": [{"status": 400}],
       "expect": {"end": "dlq", "outcome": "failed", "pushes": 1, "waits_s": [], "safe_to_resend": false}
@@ -41,6 +41,11 @@
       "lead": {"email": "hal@heath.example", "first_name": "Hal", "company": "Heath"},
       "answers": [{"status": 429}, {"status": 429}, {"status": 429}, {"status": 429}],
       "expect": {"end": "dlq", "outcome": "exhausted", "pushes": 4, "waits_s": [1, 2, 4], "safe_to_resend": true}
+    },
+    {
+      "lead": {"email": "fay@fjord.example", "first_name": "Fay", "company": "Fjord"},
+      "answers": [{"status": 429, "headers": {"Retry-After": "400"}}],
+      "expect": {"end": "dlq", "outcome": "deferred", "pushes": 1, "waits_s": [], "safe_to_resend": true}
     }
   ]
 }

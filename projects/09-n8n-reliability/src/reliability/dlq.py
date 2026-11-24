@@ -214,7 +214,8 @@ class DlqStore:
         if outcome not in OUTCOMES:
             raise ValueError(f"outcome must be one of {sorted(OUTCOMES)}, got {outcome!r}")
         reason = str(row.get("reason") or outcome)
-        attempts = int(row.get("attempts") or 1)
+        # 0 is real: a rate-budget stop defers the lead before any call was made
+        attempts = int(row["attempts"]) if row.get("attempts") is not None else 1
         last_status = row.get("last_status")
         retry_at = row.get("retry_at")
         if outcome == "deferred" and retry_at is None:

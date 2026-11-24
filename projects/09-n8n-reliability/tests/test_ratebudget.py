@@ -262,3 +262,52 @@ def test_api_rate_routes_need_the_token():
     assert c.get("/v1/rate/presets").status_code == 401
     ok = c.get("/v1/rate/presets", headers={"Authorization": "Bearer s3cret"})
     assert ok.status_code == 200
+
+
+def test_api_acquire_answers_go_wait_or_a_deferred_stop_past_max_wait():
+    clock = Clock()
+    c = client(clock)
+    c.post("/v1/rate/scopes", json={"scope": "s", "windows": [{"seconds": 60, "limit": 1}]})
+    body = {"scope": "s", "max_wait_ms": 30_000, "key": "ana@acme.example", "attempt": 2}
+    go = c.post("/v1/rate/acquire", json=body).json()
+    assert go["action"] == "go" and go["granted"] and go["dlq_row"] is None
+    # 60 s left in the window: past max_wait -> stop, shaped like a /v1/decide stop
+    stop = c.post("/v1/rate/acquire", json=body).json()
+    assert stop["action"] == "stop" and stop["outcome"] == "deferred"
+    assert stop["safe_to_resend"] is True and stop["retry_at_iso"].endswith("+00:00")
+    assert stop["dlq_row"] == {
+        "key": "ana@acme.example",
+        "outcome": "deferred",
+        "reason": "rate_budget_60s",
+        "attempts": 1,  # calls made: attempt 2 never happened
+        "last_status": None,
+        "retry_at": clock.t + 60,  # still t0 here
+        "safe_to_resend": True,
+    }
+    clock.tick(40)  # 20 s left: within max_wait
+    wait = c.post("/v1/rate/acquire", json=body).json()
+    assert wait["action"] == "wait" and wait["wait_ms"] == 20_000 and wait["dlq_row"] is None
+    # without max_wait_ms nothing is ever stopped (the old contract)
+    assert c.post("/v1/rate/acquire", json={"scope": "s"}).json()["action"] == "wait"
+    # the stop row goes into the DLQ as is, attempts 0 included
+    row = dict(stop["dlq_row"], attempts=0)
+    stored = c.post("/v1/dlq", json={"scope": "seq:camp", "row": row}).json()
+    assert stored["attempts"] == 0 and stored["outcome"] == "deferred"
+
+
+def test_api_decide_with_rate_scope_blocks_the_scope_on_429_only():
+    clock = Clock()
+    c = client(clock)
+    c.post("/v1/rate/scopes", json={"scope": "inst:ws", "windows": [{"seconds": 1, "limit": 9}]})
+    ok = {"attempt": 1, "method": "POST", "statusCode": 201, "rate_scope": "inst:ws"}
+    assert c.post("/v1/decide", json=ok).json()["rate_blocked_until"] is None
+    limited = {**ok, "statusCode": 429, "headers": {"retry-after": "12"}}
+    d = c.post("/v1/decide", json=limited).json()
+    assert d["action"] == "retry" and d["rate_blocked_until"] == clock.t + 12
+    other = c.post("/v1/rate/acquire", json={"scope": "inst:ws"}).json()
+    assert other["blocked_by"] == "retry_after" and other["wait_ms"] == 12_000
+    # no rate_scope: decide stays stateless; an unknown scope fails loudly
+    plain = {k: v for k, v in limited.items() if k != "rate_scope"}
+    assert c.post("/v1/decide", json=plain).json()["rate_blocked_until"] is None
+    missing = {**limited, "rate_scope": "never:configured"}
+    assert c.post("/v1/decide", json=missing).status_code == 404

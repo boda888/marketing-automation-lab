@@ -83,13 +83,31 @@
               "name": "policy",
               "value": "{\"max_attempts\": 4, \"max_wait_seconds\": 300, \"max_backoff_seconds\": 60}",
               "type": "object"
+            },
+            {
+              "id": "as-rate_scope",
+              "name": "rate_scope",
+              "value": "sequencer:workspace-demo",
+              "type": "string"
+            },
+            {
+              "id": "as-rate_cost",
+              "name": "rate_cost",
+              "value": 1,
+              "type": "number"
+            },
+            {
+              "id": "as-rate_max_wait_ms",
+              "name": "rate_max_wait_ms",
+              "value": 60000,
+              "type": "number"
             }
           ]
         },
         "includeOtherFields": true,
         "options": {}
       },
-      "notes": "One config item. idempotent=false: add-lead is a plain create, so a 5xx or a timeout after sending ends 'unknown' and is never re-sent blind. Set it true only for an upsert on a unique key, or put a vendor-documented Idempotency-Key into request_headers (and send the same header on the push). scope names the target (vendor:campaign) for dead-letter rows, so one lead failing in campaign A never blocks campaign B."
+      "notes": "One config item. idempotent=false: add-lead is a plain create, so a 5xx or a timeout after sending ends 'unknown' and is never re-sent blind. Set it true only for an upsert on a unique key, or put a vendor-documented Idempotency-Key into request_headers (and send the same header on the push). scope names the target (vendor:campaign) for dead-letter rows, so one lead failing in campaign A never blocks campaign B. rate_scope names the vendor ACCOUNT the rate limit counts (workspace, key pool), not the campaign: every workflow and worker pushing into that account uses the same rate_scope, configured once with POST /v1/rate/scopes. rate_cost is what one push costs in that budget; rate waits up to rate_max_wait_ms (60 s: n8n keeps waits under 65 s in memory) happen in a Wait node, longer ones defer the lead to the DLQ."
     },
     {
       "id": "c4d9e1f0-0009-4b2a-9c10-000000000004",
@@ -176,7 +194,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2420,
+        3080,
         300
       ],
       "retryOnFail": false,
@@ -206,7 +224,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        2640,
+        3300,
         200
       ],
       "parameters": {
@@ -259,12 +277,19 @@
               "name": "policy",
               "value": "={{ $('Config').first().json.policy }}",
               "type": "object"
+            },
+            {
+              "id": "as-rate_scope",
+              "name": "rate_scope",
+              "value": "={{ $('Config').first().json.rate_scope }}",
+              "type": "string"
             }
           ]
         },
         "includeOtherFields": false,
         "options": {}
-      }
+      },
+      "notes": "rate_scope: on a 429 the service also blocks the shared budget until Retry-After, so every other execution on the same vendor account waits too (the vendor counts the account, not this lead)."
     },
     {
       "id": "c4d9e1f0-0009-4b2a-9c10-000000000010",
@@ -272,7 +297,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        2640,
+        3300,
         420
       ],
       "parameters": {
@@ -333,7 +358,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2860,
+        3520,
         300
       ],
       "retryOnFail": false,
@@ -357,7 +382,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        3080,
+        3740,
         300
       ],
       "parameters": {
@@ -366,7 +391,7 @@
             {
               "id": "as-decision",
               "name": "decision",
-              "value": "={{ $json }}",
+              "value": "={{ $json.rate ?? $json }}",
               "type": "object"
             },
             {
@@ -385,7 +410,8 @@
         },
         "includeOtherFields": false,
         "options": {}
-      }
+      },
+      "notes": "Two inputs: the decide answer after a push, or a rate-budget stop (no push made). Both have action / outcome / dlq_row, so one stop path stores the row and releases the key."
     },
     {
       "id": "c4d9e1f0-0009-4b2a-9c10-000000000013",
@@ -393,7 +419,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        3300,
+        3960,
         300
       ],
       "notes": "fallbackOutput 'extra': an action the service adds later goes to the alert path instead of being dropped by Switch.",
@@ -486,7 +512,7 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        3520,
+        4180,
         460
       ],
       "notes": "Retry-After or capped backoff from the service, in seconds (wait_ms / 1000). Waits longer than the policy's max_wait_seconds never reach this node: they come back as stop + deferred with retry_at for the DLQ.",
@@ -502,7 +528,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        3740,
+        4400,
         460
       ],
       "parameters": {
@@ -539,7 +565,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        3520,
+        4180,
         640
       ],
       "parameters": {
@@ -582,7 +608,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        3740,
+        4400,
         640
       ],
       "notes": "Same Header Auth credential as Decide. No continue-on-error: a failed DLQ write fails the run for the error workflow instead of losing the row.",
@@ -606,7 +632,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        3520,
+        4180,
         820
       ],
       "parameters": {
@@ -624,7 +650,7 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        3520,
+        4180,
         300
       ],
       "parameters": {}
@@ -886,7 +912,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2640,
+        3300,
         140
       ],
       "retryOnFail": false,
@@ -910,7 +936,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        3080,
+        3740,
         640
       ],
       "notes": "Reads the outcome the DLQ stored. unknown keeps its reservation (may already be in the campaign); failed / exhausted / deferred never landed, so the key is released for a fixed or later push.",
@@ -1027,7 +1053,7 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        3300,
+        3960,
         560
       ],
       "notes": "The reservation turns stale after RELIABILITY_STALE_AFTER and is never handed out again until a read-back: POST /v1/dlq/{id}/resolve resolves the DLQ row and this key together (POST /v1/keys/resolve for a key without a DLQ row).",
@@ -1039,7 +1065,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        3300,
+        3960,
         720
       ],
       "retryOnFail": false,
@@ -1055,6 +1081,181 @@
         "options": {
           "timeout": 5000
         }
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000201",
+      "name": "Acquire rate (POST /v1/rate/acquire)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2420,
+        300
+      ],
+      "retryOnFail": false,
+      "notes": "Before every push, first attempt and retries alike: the budget is shared by every execution and queue-mode worker on the same rate_scope, so two workflows on one workspace cannot each spend the whole limit. Never sleeps server-side; answers go / wait / stop. 404 for a scope nobody configured: the run fails loudly instead of pushing unmetered.",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.reliability_url }}/v1/rate/acquire",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ scope: $('Config').first().json.rate_scope, cost: $('Config').first().json.rate_cost, max_wait_ms: $('Config').first().json.rate_max_wait_ms, key: $json.lead.email, attempt: $json.attempt }) }}",
+        "options": {
+          "timeout": 5000
+        }
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000202",
+      "name": "Grant + lead",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "as-rate",
+              "name": "rate",
+              "value": "={{ $json }}",
+              "type": "object"
+            },
+            {
+              "id": "as-attempt",
+              "name": "attempt",
+              "value": "={{ $('Attempt').item.json.attempt }}",
+              "type": "number"
+            },
+            {
+              "id": "as-lead",
+              "name": "lead",
+              "value": "={{ $('Attempt').item.json.lead }}",
+              "type": "object"
+            },
+            {
+              "id": "as-token",
+              "name": "token",
+              "value": "={{ $('Attempt').item.json.token }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000203",
+      "name": "Route by rate",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2860,
+        300
+      ],
+      "notes": "go: push now. wait: Wait wait_ms and ask again (no attempt is spent). stop: the wait is longer than rate_max_wait_ms, so the answer is a deferred stop shaped like /v1/decide's and takes the same DLQ + release path; the lead was never sent, so it is safe to replay.",
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "renameOutput": true,
+              "outputKey": "go",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rate--go",
+                    "leftValue": "={{ $json.rate.action }}",
+                    "rightValue": "go",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "wait",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rate--wait",
+                    "leftValue": "={{ $json.rate.action }}",
+                    "rightValue": "wait",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "renameOutput": true,
+              "outputKey": "stop",
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rate--stop",
+                    "leftValue": "={{ $json.rate.action }}",
+                    "rightValue": "stop",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c10-000000000204",
+      "name": "Wait (rate wait_ms)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2860,
+        520
+      ],
+      "notes": "The budget's own wait (a full window or a vendor Retry-After on the shared scope), capped by rate_max_wait_ms. Goes back to Attempt with the same attempt number: waiting for budget is not a failed attempt.",
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.rate.wait_ms / 1000 }}",
+        "unit": "seconds"
       }
     }
   ],
@@ -1136,7 +1337,7 @@
       "main": [
         [
           {
-            "node": "Push lead (one item)",
+            "node": "Acquire rate (POST /v1/rate/acquire)",
             "type": "main",
             "index": 0
           }
@@ -1463,6 +1664,71 @@
         [
           {
             "node": "Next lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acquire rate (POST /v1/rate/acquire)": {
+      "main": [
+        [
+          {
+            "node": "Grant + lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Grant + lead": {
+      "main": [
+        [
+          {
+            "node": "Route by rate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by rate": {
+      "main": [
+        [
+          {
+            "node": "Push lead (one item)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait (rate wait_ms)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Decision + lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert: unknown action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (rate wait_ms)": {
+      "main": [
+        [
+          {
+            "node": "Attempt",
             "type": "main",
             "index": 0
           }

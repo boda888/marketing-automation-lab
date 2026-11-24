@@ -32,6 +32,14 @@ v0.0.10 (2026-11-23): **shared rate budget per vendor account scope** (`reliabil
 `/v1/rate/*`): several windows at once, a cost per call, `Retry-After` blocking the scope for
 every caller, one SQLite file shared by every worker.
 
+v0.0.11 (2026-11-24): **`retry-loop.json` spends the shared budget.** Every push, first
+attempt and retries alike, asks `POST /v1/rate/acquire` first and switches on its `action`:
+`go` → push, `wait` → Wait `wait_ms` and ask again (no attempt spent), `stop` (the wait is
+past `rate_max_wait_ms`, 60 s) → a deferred DLQ row and a released key, the lead never sent.
+A vendor 429 blocks the whole account scope: `/v1/decide` with `rate_scope` penalises the
+budget until `Retry-After`, so a second execution on the same workspace waits too. The
+offline replay now simulates time and runs two executions side by side on one budget.
+
 ## Per-item retries
 
 ```python
@@ -318,10 +326,28 @@ rates.penalize("apollo:team-1", 120)  # the vendor said 429 + retry-after: 120
   number is a web-search summary of the vendor's page; none of those pages could be opened
   from the run environment. Pipedrive has no preset: its token budget depends on the plan.
 
-In n8n, before each vendor call: `POST /v1/rate/acquire {scope, cost}` → If `granted` →
-call; else Wait `wait_ms` and ask again. After a 429: `POST /v1/rate/penalty {scope,
-headers: $json.headers}` (the full-response headers; lists and lowercase names are read),
-then hand the attempt to `/v1/decide` as before.
+In n8n (`n8n/retry-loop.json` does exactly this): before each vendor call
+`POST /v1/rate/acquire {scope, cost, max_wait_ms, key, attempt}` → Switch on `action`:
+`go` → call; `wait` → Wait `wait_ms`, ask again; `stop` → the answer is a deferred stop with
+the same fields as a `/v1/decide` stop (`outcome`, `retry_at`, `dlq_row` with `attempts` =
+calls made), so it takes the loop's DLQ + key-release path. Without `max_wait_ms` the answer
+is never `stop`. After a 429, send `rate_scope` with the attempt to `/v1/decide` (the answer
+carries `rate_blocked_until`), or call `POST /v1/rate/penalty {scope, headers:
+$json.headers}` yourself (the full-response headers; lists and lowercase names are read).
+
+Config of the loop: `rate_scope` is the vendor **account** (`sequencer:workspace-demo`), not
+the campaign `scope` the keys and DLQ rows use; every workflow pushing into that account must
+use the same name, configured once with `POST /v1/rate/scopes` (an unconfigured scope is a
+404 and the run fails before any push). `rate_max_wait_ms` defaults to 60,000: n8n keeps a
+Wait under 65 s in the running process and offloads longer ones to the database (docs page
+via a search summary; the Wait node's source always calls `putExecutionToWait`, so the
+threshold lives in n8n core), and a budget wait of hours (a daily cap) belongs in the DLQ,
+not in a parked execution.
+
+The replay (`tests/test_n8n.py`) simulates time: a Wait parks its execution until the fake
+clock reaches its end and the execution that is ready first runs next (round robin on ties).
+Two executions with a 2-per-second budget push 10 leads with never more than 2 calls in any
+second; a 429 with `Retry-After: 30` in one holds the other's next push back 30 s.
 
 ## Run it
 
@@ -335,8 +361,9 @@ python -m pytest -q
 - The rate budget has no queue: a refused caller asks again after `wait_ms`, so callers are
   not served in arrival order and a busy scope can starve one of them. It counts only calls
   that went through `acquire`; anything else on the same account is seen only through a
-  429's `Retry-After`. Vendor limits in the presets are search summaries; the retry loop and
-  replay workflows do not call `/v1/rate/acquire` yet. `POST /v1/dlq/replay` does not consult the key store (the loop's claim does).
+  429's `Retry-After`. Vendor limits in the presets are search summaries. A 429 penalises the
+  whole scope, including a per-lead 429 a vendor might send for some other reason. Two
+  executions were replayed offline on one simulated clock, never on a live n8n. `POST /v1/dlq/replay` does not consult the key store (the loop's claim does).
   The DLQ and the key store may be two SQLite files: a crash between the row update and the
   key resolve leaves the key reserved (call `POST /v1/keys/resolve`); a stale key with no
   DLQ row (the run died before intake) still needs `POST /v1/keys/resolve`. The key store is one SQLite file: several n8n workers share it only

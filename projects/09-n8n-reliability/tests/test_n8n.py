@@ -5,8 +5,13 @@ resolved by a small evaluator below (only the expression forms the workflow uses
 push goes to a scripted vendor from examples/demo-loop.json, the decide and DLQ calls go to
 the FastAPI app and the Switch picks its branch from the response. A lead's path is therefore
 decided by the JSON file, not by the test.
+
+Time is simulated: a Wait node parks its execution until the fake clock reaches the end of
+the wait, and ``run_parallel`` always runs the execution that is ready first, so two
+executions can share one rate budget the way two n8n executions (or queue-mode workers) do.
 """
 
+import itertools
 import json
 import re
 from pathlib import Path
@@ -107,12 +112,18 @@ def run_set(node, item, ctx):
 
 
 SERVICE = "http://reliability:8009"
+RATE_WAIT = "Wait (rate wait_ms)"
+ACQUIRE = "Acquire rate (POST /v1/rate/acquire)"
 ALERTS = ("Alert: unknown action", "Alert: claim needs review")
 
 
 class Replay:
-    def __init__(self, client, entries):
+    def __init__(self, client, entries, clock=None):
         self.client = client
+        self.clock = clock
+        self.ready_at = clock.t if clock else 0.0
+        self.push_log = []  # (email, clock time) per vendor call
+        self.rate_waits = {}
         self.script = {d["lead"]["email"]: list(d["answers"]) for d in entries}
         self.leads = [d["lead"] for d in entries]
         self.pushes = {}
@@ -142,8 +153,11 @@ class Replay:
         if kind == "wait":
             params = node["parameters"]
             assert params["resume"] == "timeInterval" and params["unit"] == "seconds"
-            email = item["lead"]["email"]
-            self.waits.setdefault(email, []).append(evaluate(params["amount"], item, ctx))
+            email, amount = item["lead"]["email"], evaluate(params["amount"], item, ctx)
+            log = self.rate_waits if name == RATE_WAIT else self.waits
+            log.setdefault(email, []).append(amount)
+            if self.clock is not None:
+                self.ready_at = self.clock.t + amount
             return 0, item
         if name == "Push lead (one item)":
             return self.push(node, item, ctx)
@@ -161,6 +175,7 @@ class Replay:
         lead = evaluate(params["jsonBody"], item, ctx)
         email = lead["email"]
         self.pushes[email] = self.pushes.get(email, 0) + 1
+        self.push_log.append((email, self.clock.t if self.clock else None))
         answer = self.script[email].pop(0)
         if "error" in answer:
             return 1, {"error": answer["error"]}
@@ -182,11 +197,13 @@ class Replay:
         return 0, r.json()
 
     def drive(self, item, ctx):
-        """One lead from the loop output until it is handed back to the loop."""
+        """One lead from the loop output until it is handed back to the loop (a generator:
+        it yields after every node, so a scheduler can interleave executions)."""
         ctx = dict(ctx)  # node outputs of this pass only; Config stays visible
         name = targets(LOOP, 1)[0]
-        for _ in range(200):
+        for _ in range(400):
             output, item = self.step(name, item, ctx)
+            yield
             ctx[name] = item
             (name,) = targets(name, output)
             if name == LOOP:
@@ -197,6 +214,13 @@ class Replay:
         raise AssertionError("lead never returned to the loop")
 
     def run(self):
+        if self.clock is None:
+            for _ in self.steps():
+                pass
+            return self.finished
+        return run_parallel([self], self.clock)[0]
+
+    def steps(self):
         ctx = {}
         (collect,) = targets("Leads in (sub-workflow)")
         agg = NODES[collect]["parameters"]
@@ -208,8 +232,28 @@ class Replay:
         leads = ctx[config][NODES[split]["parameters"]["fieldToSplitOut"]]
         assert targets(split) == [LOOP]
         for lead in leads:  # batch size 1: one lead per pass
-            self.drive(lead, ctx)
-        return targets(LOOP, 0)
+            yield from self.drive(lead, ctx)
+        self.finished = targets(LOOP, 0)
+
+
+def run_parallel(replays, clock):
+    """Run executions side by side on one clock: always step the one that is ready first."""
+    running = {r: r.steps() for r in replays}
+    last_ran = dict.fromkeys(replays, 0)
+    for r in replays:
+        r.ready_at = max(r.ready_at, clock.t)
+    for tick_no in itertools.count(1):
+        if not running:
+            break
+        # ready first; on a tie the one that waited longest for the CPU (round robin)
+        r = min(running, key=lambda x: (x.ready_at, last_ran[x]))
+        clock.t = max(clock.t, r.ready_at)
+        last_ran[r] = tick_no
+        try:
+            next(running[r])
+        except StopIteration:
+            del running[r]
+    return [r.finished for r in replays]
 
 
 class Clock:
@@ -225,15 +269,25 @@ def clock():
     return Clock(DEMO["now"])
 
 
+def rate_scope(client, windows=None):
+    """Configure the demo's shared budget (or other windows) the way an operator would."""
+    windows = windows or DEMO["rate"]["windows"]
+    body = {"scope": DEMO["rate"]["scope"], "windows": windows}
+    r = client.post("/v1/rate/scopes", json=body, headers={"Authorization": f"Bearer {TOKEN}"})
+    assert r.status_code == 200, r.text
+
+
 @pytest.fixture()
 def client(clock):
-    return TestClient(create_app(api_token=TOKEN, now=clock, rand=lambda: 0.5))
+    c = TestClient(create_app(api_token=TOKEN, now=clock, rand=lambda: 0.5))
+    rate_scope(c)
+    return c
 
 
 @pytest.fixture()
-def replay(client):
-    r = Replay(client, DEMO["leads"])
-    r.finished = r.run()
+def replay(client, clock):
+    r = Replay(client, DEMO["leads"], clock)
+    r.run()
     return r
 
 
@@ -256,7 +310,16 @@ def test_loop_takes_one_lead_per_pass_and_retries_re_enter_the_same_call():
     assert targets(LOOP, 1) == ["Claim body"]
     assert targets("Wait (wait_ms)") == ["Next attempt"]
     assert targets("Next attempt") == ["Attempt"]
-    assert targets("Attempt") == ["Push lead (one item)"]
+    assert targets("Attempt") == [ACQUIRE]  # every push, retries included, asks the budget
+    assert targets(ACQUIRE) == ["Grant + lead"]
+    assert targets("Grant + lead") == ["Route by rate"]
+    assert switch_values("Route by rate") == ["go", "wait", "stop"]
+    assert targets("Route by rate", 0) == ["Push lead (one item)"]
+    assert targets("Route by rate", 1) == [RATE_WAIT]
+    assert targets(RATE_WAIT) == ["Attempt"]  # same attempt number: no attempt is spent
+    assert targets("Route by rate", 2) == ["Decision + lead"]  # deferred: the stop path
+    assert targets("Route by rate", 3) == ["Alert: unknown action"]
+    assert NODES["Route by rate"]["parameters"]["options"]["fallbackOutput"] == "extra"
     # only "Next lead" feeds the loop after the start: a retry never pulls in the next lead
     sources = [
         src
@@ -337,7 +400,8 @@ def test_a_possible_landing_is_never_pushed_again(replay):
 def test_retry_after_beyond_the_policy_is_a_deferred_row_not_a_long_wait(replay):
     (row,) = [r for r in replay.dlq if r["key"] == "fay@fjord.example"]
     assert row["reason"] == "http_429" and row["last_status"] == 429
-    assert row["retry_at"] == DEMO["now"] + 900
+    ((_, pushed_at),) = [p for p in replay.push_log if p[0] == "fay@fjord.example"]
+    assert row["retry_at"] == pushed_at + 400
     assert "fay@fjord.example" not in replay.waits
 
 
@@ -393,15 +457,21 @@ MAY_HAVE_LANDED = {"cara@cobalt.example", "eli@elm.example"}
 NEVER_LANDED = {"fay@fjord.example", "gus@gale.example", "hal@heath.example"}
 
 
-def second_run(client, answer=None):
+def second_run(client, clock, answer=None):
     """Same leads again; only the leads in `answer` have a scripted vendor reply."""
     answer = answer or {}
     entries = [
         {"lead": d["lead"], "answers": answer.get(d["lead"]["email"], [])} for d in DEMO["leads"]
     ]
-    r = Replay(client, entries)
-    r.finished = r.run()
+    r = Replay(client, entries, clock)
+    r.run()
     return r
+
+
+# fay's 429 (Retry-After 400) blocks the shared workspace budget; a later run within that
+# time would see its pushes deferred by the budget, so the reruns below start after it and
+# still inside the 900 s stale_after of the first run's reservations.
+AFTER_BLOCK = 401
 
 
 def test_every_reliability_call_is_authenticated_and_fails_the_run_loudly():
@@ -417,6 +487,7 @@ def test_every_reliability_call_is_authenticated_and_fails_the_run_loudly():
         "/v1/keys/claim",
         "/v1/keys/commit",
         "/v1/keys/release",
+        "/v1/rate/acquire",
     ]
     for n in service:
         assert n["parameters"]["genericAuthType"] == "httpHeaderAuth", n["name"]
@@ -456,8 +527,8 @@ def test_first_run_commits_what_landed_and_releases_what_never_did(replay):
 
 
 def test_second_run_skips_pushed_and_in_flight_leads_and_retries_only_released_ones(replay, clock):
-    clock.t += 60
-    again = second_run(replay.client, {e: [{"status": 201}] for e in NEVER_LANDED})
+    clock.t += AFTER_BLOCK
+    again = second_run(replay.client, clock, {e: [{"status": 201}] for e in NEVER_LANDED})
     assert again.finished == ["All leads handled"]
     assert again.pushes == dict.fromkeys(NEVER_LANDED, 1)  # no other lead reaches the vendor
     for email in LANDED:
@@ -471,7 +542,7 @@ def test_second_run_skips_pushed_and_in_flight_leads_and_retries_only_released_o
 
 def test_an_old_reservation_that_may_have_landed_alerts_instead_of_re_sending(replay, clock):
     clock.t += 901  # RELIABILITY_STALE_AFTER default: 900 s
-    again = second_run(replay.client, {e: [{"status": 201}] for e in NEVER_LANDED})
+    again = second_run(replay.client, clock, {e: [{"status": 201}] for e in NEVER_LANDED})
     assert set(again.pushes) == NEVER_LANDED
     reviewed = {item["lead"]["email"] for name, item in again.alerts}
     assert reviewed == MAY_HAVE_LANDED
@@ -481,14 +552,16 @@ def test_an_old_reservation_that_may_have_landed_alerts_instead_of_re_sending(re
 
 
 def test_a_dlq_replay_of_a_lead_that_landed_since_is_skipped_by_its_claim(replay, clock):
-    clock.t += 60
-    second_run(replay.client, {e: [{"status": 201}] for e in NEVER_LANDED})
+    clock.t += AFTER_BLOCK
+    second_run(replay.client, clock, {e: [{"status": 201}] for e in NEVER_LANDED})
     handed = replay.client.post("/v1/dlq/replay", json={}, headers=AUTH).json()["replay"]
-    assert [i["key"] for i in handed] == ["hal@heath.example"]  # the DLQ row is still open
-    third = Replay(replay.client, [{"lead": i["payload"], "answers": []} for i in handed])
+    # both DLQ rows are still open (fay's Retry-After has passed too)
+    assert sorted(i["key"] for i in handed) == ["fay@fjord.example", "hal@heath.example"]
+    third = Replay(replay.client, [{"lead": i["payload"], "answers": []} for i in handed], clock)
     third.run()
     assert third.pushes == {}  # committed in run 2: the replayed payload is not pushed again
-    assert third.ends["hal@heath.example"]["claim"]["status"] == "committed"
+    for email in ("fay@fjord.example", "hal@heath.example"):
+        assert third.ends[email]["claim"]["status"] == "committed"
 
 
 # --- n8n/dlq-replay.json: scheduled replay of safe rows + alert on rows that need a person --
@@ -502,7 +575,7 @@ def rtargets(name, output=0):
     return [link["node"] for link in main[output]] if output < len(main) else []
 
 
-def tick(client, answers=None):
+def tick(client, clock, answers=None):
     """One schedule tick of dlq-replay.json; the sub-workflow call runs retry-loop.json."""
     answers = answers or {}
     out = {"pushed": None, "alerts": [], "replay": None}
@@ -534,7 +607,7 @@ def tick(client, answers=None):
     (sub,) = rtargets(to_lead)
     if leads:  # n8n runs no node below an empty Split Out
         entries = [{"lead": lead, "answers": answers.get(lead["email"], [])} for lead in leads]
-        out["pushed"] = Replay(client, entries)
+        out["pushed"] = Replay(client, entries, clock)
         assert out["pushed"].run() == ["All leads handled"]
     # summary branch: IF open_unsafe > 0 -> alert
     (check,) = rtargets(summary_node)
@@ -568,6 +641,7 @@ def test_tick_pushes_only_safe_rows_once_and_alerts_on_rows_replay_never_touches
     clock.t += 901  # fay's Retry-After (900 s) has passed
     first = tick(
         replay.client,
+        clock,
         {"fay@fjord.example": [{"status": 201}], "hal@heath.example": [{"status": 201}]},
     )
     assert first["pushed"].pushes == {"fay@fjord.example": 1, "hal@heath.example": 1}
@@ -580,11 +654,11 @@ def test_tick_pushes_only_safe_rows_once_and_alerts_on_rows_replay_never_touches
     ((alert, summary),) = first["alerts"]
     assert alert == "Alert: DLQ needs a read-back" and summary["open_unsafe"] == 3
 
-    second = tick(replay.client)  # same rows are 'replayed' now: nothing is handed out twice
+    second = tick(replay.client, clock)  # same rows are 'replayed' now: nothing is handed out twice
     assert second["pushed"] is None and second["replay"]["replay"] == []
 
 
-def test_tick_is_quiet_once_a_person_resolved_the_unsafe_rows(replay):
+def test_tick_is_quiet_once_a_person_resolved_the_unsafe_rows(replay, clock):
     rows = replay.client.get("/v1/dlq", headers=AUTH).json()["rows"]
     for row in rows:
         if row["outcome"] == "unknown":  # read back: they did land
@@ -595,6 +669,105 @@ def test_tick_is_quiet_once_a_person_resolved_the_unsafe_rows(replay):
         if row["outcome"] == "failed":
             r = replay.client.post(f"/v1/dlq/{row['id']}/discard", json={}, headers=AUTH)
             assert r.status_code == 200 and r.json()["state"] == "discarded"
-    quiet = tick(replay.client, {"hal@heath.example": [{"status": 201}]})
+    # fay's 429 still blocks the workspace: hal is handed out but never pushed, and goes
+    # back as deferred until the block ends (fay herself is not due before then either)
+    blocked = tick(replay.client, clock, {"hal@heath.example": [{"status": 201}]})
+    assert blocked["alerts"] == [] and blocked["pushed"].pushes == {}
+    (row,) = [r for r in blocked["pushed"].dlq if r["key"] == "hal@heath.example"]
+    assert row["outcome"] == "deferred" and row["reason"] == "rate_budget_retry_after"
+    (fay,) = [r for r in rows if r["key"] == "fay@fjord.example"]
+    assert row["retry_at"] == fay["retry_at"]  # both wait for the same Retry-After
+
+    clock.t = fay["retry_at"]
+    quiet = tick(
+        replay.client,
+        clock,
+        {"hal@heath.example": [{"status": 201}], "fay@fjord.example": [{"status": 201}]},
+    )
     assert quiet["alerts"] == []
-    assert quiet["pushed"].pushes == {"hal@heath.example": 1}  # fay is not due yet
+    assert quiet["pushed"].pushes == {"hal@heath.example": 1, "fay@fjord.example": 1}
+
+
+# --- shared rate budget: two executions, one vendor account -------------------------------
+
+
+def leads(prefix, n, answers=None):
+    return [
+        {
+            "lead": {"email": f"{prefix}{i}@{prefix}.example", "first_name": "X", "company": "Y"},
+            "answers": list(answers or [{"status": 201}]),
+        }
+        for i in range(1, n + 1)
+    ]
+
+
+def at_most_per_window(times, seconds):
+    """The most calls inside any half-open interval (t - seconds, t]."""
+    return max(sum(1 for u in times if t - seconds < u <= t) for t in times)
+
+
+def test_two_parallel_executions_never_exceed_the_shared_limit_together(client, clock):
+    rate_scope(client, [{"seconds": 1, "limit": 2}, {"seconds": 60, "limit": 600}])
+    a = Replay(client, leads("alder", 5), clock)
+    b = Replay(client, leads("beech", 5), clock)
+    assert run_parallel([a, b], clock) == [["All leads handled"]] * 2
+    for r in (a, b):
+        assert all(n == 1 for n in r.pushes.values()) and len(r.pushes) == 5
+        assert all(end["decision"]["outcome"] == "ok" for end in r.ends.values())
+        assert r.rate_waits and r.dlq == [] and r.alerts == []  # both had to wait
+    times = [t for _, t in a.push_log + b.push_log]
+    assert at_most_per_window(times, 1) == 2  # unshared, each would allow itself 2: 4 together
+    assert sum(len(w) for r in (a, b) for w in r.rate_waits.values()) >= 4
+    assert a.decide_calls + b.decide_calls == 10  # a rate wait is not a push or an attempt
+
+
+def test_a_429_in_one_execution_holds_back_the_other(client, clock):
+    t0 = clock.t
+    a = Replay(
+        client,
+        leads("alder", 1, [{"status": 429, "headers": {"Retry-After": "30"}}, {"status": 201}]),
+        clock,
+    )
+    b = Replay(client, leads("beech", 3), clock)
+    run_parallel([a, b], clock)
+    assert a.waits == {"alder1@alder.example": [30]}  # decide's own Retry-After wait
+    b_times = dict(b.push_log)
+    # b pushed in step with a before the 429 was known; after it, b waits the vendor out
+    assert b_times["beech1@beech.example"] == t0
+    assert b_times["beech2@beech.example"] >= t0 + 30
+    assert b.rate_waits["beech2@beech.example"] == [30]
+    assert all(end["decision"]["outcome"] == "ok" for r in (a, b) for end in r.ends.values())
+
+
+def test_a_budget_wait_beyond_the_cap_defers_the_lead_without_calling(client, clock):
+    rate_scope(client, [{"seconds": 86400, "limit": 2}])  # e.g. a daily credit cap
+    t0 = clock.t
+    r = Replay(client, leads("cedar", 4), clock)
+    r.run()
+    assert r.pushes == {"cedar1@cedar.example": 1, "cedar2@cedar.example": 1}
+    assert r.rate_waits == {}  # 86,400 s is past rate_max_wait_ms: no parked execution
+    assert {row["key"] for row in r.dlq} == {"cedar3@cedar.example", "cedar4@cedar.example"}
+    for row in r.dlq:
+        assert row["outcome"] == "deferred" and row["reason"] == "rate_budget_86400s"
+        assert row["attempts"] == 0 and row["last_status"] is None
+        assert row["safe_to_resend"] is True and row["retry_at"] == t0 + 86400
+    released = {b["key"] for b in r.calls["/v1/keys/release"]}
+    assert released == {"cedar3@cedar.example", "cedar4@cedar.example"}
+    assert r.decide_calls == 2
+
+
+def test_an_unconfigured_rate_scope_fails_the_run_instead_of_pushing_unmetered(clock):
+    bare = TestClient(create_app(api_token=TOKEN, now=clock, rand=lambda: 0.5))
+    r = Replay(bare, leads("dune", 1), clock)
+    with pytest.raises(AssertionError, match="/v1/rate/acquire"):
+        r.run()
+    assert r.pushes == {}
+
+
+def test_demo_config_points_at_the_scope_the_replay_configures():
+    cfg = {
+        a["name"]: a["value"] for a in NODES["Config"]["parameters"]["assignments"]["assignments"]
+    }
+    assert cfg["rate_scope"] == DEMO["rate"]["scope"] != cfg["scope"]  # account, not campaign
+    assert cfg["rate_cost"] == 1 and cfg["rate_max_wait_ms"] <= 65000  # n8n keeps <65 s in memory
+    assert "rate_scope" in assigned("Decide body: HTTP answer")
