@@ -1,5 +1,14 @@
 """n8n reliability kit: per-item retries that never re-send what already landed."""
 
+from .alerts import (
+    AlertDecision,
+    AlertLog,
+    ErrorEvent,
+    fingerprint,
+    format_alert,
+    mask_message,
+    parse_error_event,
+)
 from .dedupe import (
     AlreadyCommitted,
     Claim,
@@ -35,9 +44,16 @@ from .retry import (
     run_items,
 )
 
-__version__ = "0.0.11"
+__version__ = "0.0.12"
 
 __all__ = [
+    "AlertDecision",
+    "AlertLog",
+    "ErrorEvent",
+    "fingerprint",
+    "format_alert",
+    "mask_message",
+    "parse_error_event",
     "PRESETS",
     "CostTooHigh",
     "Grant",

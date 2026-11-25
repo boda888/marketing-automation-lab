@@ -40,6 +40,12 @@ A vendor 429 blocks the whole account scope: `/v1/decide` with `rate_scope` pena
 budget until `Retry-After`, so a second execution on the same workspace waits too. The
 offline replay now simulates time and runs two executions side by side on one budget.
 
+v0.0.12 (2026-11-25): **error-workflow alerts that do not flood or leak**
+(`reliability.alerts`, `POST /v1/alerts/n8n-error`, [`n8n/error-alert.json`](n8n/error-alert.json)):
+one alert per failure fingerprint and window, repeats reported as "+N similar", e-mails
+masked, trigger failures told apart from execution failures; the kit's workflows name it as
+their error workflow and save failed executions so the alert's link opens.
+
 ## Per-item retries
 
 ```python
@@ -349,6 +355,41 @@ clock reaches its end and the execution that is ready first runs next (round rob
 Two executions with a 2-per-second budget push 10 leads with never more than 2 calls in any
 second; a 429 with `Retry-After: 30` in one holds the other's next push back 30 s.
 
+## Error-workflow alerts: `n8n/error-alert.json`
+
+n8n runs a workflow's error workflow only when an execution or its trigger failed, and the
+Error Trigger gets one item with no lead in it (`packages/cli/src/execution-lifecycle/
+execute-error-workflow.ts`):
+
+```json
+{"execution": {"id": "231", "url": ".../workflow/7/executions/231", "error": {"message": "..."},
+               "lastNodeExecuted": "Push to sequencer", "mode": "trigger", "retryOf": null},
+ "workflow": {"id": "7", "name": "09 · retry loop"}}
+```
+
+or `{"trigger": {"error", "mode"}, "workflow"}` when the trigger itself failed (no execution
+exists, so there is no link to open). Posting that straight into a chat has three problems
+the service handles:
+
+| problem | what `POST /v1/alerts/n8n-error` does |
+|---|---|
+| a schedule failing every 5 min posts 288 alerts a day | fingerprint = workflow + kind + node + HTTP code + message with ids / numbers / quoted values masked; first per window (`RELIABILITY_ALERT_WINDOW`, 900 s) is `send: true`, repeats are counted and reported on the next sent alert ("+5 similar not sent since …") |
+| vendor errors echo the lead | e-mail addresses masked, message cut to 300 characters |
+| the link opens nothing | trigger failures say so; the kit's workflows set `saveDataErrorExecution: all` (n8n fires the error workflow even when the failed execution is not saved) |
+
+```text
+Error Trigger -> Config -> POST /v1/alerts/n8n-error -> send? -> Alert (webhook / Telegram / Slack)
+                                      \-- error output (service down) -> fallback alert:
+                                           workflow name + execution URL, no error text
+```
+
+The route always answers 200, also for a payload it does not recognise (sent as
+`unrecognised`, never folded): an error workflow that fails on its own input alerts nobody.
+`retry-loop.json` and `dlq-replay.json` name it in Settings → Error workflow
+(`REPLACE_error_alert_workflow_id`); the error workflow names none, so it never alerts on
+itself. Manual runs (the Error Trigger's sample data) are tagged `[test]` and never fold
+into live alerts. Per-lead failures stay in the DLQ; the alert points there.
+
 ## Run it
 
 ```bash
@@ -377,6 +418,11 @@ python -m pytest -q
   against the n8n-nodes-base 2.48.4 package source (Wait, SplitInBatches v3, Aggregate,
   SplitOut, Switch v3, HTTP Request v3), and the replay's evaluator covers only the
   expression forms the workflow uses.
+- `error-alert.json` was never imported into a live n8n and never received a real Error
+  Trigger item; the payload shape comes from n8n's `execute-error-workflow.ts` and the
+  Error Trigger node on GitHub (master, 2026-11-25). Whether `error.node` / `error.httpCode`
+  survive serialisation into that item was not checked, so the node falls back to
+  `lastNodeExecuted`. Masking covers e-mail addresses only, not names or phone numbers.
 - The n8n error-item shape (where the Node.js error `code` sits on a continue-on-error item)
   was not checked against a live n8n: map it into `error.code` explicitly.
 - Offline tests with a scripted fake vendor; never run against a live vendor or a live n8n.

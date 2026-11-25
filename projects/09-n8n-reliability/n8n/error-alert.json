@@ -1,0 +1,211 @@
+{
+  "name": "09 · Error workflow: deduped, masked alerts",
+  "nodes": [
+    {
+      "id": "c4d9e1f0-0012-4b2a-9c20-000000000001",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ],
+      "notes": "Runs when a workflow that names this one as its Error workflow fails (Settings -> Error workflow). One item: {execution: {id, url, error, lastNodeExecuted, mode, retryOf}, workflow: {id, name}}, or {trigger: {error, mode}, workflow} when the trigger itself failed. No lead items.",
+      "parameters": {}
+    },
+    {
+      "id": "c4d9e1f0-0012-4b2a-9c20-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        200
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "as-reliability_url",
+              "name": "reliability_url",
+              "value": "http://reliability:8009",
+              "type": "string"
+            },
+            {
+              "id": "as-alert_url",
+              "name": "alert_url",
+              "value": "https://alerts.ops.example/hooks/n8n",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "c4d9e1f0-0012-4b2a-9c20-000000000003",
+      "name": "Decide alert (POST /v1/alerts/n8n-error)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        200
+      ],
+      "retryOnFail": false,
+      "onError": "continueErrorOutput",
+      "notes": "Fingerprints the failure, masks e-mails and answers send=false for repeats inside the window (default 15 min). Error output: the service is down -> the fallback alert still goes out, not deduped.",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.reliability_url }}/v1/alerts/n8n-error",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Error Trigger').first().json) }}",
+        "options": {
+          "timeout": 5000
+        }
+      }
+    },
+    {
+      "id": "c4d9e1f0-0012-4b2a-9c20-000000000004",
+      "name": "Send now?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        100
+      ],
+      "notes": "false = a repeat inside the window; it is counted and reported as '+N similar' on the next alert that is sent.",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "send-is-true",
+              "leftValue": "={{ $json.send }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c4d9e1f0-0012-4b2a-9c20-000000000005",
+      "name": "Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        40
+      ],
+      "notes": "Generic webhook; swap for a Telegram / Slack node that sends $json.text as plain text (no Markdown parse mode: error messages contain _ and *).",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.alert_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text, fingerprint: $json.fingerprint }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      }
+    },
+    {
+      "id": "c4d9e1f0-0012-4b2a-9c20-000000000006",
+      "name": "Fallback alert (service down)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        320
+      ],
+      "notes": "The reliability service did not answer: alert anyway with the workflow name and execution URL only (no error message: it may carry lead data that nothing masked).",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.alert_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: 'n8n workflow failed and the alert service is unreachable (not deduped)', workflow: $('Error Trigger').first().json.workflow.name, execution_url: $('Error Trigger').first().json.execution?.url ?? null }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Decide alert (POST /v1/alerts/n8n-error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide alert (POST /v1/alerts/n8n-error)": {
+      "main": [
+        [
+          {
+            "node": "Send now?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback alert (service down)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send now?": {
+      "main": [
+        [
+          {
+            "node": "Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

@@ -300,7 +300,9 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "errorWorkflow": "REPLACE_error_alert_workflow_id",
+    "saveDataErrorExecution": "all"
   },
   "pinData": {},
   "meta": {

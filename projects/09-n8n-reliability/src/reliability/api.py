@@ -77,6 +77,16 @@ Shared rate budget (``reliability.ratebudget.RateBudget``), one per vendor accou
 - ``POST /v1/rate/penalty`` ``{scope, retry_after_seconds? | headers?}`` after a 429:
   blocks the whole scope for every caller until ``Retry-After`` has passed;
 - ``GET /v1/rate/usage?scope=`` for a dashboard.
+
+Alerts from n8n's Error Trigger (``reliability.alerts``):
+
+- ``POST /v1/alerts/n8n-error`` with the Error Trigger item as the body (``?window_seconds=``
+  optional) -> ``send``, ``text`` (plain, e-mails masked), ``fingerprint``,
+  ``suppressed_since_last``, ``total``, ``event``. The first alert per fingerprint and window
+  is sent, repeats are counted into the next one. Always 200, even for a payload it does not
+  recognise (sent as such): the error workflow must not fail on its own input.
+  ``RELIABILITY_ALERT_WINDOW`` seconds (default 900); ``RELIABILITY_ALERT_DB`` (default
+  ``RELIABILITY_DB``).
 """
 
 from __future__ import annotations
@@ -88,11 +98,12 @@ import random
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Body, Depends, FastAPI, Header, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
+from .alerts import AlertLog, format_alert, parse_error_event
 from .dedupe import AlreadyCommitted, KeyStore, NotReserved, StillInFlight, TokenMismatch
 from .dlq import DlqRow, DlqStore, RowClosed, RowNotFound
 from .ratebudget import PRESETS, Grant, RateBudget, UnknownScope
@@ -448,13 +459,15 @@ def create_app(
     store: KeyStore | None = None,
     dlq: DlqStore | None = None,
     rates: RateBudget | None = None,
+    alerts: AlertLog | None = None,
     now: Callable[[], float] = time.time,
     rand: Callable[[], float] = random.random,
 ) -> FastAPI:
-    app = FastAPI(title="n8n reliability kit", version="0.0.11")
+    app = FastAPI(title="n8n reliability kit", version="0.0.12")
     keys = store if store is not None else KeyStore(clock=now)
     dead = dlq if dlq is not None else DlqStore(clock=now)
     budget = rates if rates is not None else RateBudget(clock=now)
+    alert_log = alerts if alerts is not None else AlertLog(clock=now)
 
     def check_token(authorization: str | None = Header(default=None)) -> None:
         if api_token is None:
@@ -628,6 +641,23 @@ def create_app(
             "retry_after_seconds": seconds,
         }
 
+    @app.post("/v1/alerts/n8n-error", dependencies=[Depends(check_token)])
+    def n8n_error_route(
+        payload: Annotated[Any, Body()] = None, window_seconds: float | None = None
+    ) -> dict[str, Any]:
+        if window_seconds is not None and window_seconds < 0:
+            raise HTTPException(422, "window_seconds must be >= 0")
+        event = parse_error_event(payload)
+        decision = alert_log.record(event, window_seconds=window_seconds)
+        return {
+            "send": decision.send,
+            "text": format_alert(event, decision),
+            "fingerprint": decision.fingerprint,
+            "suppressed_since_last": decision.suppressed_since_last,
+            "total": decision.total,
+            "event": event.as_dict(),
+        }
+
     return app
 
 
@@ -644,4 +674,8 @@ def app_from_env() -> FastAPI:
     rates = RateBudget(
         os.environ.get("RELIABILITY_RATE_DB") or os.environ.get("RELIABILITY_DB") or ":memory:"
     )
-    return create_app(api_token=token, store=store, dlq=dlq, rates=rates)
+    alerts = AlertLog(
+        os.environ.get("RELIABILITY_ALERT_DB") or os.environ.get("RELIABILITY_DB") or ":memory:",
+        window_seconds=float(os.environ.get("RELIABILITY_ALERT_WINDOW") or 900),
+    )
+    return create_app(api_token=token, store=store, dlq=dlq, rates=rates, alerts=alerts)
