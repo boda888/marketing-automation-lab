@@ -87,6 +87,19 @@ Alerts from n8n's Error Trigger (``reliability.alerts``):
   recognise (sent as such): the error workflow must not fail on its own input.
   ``RELIABILITY_ALERT_WINDOW`` seconds (default 900); ``RELIABILITY_ALERT_DB`` (default
   ``RELIABILITY_DB``).
+
+Watchdog for schedules that stop without an error (``reliability.watchdog``):
+
+- ``PUT /v1/watchdog/checks/{name}`` ``{period_seconds, grace_seconds}`` (pings are kept);
+- ``POST /v1/watchdog/checks/{name}/ping`` ``{signal: start | ok, execution?}`` from the
+  scheduled workflow (404 for a name never configured);
+  ``POST /v1/watchdog/checks/{name}/pause`` ``{paused}``;
+- ``GET /v1/watchdog/checks`` (states, read-only) and ``POST /v1/watchdog/check`` from the
+  watchdog schedule -> ``alert``, ``text``, ``alerts`` (``down`` once, ``still_down`` every
+  ``RELIABILITY_WATCHDOG_REALERT`` seconds, default 21600, ``recovered`` once), ``watches``,
+  ``counts`` and ``stale_keys`` (reservations past ``stale_after``, alerted once per scope
+  and alert window: a run that died between push and commit).
+  ``RELIABILITY_WATCHDOG_DB`` (default ``RELIABILITY_DB``).
 """
 
 from __future__ import annotations
@@ -116,6 +129,7 @@ from .retry import (
     is_idempotent,
     retry_after_seconds,
 )
+from .watchdog import UnknownWatch, Watchdog
 
 # Node.js / OpenSSL error codes raised before any request bytes reach the vendor.
 NOT_SENT_CODES = frozenset(
@@ -406,6 +420,20 @@ class PenaltyIn(BaseModel):
     headers: dict[str, Any] = Field(default_factory=dict)
 
 
+class WatchIn(BaseModel):
+    period_seconds: float = Field(gt=0)
+    grace_seconds: float = Field(ge=0)
+
+
+class PingIn(BaseModel):
+    signal: Literal["start", "ok"] = "ok"
+    execution: str | None = Field(default=None, max_length=200)
+
+
+class PauseIn(BaseModel):
+    paused: bool = True
+
+
 def _rate_errors(call: Callable[[], Any]) -> Any:
     try:
         return call()
@@ -460,14 +488,16 @@ def create_app(
     dlq: DlqStore | None = None,
     rates: RateBudget | None = None,
     alerts: AlertLog | None = None,
+    watchdog: Watchdog | None = None,
     now: Callable[[], float] = time.time,
     rand: Callable[[], float] = random.random,
 ) -> FastAPI:
-    app = FastAPI(title="n8n reliability kit", version="0.0.12")
+    app = FastAPI(title="n8n reliability kit", version="0.0.13")
     keys = store if store is not None else KeyStore(clock=now)
     dead = dlq if dlq is not None else DlqStore(clock=now)
     budget = rates if rates is not None else RateBudget(clock=now)
     alert_log = alerts if alerts is not None else AlertLog(clock=now)
+    watch = watchdog if watchdog is not None else Watchdog(clock=now)
 
     def check_token(authorization: str | None = Header(default=None)) -> None:
         if api_token is None:
@@ -658,6 +688,68 @@ def create_app(
             "event": event.as_dict(),
         }
 
+    def _watch_errors(call: Callable[[], Any]) -> Any:
+        try:
+            return call()
+        except UnknownWatch as exc:
+            raise HTTPException(404, f"no watch named {exc}: configure it first") from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.put("/v1/watchdog/checks/{name}", dependencies=[Depends(check_token)])
+    def watch_configure_route(name: str, body: WatchIn) -> dict[str, Any]:
+        return _watch_errors(
+            lambda: watch.configure(
+                name, period_seconds=body.period_seconds, grace_seconds=body.grace_seconds
+            ).as_dict()
+        )
+
+    @app.post("/v1/watchdog/checks/{name}/ping", dependencies=[Depends(check_token)])
+    def watch_ping_route(name: str, body: PingIn) -> dict[str, Any]:
+        return _watch_errors(
+            lambda: watch.ping(name, body.signal, execution=body.execution).as_dict()
+        )
+
+    @app.post("/v1/watchdog/checks/{name}/pause", dependencies=[Depends(check_token)])
+    def watch_pause_route(name: str, body: PauseIn) -> dict[str, Any]:
+        return _watch_errors(lambda: watch.pause(name, body.paused).as_dict())
+
+    @app.get("/v1/watchdog/checks", dependencies=[Depends(check_token)])
+    def watch_list_route() -> dict[str, Any]:
+        return {"watches": [w.as_dict() for w in watch.statuses()]}
+
+    @app.post("/v1/watchdog/check", dependencies=[Depends(check_token)])
+    def watch_check_route() -> dict[str, Any]:
+        statuses, transitions = watch.check()
+        alerts = [{"source": "schedule", **t.as_dict()} for t in transitions]
+        by_scope: dict[str, int] = {}
+        for r in keys.pending(older_than=keys.stale_after):
+            by_scope[r.scope] = by_scope.get(r.scope, 0) + 1
+        for scope, n in sorted(by_scope.items()):
+            decision = alert_log.record_fingerprint(f"stale-keys:{scope}", label=scope)
+            if decision.send:
+                alerts.append(
+                    {
+                        "source": "stale_keys",
+                        "name": scope,
+                        "transition": "stale",
+                        "text": f"scope '{scope}': {n} key reservation(s) older than "
+                        f"{int(keys.stale_after)} s — a run died between push and commit; "
+                        "read the vendor back, then POST /v1/keys/resolve",
+                    }
+                )
+        counts = dict.fromkeys(("new", "up", "late", "down", "paused"), 0)
+        for st in statuses:
+            counts[st.state] += 1
+        return {
+            "alert": bool(alerts),
+            "text": "\n".join(a["text"] for a in alerts) or None,
+            "alerts": alerts,
+            "counts": counts,
+            "watches": [st.as_dict() for st in statuses],
+            "stale_keys": {"count": sum(by_scope.values()), "by_scope": by_scope},
+        }
+
     return app
 
 
@@ -678,4 +770,10 @@ def app_from_env() -> FastAPI:
         os.environ.get("RELIABILITY_ALERT_DB") or os.environ.get("RELIABILITY_DB") or ":memory:",
         window_seconds=float(os.environ.get("RELIABILITY_ALERT_WINDOW") or 900),
     )
-    return create_app(api_token=token, store=store, dlq=dlq, rates=rates, alerts=alerts)
+    watchdog = Watchdog(
+        os.environ.get("RELIABILITY_WATCHDOG_DB") or os.environ.get("RELIABILITY_DB") or ":memory:",
+        realert_seconds=float(os.environ.get("RELIABILITY_WATCHDOG_REALERT") or 21600),
+    )
+    return create_app(
+        api_token=token, store=store, dlq=dlq, rates=rates, alerts=alerts, watchdog=watchdog
+    )

@@ -43,10 +43,15 @@ from .retry import (
     retry_after_seconds,
     run_items,
 )
+from .watchdog import UnknownWatch, WatchAlert, Watchdog, WatchStatus
 
-__version__ = "0.0.12"
+__version__ = "0.0.13"
 
 __all__ = [
+    "UnknownWatch",
+    "WatchAlert",
+    "WatchStatus",
+    "Watchdog",
     "AlertDecision",
     "AlertLog",
     "ErrorEvent",

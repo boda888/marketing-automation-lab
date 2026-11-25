@@ -1,0 +1,186 @@
+{
+  "name": "09 · Watchdog: schedules that stopped without an error",
+  "nodes": [
+    {
+      "id": "c4d9e1f0-0013-4b2a-9c20-000000000001",
+      "name": "Every 10 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c4d9e1f0-0013-4b2a-9c20-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        200
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "as-reliability_url",
+              "name": "reliability_url",
+              "value": "http://reliability:8009",
+              "type": "string"
+            },
+            {
+              "id": "as-alert_url",
+              "name": "alert_url",
+              "value": "https://alerts.ops.example/hooks/n8n",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      }
+    },
+    {
+      "id": "c4d9e1f0-0013-4b2a-9c20-000000000003",
+      "name": "Check schedules (POST /v1/watchdog/check)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        200
+      ],
+      "retryOnFail": false,
+      "notes": "Down schedules (no ok ping within period + grace, or started and never finished), recoveries, and key reservations past stale_after. The service records what it alerted, so a schedule that stays down alerts again only every 6 h. No continue-on-error: if the service is down this run fails and the error workflow alerts.",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.reliability_url }}/v1/watchdog/check",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 5000
+        }
+      }
+    },
+    {
+      "id": "c4d9e1f0-0013-4b2a-9c20-000000000004",
+      "name": "Anything to say?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "alert-is-true",
+              "leftValue": "={{ $json.alert }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c4d9e1f0-0013-4b2a-9c20-000000000005",
+      "name": "Alert: watchdog",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.alert_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text, counts: $json.counts }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 10 minutes": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Check schedules (POST /v1/watchdog/check)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check schedules (POST /v1/watchdog/check)": {
+      "main": [
+        [
+          {
+            "node": "Anything to say?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to say?": {
+      "main": [
+        [
+          {
+            "node": "Alert: watchdog",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "REPLACE_error_alert_workflow_id",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

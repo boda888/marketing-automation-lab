@@ -46,6 +46,11 @@ one alert per failure fingerprint and window, repeats reported as "+N similar", 
 masked, trigger failures told apart from execution failures; the kit's workflows name it as
 their error workflow and save failed executions so the alert's link opens.
 
+v0.0.13 (2026-11-25): **watchdog for schedules that stop without an error**
+(`reliability.watchdog`, `/v1/watchdog/*`, [`n8n/watchdog.json`](n8n/watchdog.json)): a dead
+man's switch per scheduled workflow (period + grace), `dlq-replay.json` pings it at the end
+of every run, and the same check alerts on key reservations a dead run left behind.
+
 ## Per-item retries
 
 ```python
@@ -390,6 +395,38 @@ The route always answers 200, also for a payload it does not recognise (sent as
 itself. Manual runs (the Error Trigger's sample data) are tagged `[test]` and never fold
 into live alerts. Per-lead failures stay in the DLQ; the alert points there.
 
+## Watchdog: schedules that stopped without an error
+
+The error workflow covers runs that **failed**. It says nothing when a schedule stops
+running: the workflow was deactivated, an import or restart lost its trigger, a worker died
+mid-run. That is the failure nobody notices for days. The watchdog is a dead man's switch,
+with the period / grace model cron monitors use (Healthchecks: *period* = expected time
+between pings, *grace* = extra wait before alerting):
+
+```bash
+curl -X PUT  $SVC/v1/watchdog/checks/dlq-replay -d '{"period_seconds": 1800, "grace_seconds": 600}'
+curl -X POST $SVC/v1/watchdog/checks/dlq-replay/ping -d '{"signal": "ok", "execution": "123"}'
+curl -X POST $SVC/v1/watchdog/check     # from n8n/watchdog.json every 10 minutes
+```
+
+| state | when |
+|---|---|
+| `new` | configured, no finished run yet, inside period + grace |
+| `up` / `late` | last `ok` ping within period / within period + grace (no alert yet) |
+| `down` | no `ok` ping for period + grace — **also when it never ran once** (counted from configuration); or a `start` ping with no `ok` within grace (hung / crashed mid-run) |
+| `paused` | a person paused it for a known problem |
+
+`POST /v1/watchdog/check` alerts `down` once per episode, `still_down` every 6 h
+(`RELIABILITY_WATCHDOG_REALERT`) and `recovered` once; several watchdog runs on one SQLite
+file alert once between them. The same call lists key reservations older than
+`stale_after` (a run died between push and commit) per scope — counts only, no lead keys —
+and alerts on each scope once per alert window.
+
+`dlq-replay.json` pings as its last step on both IF outputs; its ping node continues on
+error, so a ping failure never fails the run (the missing ping is what the watchdog reports).
+A ping for a name never configured is a 404, not a new watch. `watchdog.json` itself has no
+continue-on-error: if the service is down, the run fails and the error workflow alerts.
+
 ## Run it
 
 ```bash
@@ -418,6 +455,11 @@ python -m pytest -q
   against the n8n-nodes-base 2.48.4 package source (Wait, SplitInBatches v3, Aggregate,
   SplitOut, Switch v3, HTTP Request v3), and the replay's evaluator covers only the
   expression forms the workflow uses.
+- Nothing watches the watchdog: if n8n itself is down, neither `watchdog.json` nor the error
+  workflow runs. Ping an external cron monitor from `watchdog.json` for that. Watches are
+  interval-based only (no cron expressions, no time zones), and only `dlq-replay.json`
+  pings out of the box; `retry-loop.json` is a sub-workflow and is covered by its caller.
+  `watchdog.json` was never imported into a live n8n.
 - `error-alert.json` was never imported into a live n8n and never received a real Error
   Trigger item; the payload shape comes from n8n's `execute-error-workflow.ts` and the
   Error Trigger node on GitHub (master, 2026-11-25). Whether `error.node` / `error.httpCode`

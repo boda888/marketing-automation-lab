@@ -212,6 +212,31 @@
         "jsonBody": "={{ JSON.stringify({ text: 'dlq: ' + $json.open_unsafe + ' rows need a person (unknown = read back, then POST /v1/dlq/{id}/resolve; failed = fix or discard)', summary: $json }) }}",
         "options": {}
       }
+    },
+    {
+      "id": "c4d9e1f0-0009-4b2a-9c20-000000000010",
+      "name": "Heartbeat ok (POST /v1/watchdog/checks/dlq-replay/ping)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        320
+      ],
+      "retryOnFail": false,
+      "onError": "continueRegularOutput",
+      "notes": "Last step of every run, on both IF outputs: tells the watchdog this schedule finished. A failed ping must not fail the run; a missing ping is what the watchdog alerts on. Configure once: PUT /v1/watchdog/checks/dlq-replay {period_seconds: 1800, grace_seconds: 600}.",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.reliability_url }}/v1/watchdog/checks/dlq-replay/ping",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ signal: 'ok', execution: $execution.id }) }}",
+        "options": {
+          "timeout": 5000
+        }
+      }
     }
   ],
   "connections": {
@@ -295,7 +320,24 @@
             "index": 0
           }
         ],
-        []
+        [
+          {
+            "node": "Heartbeat ok (POST /v1/watchdog/checks/dlq-replay/ping)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert: DLQ needs a read-back": {
+      "main": [
+        [
+          {
+            "node": "Heartbeat ok (POST /v1/watchdog/checks/dlq-replay/ping)",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },

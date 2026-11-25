@@ -221,8 +221,23 @@ class AlertLog:
         Unrecognised payloads are always sent: their fingerprint says nothing about
         whether two of them are the same failure.
         """
+        return self.record_fingerprint(
+            fingerprint(event),
+            label=event.workflow_name,
+            window_seconds=window_seconds,
+            always=event.kind == "unrecognised",
+        )
+
+    def record_fingerprint(
+        self,
+        fp: str,
+        *,
+        label: str,
+        window_seconds: float | None = None,
+        always: bool = False,
+    ) -> AlertDecision:
+        """The same counting for any alert source that names its own fingerprint."""
         window = self.window_seconds if window_seconds is None else window_seconds
-        fp = fingerprint(event)
         now = self._clock()
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
@@ -237,12 +252,12 @@ class AlertLog:
                     first, sent_at, folded, total, send = now, now, 0, 1, True
                     self._db.execute(
                         "INSERT INTO alert_log VALUES (?, ?, ?, ?, ?, 0, 1)",
-                        (fp, event.workflow_name, now, now, now),
+                        (fp, label, now, now, now),
                     )
                 else:
                     first, last_sent, suppressed, total = row
                     total += 1
-                    send = event.kind == "unrecognised" or now - last_sent >= window
+                    send = always or now - last_sent >= window
                     folded = suppressed if send else suppressed + 1
                     sent_at = now if send else last_sent
                     previous = last_sent

@@ -575,6 +575,9 @@ def rtargets(name, output=0):
     return [link["node"] for link in main[output]] if output < len(main) else []
 
 
+HEARTBEAT = "Heartbeat ok (POST /v1/watchdog/checks/dlq-replay/ping)"
+
+
 def tick(client, clock, answers=None):
     """One schedule tick of dlq-replay.json; the sub-workflow call runs retry-loop.json."""
     answers = answers or {}
@@ -609,13 +612,20 @@ def tick(client, clock, answers=None):
         entries = [{"lead": lead, "answers": answers.get(lead["email"], [])} for lead in leads]
         out["pushed"] = Replay(client, entries, clock)
         assert out["pushed"].run() == ["All leads handled"]
-    # summary branch: IF open_unsafe > 0 -> alert
+    # summary branch: IF open_unsafe > 0 -> alert -> heartbeat; else -> heartbeat
     (check,) = rtargets(summary_node)
     cond = RNODES[check]["parameters"]["conditions"]["conditions"][0]
     assert cond["operator"] == {"type": "number", "operation": "gt"}
     hit = evaluate(cond["leftValue"], ctx[summary_node], ctx) > cond["rightValue"]
-    for name in rtargets(check, 0 if hit else 1):
+    (name,) = rtargets(check, 0 if hit else 1)
+    if name.startswith("Alert"):
         out["alerts"].append((name, ctx[summary_node]))
+        (name,) = rtargets(name)
+    assert name == HEARTBEAT and rtargets(name) == []
+    params = RNODES[name]["parameters"]
+    path = evaluate(params["url"], {}, ctx).removeprefix(SERVICE)
+    r = client.post(path, json=evaluate(params["jsonBody"], {}, ctx), headers=AUTH)
+    out["heartbeat"] = r.status_code  # continueRegularOutput: a failed ping ends the run quietly
     return out
 
 
@@ -632,9 +642,12 @@ def test_replay_workflow_targets_the_same_scope_and_the_retry_loop():
     assert sub["mode"] == "once" and sub["options"]["waitForSubWorkflow"] is True
     assert sub["workflowId"]["value"] == "REPLACE_retry_loop_workflow_id"
     for n in RWF["nodes"]:
-        if "reliability_url" in n["parameters"].get("url", ""):
+        if "reliability_url" in n["parameters"].get("url", "") and n["name"] != HEARTBEAT:
             assert "onError" not in n and n["retryOnFail"] is False, n["name"]
-    assert rtargets("Needs a person?", 1) == []  # nothing to do on a clean store
+    # a clean store has nothing to alert, but the run still reports that it finished
+    assert rtargets("Needs a person?", 1) == [HEARTBEAT]
+    assert rtargets("Alert: DLQ needs a read-back") == [HEARTBEAT]
+    assert RNODES[HEARTBEAT]["onError"] == "continueRegularOutput"
 
 
 def test_tick_pushes_only_safe_rows_once_and_alerts_on_rows_replay_never_touches(replay, clock):
