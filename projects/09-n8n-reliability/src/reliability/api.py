@@ -492,7 +492,7 @@ def create_app(
     now: Callable[[], float] = time.time,
     rand: Callable[[], float] = random.random,
 ) -> FastAPI:
-    app = FastAPI(title="n8n reliability kit", version="0.0.13")
+    app = FastAPI(title="n8n reliability kit", version="0.0.14")
     keys = store if store is not None else KeyStore(clock=now)
     dead = dlq if dlq is not None else DlqStore(clock=now)
     budget = rates if rates is not None else RateBudget(clock=now)

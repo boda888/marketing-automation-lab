@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "n8n-reliability"
-version = "0.0.13"
+version = "0.0.14"
 description = "Reliability kit for n8n outbound workflows: per-item retries with backoff and Retry-After that never re-send succeeded items or blindly retry non-idempotent creates, with DLQ rows for everything that did not land"
 requires-python = ">=3.11"
 dependencies = []

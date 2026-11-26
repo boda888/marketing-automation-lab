@@ -94,6 +94,26 @@ def test_repeat_failure_of_one_key_updates_the_same_row(store, clock):
     assert len(store.rows(state=None)) == 2
 
 
+@pytest.mark.parametrize("earlier", ["failed", "unknown"])
+def test_budget_deferral_never_hides_a_failed_or_maybe_landed_row(store, clock, earlier):
+    first = store.intake(row("a@x.example", earlier, last_status=400), scope=SCOPE)
+    clock.t += 5
+    later = store.intake(
+        row("a@x.example", "deferred", attempts=0, retry_at=NOW + 400, reason="rate_budget"),
+        scope=SCOPE,
+    )
+    assert later.id == first.id and later.count == 2 and later.last_seen_at == NOW + 5
+    assert later.outcome == earlier and later.safe_to_resend is False
+    assert [i.status for i in store.replay(scope=SCOPE)] == ["unsafe_to_resend"]
+
+
+def test_a_deferral_after_a_real_call_still_updates_the_row(store):
+    store.intake(row("a@x.example", "failed", last_status=400), scope=SCOPE)
+    # attempts >= 1: the vendor answered again (429 + Retry-After) — that is news
+    again = store.intake(row("a@x.example", "deferred", retry_at=NOW + 60), scope=SCOPE)
+    assert again.outcome == "deferred" and again.safe_to_resend is True
+
+
 def test_repeat_without_payload_keeps_the_stored_payload(store):
     store.intake(row("cy@acme.example", "exhausted"), scope=SCOPE, payload=lead("cy@acme.example"))
     r = store.intake(row("cy@acme.example", "exhausted"), scope=SCOPE)

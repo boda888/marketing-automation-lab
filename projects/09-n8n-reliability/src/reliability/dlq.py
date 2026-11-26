@@ -205,6 +205,12 @@ class DlqStore:
         An active (open or replayed) row for the same scope + key is reopened and updated,
         so retries of one lead never pile up as separate rows. ``ok`` is rejected: what
         landed does not belong here.
+
+        Exception: a ``deferred`` stop with 0 attempts (the rate budget stopped it before
+        any call) teaches nothing about the lead, so it never overwrites an open ``failed``
+        or ``unknown`` row — otherwise a lead the vendor rejected, or one that may have
+        landed, would turn "safe to resend" and the replay would push it again. Only
+        ``count`` and ``last_seen_at`` move.
         """
         key = str(row.get("key") or "").strip()
         scope = scope.strip()
@@ -227,7 +233,7 @@ class DlqStore:
         now = self._clock()
         with self._lock:
             active = self._db.execute(
-                "SELECT id, payload FROM dlq_rows WHERE scope = ? AND key = ? "
+                "SELECT id, payload, state, outcome FROM dlq_rows WHERE scope = ? AND key = ? "
                 "AND state IN (?, ?) ORDER BY id DESC LIMIT 1",
                 (scope, key, *_ACTIVE),
             ).fetchone()
@@ -251,6 +257,17 @@ class DlqStore:
                     ),
                 )
                 row_id = int(cur.lastrowid or 0)
+            elif (
+                outcome == "deferred"
+                and attempts == 0
+                and active[2] == "open"
+                and active[3] in ("failed", "unknown")
+            ):
+                row_id = int(active[0])
+                self._db.execute(
+                    "UPDATE dlq_rows SET count = count + 1, last_seen_at = ? WHERE id = ?",
+                    (now, row_id),
+                )
             else:
                 row_id = int(active[0])
                 self._db.execute(

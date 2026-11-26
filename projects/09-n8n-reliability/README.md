@@ -422,6 +422,11 @@ file alert once between them. The same call lists key reservations older than
 `stale_after` (a run died between push and commit) per scope — counts only, no lead keys —
 and alerts on each scope once per alert window.
 
+v0.0.14 (2026-11-26): **offline end-to-end demo** (`python -m reliability.demo`, see
+[Run it](#run-it)) and a DLQ fix it surfaced: a budget deferral that never made a call no
+longer overwrites an open `failed` / `unknown` row, so a rejected or maybe-landed lead can
+no longer turn "safe to resend" and be replayed.
+
 `dlq-replay.json` pings as its last step on both IF outputs; its ping node continues on
 error, so a ping failure never fails the run (the missing ping is what the watchdog reports).
 A ping for a name never configured is a 404, not a new watch. `watchdog.json` itself has no
@@ -432,7 +437,32 @@ continue-on-error: if the service is down, the run fails and the error workflow 
 ```bash
 python -m pip install -e ".[dev]"
 python -m pytest -q
+python -m reliability.demo          # the whole kit on one simulated clock, offline
+python -m reliability.demo --json   # same report as JSON
 ```
+
+The demo runs the real service (in-process, `TestClient`) and stands in for the four
+workflows with Python loops that make the same calls in the same order; the vendor is
+scripted by [`examples/demo-loop.json`](examples/demo-loop.json). What it shows:
+
+1. **first run** — eight `.example` leads, each through claim → budget → push → decide; the
+   result per lead must match the file's `expect` (2 retried to done, a 502 and a lost
+   connection kept as `unknown` with the key reserved, a 400 `failed`, a 429 run `exhausted`,
+   a `Retry-After: 400` `deferred` that blocks the workspace);
+2. **double trigger** — the same list again at once: **0 pushes**. Sent leads are
+   `committed`, maybe-landed ones `in_flight`; released ones meet the blocked workspace and
+   are deferred by the budget without a call (the 400 lead's row stays `failed`);
+3. **scheduled replay** after the block — only the `exhausted` / `deferred` rows go back
+   through the loop; `unknown` and `failed` are refused; the run pings the watchdog;
+4. **watchdog** after 900 s — the schedule is up, the two reservations are reported as
+   stale keys (one alert for the scope);
+5. **read-back** — each `unknown` row is resolved from the vendor's own state (the 502 had
+   landed → key committed; the lost connection had not → key released, row resendable);
+6. **error alerts** — the same n8n failure twice: one alert, the repeat folded, e-mail masked;
+7. **silence** — two hours with no replay run → `dlq-replay` reported **down**.
+
+The vendor's read-back rule is part of the script (HTTP ≥ 500 = written but the answer
+failed, no HTTP answer = never arrived), not something any real vendor promised.
 
 ## Limits
 
@@ -468,6 +498,10 @@ python -m pytest -q
 - The n8n error-item shape (where the Node.js error `code` sits on a continue-on-error item)
   was not checked against a live n8n: map it into `error.code` explicitly.
 - Offline tests with a scripted fake vendor; never run against a live vendor or a live n8n.
+  `reliability.demo` reads `examples/demo-loop.json` from the source tree, so it runs from a
+  checkout (editable install), not from a built wheel. A row resolved as not landed stays
+  open as `exhausted` (resendable); rows a replay sent successfully stay `replayed` (the
+  loop does not close them).
 - Which vendors honour `Idempotency-Key`, and whether a vendor's 429 can follow a processed
   request, is per vendor and not checked here; the caller decides `idempotent` / `keyed`.
 - DLQ redrive semantics compared with the Amazon SQS developer guide source on GitHub
