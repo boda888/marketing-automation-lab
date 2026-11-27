@@ -8,48 +8,77 @@ carries no items, so the lead that failed is not named anywhere a person looks (
 [R9 2026-11-01](../../research/notes/2026-11-01-R9-n8n-retry-dedupe-error-workflow.md),
 [R9 2026-11-12](../../research/notes/2026-11-12-R9-n8n-rate-limits-queue-mode.md)).
 
-v0.0.1 (started 2026-11-18): **per-item retries** (`reliability.retry`).
-v0.0.2 (2026-11-19): the same rule table over HTTP for n8n, `POST /v1/decide` (`reliability.api`).
-v0.0.3 (2026-11-19): the n8n loop that uses it, [`n8n/retry-loop.json`](n8n/retry-loop.json),
-replayed offline against the service.
-v0.0.4 (2026-11-19): **dedupe keys that commit only after success** (`reliability.dedupe`,
-`/v1/keys/*`).
-v0.0.5 (2026-11-20): **dead-letter store with a replay that refuses unsafe rows**
-(`reliability.dlq`, `/v1/dlq/*`).
-v0.0.6 (2026-11-21): the loop's stop branch writes to `POST /v1/dlq` (lead as payload,
-workflow + execution id as source) instead of a sub-workflow you had to provide.
-v0.0.7 (2026-11-21): the loop **claims a dedupe key before every push**, commits it on `done`,
-releases it after a stop that certainly did not land and keeps it reserved after `unknown`,
-so a re-run or a DLQ replay never re-sends a lead that is already in the campaign.
-v0.0.8 (2026-11-21): [`n8n/dlq-replay.json`](n8n/dlq-replay.json), a scheduled replay of the
-rows the store calls safe, fed back through the same loop, plus an alert while
-`open_unsafe` > 0.
-v0.0.9 (2026-11-22): `POST /v1/dlq/{id}/resolve` also resolves the row's dedupe key (same
-scope + key) and reports `key_state`, so one read-back clears both the DLQ row and the
-reservation the loop kept after `unknown`.
+v0.1.0 (2026-11-27): one FastAPI service and four n8n workflows that make an outbound push
+loop fail loudly and never double-send. Each lead goes through the loop on its own: a
+**dedupe key** is claimed before the push and committed only after a 2xx; a **shared rate
+budget** per vendor account is asked before every call; a **per-item retry rule table**
+(`Retry-After`, capped backoff, creates never re-sent blind) decides done / retry / stop;
+every stop becomes one **dead-letter row** per key that a scheduled **replay** hands back
+only when it is safe to send again, and a push that lands closes it. Failed executions
+raise one **masked, folded alert** per failure fingerprint; a **watchdog** reports schedules
+that stopped without an error and key reservations a dead run left behind. Tested offline
+(TestClient, scripted vendor, workflows replayed by walking their connections); never
+imported into a live n8n or run against a live vendor.
 
-v0.0.10 (2026-11-23): **shared rate budget per vendor account scope** (`reliability.ratebudget`,
-`/v1/rate/*`): several windows at once, a cost per call, `Retry-After` blocking the scope for
-every caller, one SQLite file shared by every worker.
+## Architecture
 
-v0.0.11 (2026-11-24): **`retry-loop.json` spends the shared budget.** Every push, first
-attempt and retries alike, asks `POST /v1/rate/acquire` first and switches on its `action`:
-`go` → push, `wait` → Wait `wait_ms` and ask again (no attempt spent), `stop` (the wait is
-past `rate_max_wait_ms`, 60 s) → a deferred DLQ row and a released key, the lead never sent.
-A vendor 429 blocks the whole account scope: `/v1/decide` with `rate_scope` penalises the
-budget until `Retry-After`, so a second execution on the same workspace waits too. The
-offline replay now simulates time and runs two executions side by side on one budget.
+```
+n8n/retry-loop.json (sub-workflow, one lead per pass)
+  Loop Over Items (batch 1)
+    -> POST /v1/keys/claim ........ committed / in_flight: skip | stale: review alert
+    -> POST /v1/rate/acquire ...... go | wait (Wait node, ask again) | stop: deferred row
+    -> push to the vendor (HTTP Request, Never Error, full response)
+    -> POST /v1/decide ............ done | retry (Wait wait_ms, same call) | stop
+         done -> POST /v1/keys/commit (also resolves the key's DLQ row)
+         stop -> POST /v1/dlq, then release the key (kept reserved after `unknown`)
 
-v0.0.12 (2026-11-25): **error-workflow alerts that do not flood or leak**
-(`reliability.alerts`, `POST /v1/alerts/n8n-error`, [`n8n/error-alert.json`](n8n/error-alert.json)):
-one alert per failure fingerprint and window, repeats reported as "+N similar", e-mails
-masked, trigger failures told apart from execution failures; the kit's workflows name it as
-their error workflow and save failed executions so the alert's link opens.
+n8n/dlq-replay.json (schedule)
+  POST /v1/dlq/replay -> safe rows only -> retry-loop.json
+  GET /v1/dlq/summary -> alert while open_unsafe > 0 -> ping /v1/watchdog/checks/dlq-replay
 
-v0.0.13 (2026-11-25): **watchdog for schedules that stop without an error**
-(`reliability.watchdog`, `/v1/watchdog/*`, [`n8n/watchdog.json`](n8n/watchdog.json)): a dead
-man's switch per scheduled workflow (period + grace), `dlq-replay.json` pings it at the end
-of every run, and the same check alerts on key reservations a dead run left behind.
+n8n/error-alert.json (Error Trigger)  -> POST /v1/alerts/n8n-error -> send / fold the repeat
+n8n/watchdog.json (schedule)          -> POST /v1/watchdog/check   -> down / recovered alerts
+
+reliability service (uvicorn reliability.api:app_from_env --factory)
+  KeyStore | DlqStore | RateBudget | AlertLog | Watchdog   one SQLite file shared by workers
+  decide() rule table (reliability.retry): pure, no I/O
+```
+
+The service holds every piece of state; the workflows only route on its answers, so the
+rules are unit-tested in Python instead of living in n8n expressions. Sections below go
+through each part, then [Limits](#limits) and the [version history](#version-history).
+
+## Run it
+
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest -q
+python -m reliability.demo          # the whole kit on one simulated clock, offline
+python -m reliability.demo --json   # same report as JSON
+```
+
+The demo runs the real service (in-process, `TestClient`) and stands in for the four
+workflows with Python loops that make the same calls in the same order; the vendor is
+scripted by [`examples/demo-loop.json`](examples/demo-loop.json). What it shows:
+
+1. **first run** — eight `.example` leads, each through claim → budget → push → decide; the
+   result per lead must match the file's `expect` (2 retried to done, a 502 and a lost
+   connection kept as `unknown` with the key reserved, a 400 `failed`, a 429 run `exhausted`,
+   a `Retry-After: 400` `deferred` that blocks the workspace);
+2. **double trigger** — the same list again at once: **0 pushes**. Sent leads are
+   `committed`, maybe-landed ones `in_flight`; released ones meet the blocked workspace and
+   are deferred by the budget without a call (the 400 lead's row stays `failed`);
+3. **scheduled replay** after the block — only the `exhausted` / `deferred` rows go back
+   through the loop; `unknown` and `failed` are refused; the run pings the watchdog;
+4. **watchdog** after 900 s — the schedule is up, the two reservations are reported as
+   stale keys (one alert for the scope);
+5. **read-back** — each `unknown` row is resolved from the vendor's own state (the 502 had
+   landed → key committed; the lost connection had not → key released, row resendable);
+6. **error alerts** — the same n8n failure twice: one alert, the repeat folded, e-mail masked;
+7. **silence** — two hours with no replay run → `dlq-replay` reported **down**.
+
+The vendor's read-back rule is part of the script (HTTP ≥ 500 = written but the answer
+failed, no HTTP answer = never arrived), not something any real vendor promised.
 
 ## Per-item retries
 
@@ -427,52 +456,10 @@ file alert once between them. The same call lists key reservations older than
 `stale_after` (a run died between push and commit) per scope — counts only, no lead keys —
 and alerts on each scope once per alert window.
 
-v0.0.14 (2026-11-26): **offline end-to-end demo** (`python -m reliability.demo`, see
-[Run it](#run-it)) and a DLQ fix it surfaced: a budget deferral that never made a call no
-longer overwrites an open `failed` / `unknown` row, so a rejected or maybe-landed lead can
-no longer turn "safe to resend" and be replayed.
-
-v0.0.15 (2026-11-27): **a push that lands closes its DLQ row.** `POST /v1/keys/commit`
-resolves the key's open or replayed row and returns `dlq_closed`; before, rows a replay
-sent successfully stayed `replayed` forever, and a lead landed by a regular run kept an
-open row the next replay would hand out again (the claim still stopped the push).
-
 `dlq-replay.json` pings as its last step on both IF outputs; its ping node continues on
 error, so a ping failure never fails the run (the missing ping is what the watchdog reports).
 A ping for a name never configured is a 404, not a new watch. `watchdog.json` itself has no
 continue-on-error: if the service is down, the run fails and the error workflow alerts.
-
-## Run it
-
-```bash
-python -m pip install -e ".[dev]"
-python -m pytest -q
-python -m reliability.demo          # the whole kit on one simulated clock, offline
-python -m reliability.demo --json   # same report as JSON
-```
-
-The demo runs the real service (in-process, `TestClient`) and stands in for the four
-workflows with Python loops that make the same calls in the same order; the vendor is
-scripted by [`examples/demo-loop.json`](examples/demo-loop.json). What it shows:
-
-1. **first run** — eight `.example` leads, each through claim → budget → push → decide; the
-   result per lead must match the file's `expect` (2 retried to done, a 502 and a lost
-   connection kept as `unknown` with the key reserved, a 400 `failed`, a 429 run `exhausted`,
-   a `Retry-After: 400` `deferred` that blocks the workspace);
-2. **double trigger** — the same list again at once: **0 pushes**. Sent leads are
-   `committed`, maybe-landed ones `in_flight`; released ones meet the blocked workspace and
-   are deferred by the budget without a call (the 400 lead's row stays `failed`);
-3. **scheduled replay** after the block — only the `exhausted` / `deferred` rows go back
-   through the loop; `unknown` and `failed` are refused; the run pings the watchdog;
-4. **watchdog** after 900 s — the schedule is up, the two reservations are reported as
-   stale keys (one alert for the scope);
-5. **read-back** — each `unknown` row is resolved from the vendor's own state (the 502 had
-   landed → key committed; the lost connection had not → key released, row resendable);
-6. **error alerts** — the same n8n failure twice: one alert, the repeat folded, e-mail masked;
-7. **silence** — two hours with no replay run → `dlq-replay` reported **down**.
-
-The vendor's read-back rule is part of the script (HTTP ≥ 500 = written but the answer
-failed, no HTTP answer = never arrived), not something any real vendor promised.
 
 ## Limits
 
@@ -521,3 +508,62 @@ failed, no HTTP answer = never arrived), not something any real vendor promised.
 - RFC 9110, the IETF draft page and the AWS backoff article did not resolve from the run
   environment (2026-11-18); the rules come from the draft's source on GitHub and urllib3's
   `retry.py`.
+
+## Version history
+
+v0.0.1 (started 2026-11-18): **per-item retries** (`reliability.retry`).
+v0.0.2 (2026-11-19): the same rule table over HTTP for n8n, `POST /v1/decide` (`reliability.api`).
+v0.0.3 (2026-11-19): the n8n loop that uses it, [`n8n/retry-loop.json`](n8n/retry-loop.json),
+replayed offline against the service.
+v0.0.4 (2026-11-19): **dedupe keys that commit only after success** (`reliability.dedupe`,
+`/v1/keys/*`).
+v0.0.5 (2026-11-20): **dead-letter store with a replay that refuses unsafe rows**
+(`reliability.dlq`, `/v1/dlq/*`).
+v0.0.6 (2026-11-21): the loop's stop branch writes to `POST /v1/dlq` (lead as payload,
+workflow + execution id as source) instead of a sub-workflow you had to provide.
+v0.0.7 (2026-11-21): the loop **claims a dedupe key before every push**, commits it on `done`,
+releases it after a stop that certainly did not land and keeps it reserved after `unknown`,
+so a re-run or a DLQ replay never re-sends a lead that is already in the campaign.
+v0.0.8 (2026-11-21): [`n8n/dlq-replay.json`](n8n/dlq-replay.json), a scheduled replay of the
+rows the store calls safe, fed back through the same loop, plus an alert while
+`open_unsafe` > 0.
+v0.0.9 (2026-11-22): `POST /v1/dlq/{id}/resolve` also resolves the row's dedupe key (same
+scope + key) and reports `key_state`, so one read-back clears both the DLQ row and the
+reservation the loop kept after `unknown`.
+
+v0.0.10 (2026-11-23): **shared rate budget per vendor account scope** (`reliability.ratebudget`,
+`/v1/rate/*`): several windows at once, a cost per call, `Retry-After` blocking the scope for
+every caller, one SQLite file shared by every worker.
+
+v0.0.11 (2026-11-24): **`retry-loop.json` spends the shared budget.** Every push, first
+attempt and retries alike, asks `POST /v1/rate/acquire` first and switches on its `action`:
+`go` → push, `wait` → Wait `wait_ms` and ask again (no attempt spent), `stop` (the wait is
+past `rate_max_wait_ms`, 60 s) → a deferred DLQ row and a released key, the lead never sent.
+A vendor 429 blocks the whole account scope: `/v1/decide` with `rate_scope` penalises the
+budget until `Retry-After`, so a second execution on the same workspace waits too. The
+offline replay now simulates time and runs two executions side by side on one budget.
+
+v0.0.12 (2026-11-25): **error-workflow alerts that do not flood or leak**
+(`reliability.alerts`, `POST /v1/alerts/n8n-error`, [`n8n/error-alert.json`](n8n/error-alert.json)):
+one alert per failure fingerprint and window, repeats reported as "+N similar", e-mails
+masked, trigger failures told apart from execution failures; the kit's workflows name it as
+their error workflow and save failed executions so the alert's link opens.
+
+v0.0.13 (2026-11-25): **watchdog for schedules that stop without an error**
+(`reliability.watchdog`, `/v1/watchdog/*`, [`n8n/watchdog.json`](n8n/watchdog.json)): a dead
+man's switch per scheduled workflow (period + grace), `dlq-replay.json` pings it at the end
+of every run, and the same check alerts on key reservations a dead run left behind.
+
+
+v0.0.14 (2026-11-26): **offline end-to-end demo** (`python -m reliability.demo`, see
+[Run it](#run-it)) and a DLQ fix it surfaced: a budget deferral that never made a call no
+longer overwrites an open `failed` / `unknown` row, so a rejected or maybe-landed lead can
+no longer turn "safe to resend" and be replayed.
+
+v0.0.15 (2026-11-27): **a push that lands closes its DLQ row.** `POST /v1/keys/commit`
+resolves the key's open or replayed row and returns `dlq_closed`; before, rows a replay
+sent successfully stayed `replayed` forever, and a lead landed by a regular run kept an
+open row the next replay would hand out again (the claim still stopped the push).
+
+
+v0.1.0 (2026-11-27): README reordered (problem → architecture → run it → parts → limits), version history moved here; no code change.

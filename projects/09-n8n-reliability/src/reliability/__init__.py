@@ -45,7 +45,7 @@ from .retry import (
 )
 from .watchdog import UnknownWatch, WatchAlert, Watchdog, WatchStatus
 
-__version__ = "0.0.15"
+__version__ = "0.1.0"
 
 __all__ = [
     "UnknownWatch",
