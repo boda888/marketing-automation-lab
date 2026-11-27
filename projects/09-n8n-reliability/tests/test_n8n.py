@@ -551,16 +551,24 @@ def test_an_old_reservation_that_may_have_landed_alerts_instead_of_re_sending(re
         assert email not in again.pushes
 
 
-def test_a_dlq_replay_of_a_lead_that_landed_since_is_skipped_by_its_claim(replay, clock):
+def test_a_lead_that_landed_since_closes_its_dlq_row_and_a_stale_payload_is_skipped(replay, clock):
     clock.t += AFTER_BLOCK
+    rows = replay.client.get("/v1/dlq", headers=AUTH).json()["rows"]
+    waiting = {r["key"]: r["id"] for r in rows if r["key"] in NEVER_LANDED}
+    assert set(waiting) == NEVER_LANDED  # fay + hal resendable, gus rejected (fixed since)
     second_run(replay.client, clock, {e: [{"status": 201}] for e in NEVER_LANDED})
-    handed = replay.client.post("/v1/dlq/replay", json={}, headers=AUTH).json()["replay"]
-    # both DLQ rows are still open (fay's Retry-After has passed too)
-    assert sorted(i["key"] for i in handed) == ["fay@fjord.example", "hal@heath.example"]
-    third = Replay(replay.client, [{"lead": i["payload"], "answers": []} for i in handed], clock)
+    # the regular run landed all three: their commits closed the rows, the replay has nothing
+    for email, rid in waiting.items():
+        closed = replay.client.get("/v1/dlq", params={"state": "resolved"}, headers=AUTH)
+        assert rid in {r["id"] for r in closed.json()["rows"]}, email
+    assert replay.client.post("/v1/dlq/replay", json={}, headers=AUTH).json()["replay"] == []
+    # a payload replayed from an older copy (another tool, a manual re-run) is still
+    # stopped by the claim: the key is committed
+    stale = [{"lead": r["payload"], "answers": []} for r in rows if r["key"] in waiting]
+    third = Replay(replay.client, stale, clock)
     third.run()
-    assert third.pushes == {}  # committed in run 2: the replayed payload is not pushed again
-    for email in ("fay@fjord.example", "hal@heath.example"):
+    assert third.pushes == {}
+    for email in waiting:
         assert third.ends[email]["claim"]["status"] == "committed"
 
 

@@ -41,6 +41,10 @@ def test_replay_sends_only_safe_rows_and_refuses_the_rest(report):
     sent = {r["email"]: r for r in report["replay"]["sent_again"]}
     assert set(sent) == {"hal@heath.example", "fay@fjord.example"}
     assert all(r["end"] == "done" and r["key_after"] == "committed" for r in sent.values())
+    # the commit closed each replayed row: nothing is left sitting in `replayed`
+    assert all(r["dlq_closed"] for r in sent.values())
+    states = report["dlq_summary"]["states"]
+    assert states["replayed"] == 0 and states["resolved"] >= len(sent)
     refused = {r["key"]: r["status"] for r in report["replay"]["refused"]}
     assert refused == {
         "cara@cobalt.example": "unsafe_to_resend",

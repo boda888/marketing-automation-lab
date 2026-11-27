@@ -13,6 +13,9 @@ here, keyed by ``(scope, key)``:
     resolve(id, landed=)  -> a read-back: landed -> ``resolved``; not landed -> the row
                      becomes safe to resend (``unknown`` -> ``exhausted``)
     discard(id)   -> closed without sending (bad data, unsubscribed, duplicate)
+    close_landed(scope, key) -> the push of that key succeeded (its dedupe key was
+                     committed): the active row is ``resolved``, so a replayed lead does not
+                     sit in ``replayed`` forever and the DLQ only lists what still needs work
 
 ``safe_to_resend`` is always recomputed from the outcome here, never trusted from the
 caller. A replayed row stays attached to its key: if the replay fails again, the next
@@ -393,6 +396,34 @@ class DlqStore:
                     (outcome, f"{r.reason}; read back: not landed", note, row_id),
                 )
             stored = self._get(row_id)
+        assert stored is not None
+        return stored
+
+    def close_landed(self, scope: str, key: str, *, note: str | None = None) -> DlqRow | None:
+        """The item landed (its push succeeded): resolve the active row for ``(scope, key)``.
+
+        Like an SQS consumer deleting a redriven message once it is processed: the queue
+        does not know on its own that the second attempt worked. Both ``open`` and
+        ``replayed`` rows close — a lead that lands through the regular run while an older
+        row waits for replay must not be replayed on top. ``None`` when no row is active
+        (the usual case: most pushes never failed).
+        """
+        scope, key = scope.strip(), str(key).strip()
+        if not scope or not key:
+            raise ValueError("scope and key must be non-blank")
+        with self._lock:
+            active = self._db.execute(
+                "SELECT id FROM dlq_rows WHERE scope = ? AND key = ? AND state IN (?, ?) "
+                "ORDER BY id DESC LIMIT 1",
+                (scope, key, *_ACTIVE),
+            ).fetchone()
+            if active is None:
+                return None
+            self._db.execute(
+                "UPDATE dlq_rows SET state = 'resolved', closed_at = ?, note = ? WHERE id = ?",
+                (self._clock(), note or "landed: push succeeded, key committed", active[0]),
+            )
+            stored = self._get(int(active[0]))
         assert stored is not None
         return stored
 

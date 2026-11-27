@@ -186,7 +186,9 @@ Leads in -> Collect leads -> Config -> One item per lead -> Loop over leads (bat
   `deferred` (read from the outcome the DLQ stored), and kept after `unknown`. A replayed DLQ
   payload re-enters the same loop, so its claim is what stops a lead that landed in a later
   run from being pushed twice. A 409 on commit / release (another token) fails the run: it
-  means two executions touched one key.
+  means two executions touched one key. The commit also closes the key's active DLQ row
+  (`dlq_closed` in the answer), so a replay that landed — or a regular run that pushed a lead
+  still waiting in the DLQ — leaves no `replayed` / `open` row behind.
 
 `tests/test_n8n.py` replays [`examples/demo-loop.json`](examples/demo-loop.json) (8
 synthetic `.example` leads: 201, 429 + `Retry-After: 7`, 502, refused then 200, socket hang
@@ -255,7 +257,10 @@ of an error-workflow alert that carries no items.
   A resolved or discarded key that fails again is a new row.
 - `safe_to_resend` is recomputed from the outcome on intake; the caller's value is ignored.
 - A replayed row moves to `replayed`, so a second replay call never hands it out twice;
-  `replays` counts redrives and `max_replays` (default 3) stops a poison item with
+  when its push lands, `POST /v1/keys/commit` resolves it (`DlqStore.close_landed`, note
+  "landed: push succeeded, key committed") — the store cannot see a success on its own, the
+  same way an SQS consumer deletes a redriven message after processing it. A refused commit
+  (404 / 409) leaves the row alone. `replays` counts redrives and `max_replays` (default 3) stops a poison item with
   `replay_limit`. `dry_run: true` returns the same verdicts and changes nothing.
 - `GET /v1/dlq?state=open|replayed|resolved|discarded|all&scope=&outcome=` lists rows oldest
   first; `GET /v1/dlq/summary` gives open rows by outcome, `open_unsafe` (unknown + failed)
@@ -427,6 +432,11 @@ v0.0.14 (2026-11-26): **offline end-to-end demo** (`python -m reliability.demo`,
 longer overwrites an open `failed` / `unknown` row, so a rejected or maybe-landed lead can
 no longer turn "safe to resend" and be replayed.
 
+v0.0.15 (2026-11-27): **a push that lands closes its DLQ row.** `POST /v1/keys/commit`
+resolves the key's open or replayed row and returns `dlq_closed`; before, rows a replay
+sent successfully stayed `replayed` forever, and a lead landed by a regular run kept an
+open row the next replay would hand out again (the claim still stopped the push).
+
 `dlq-replay.json` pings as its last step on both IF outputs; its ping node continues on
 error, so a ping failure never fails the run (the missing ping is what the watchdog reports).
 A ping for a name never configured is a 404, not a new watch. `watchdog.json` itself has no
@@ -500,8 +510,9 @@ failed, no HTTP answer = never arrived), not something any real vendor promised.
 - Offline tests with a scripted fake vendor; never run against a live vendor or a live n8n.
   `reliability.demo` reads `examples/demo-loop.json` from the source tree, so it runs from a
   checkout (editable install), not from a built wheel. A row resolved as not landed stays
-  open as `exhausted` (resendable); rows a replay sent successfully stay `replayed` (the
-  loop does not close them).
+  open as `exhausted` (resendable). A replayed row whose push failed again is reopened by
+  the loop's intake; one whose replay execution died before commit or intake stays
+  `replayed` and only shows up as a stale key reservation.
 - Which vendors honour `Idempotency-Key`, and whether a vendor's 429 can follow a processed
   request, is per vendor and not checked here; the caller decides `idempotent` / `keyed`.
 - DLQ redrive semantics compared with the Amazon SQS developer guide source on GitHub

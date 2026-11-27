@@ -181,7 +181,7 @@ def test_api_claim_commit_flow(api, clock):
     busy = api.post("/v1/keys/claim", json=body, headers=AUTH).json()
     assert busy["status"] == "in_flight" and busy["go"] is False and busy["token"] is None
     r = api.post("/v1/keys/commit", json={**body, "token": "tok-1"}, headers=AUTH)
-    assert r.status_code == 200 and r.json() == {"state": "committed"}
+    assert r.status_code == 200 and r.json() == {"state": "committed", "dlq_closed": None}
     done = api.post("/v1/keys/claim", json=body, headers=AUTH).json()
     assert done["status"] == "committed"
 

@@ -368,3 +368,64 @@ def test_key_is_untouched_when_the_dlq_resolve_is_refused(clock):
     assert c.post(f"/v1/dlq/{rid}/resolve", json={"landed": False}).status_code == 422
     assert c.post("/v1/dlq/4242/resolve", json={"landed": False}).status_code == 404
     assert [p.key for p in keys.pending()] == [email]
+
+
+# --- a push that lands closes the key's DLQ row --------------------------------------------
+
+
+def test_close_landed_resolves_a_replayed_row(store, clock):
+    rid = store.intake(row("cl@acme.example", "exhausted"), scope=SCOPE, payload=lead("x")).id
+    (item,) = store.replay()
+    assert item.go and store.get(rid).state == "replayed"
+    clock.t += 60
+    closed = store.close_landed(SCOPE, " cl@acme.example ")
+    assert closed.id == rid and closed.state == "resolved" and closed.closed_at == clock.t
+    assert closed.note == "landed: push succeeded, key committed"
+    assert store.summary()["states"]["replayed"] == 0
+    # closed for good: a later failure of the same key opens a new row, not this one
+    again = store.intake(row("cl@acme.example", "exhausted"), scope=SCOPE)
+    assert again.id != rid and again.count == 1
+
+
+def test_close_landed_also_closes_an_open_row_so_it_is_not_replayed_on_top(store):
+    rid = store.intake(
+        row("op@acme.example", "deferred", retry_at=NOW - 1), scope=SCOPE, payload=lead("x")
+    ).id
+    assert store.close_landed(SCOPE, "op@acme.example", note="regular run").note == "regular run"
+    assert store.get(rid).state == "resolved"
+    assert store.replay() == []
+
+
+def test_close_landed_without_a_row_and_in_another_scope_changes_nothing(store):
+    rid = store.intake(row("sc@acme.example", "exhausted"), scope=SCOPE).id
+    assert store.close_landed(SCOPE, "nobody@acme.example") is None
+    assert store.close_landed("other:campaign", "sc@acme.example") is None
+    store.discard(rid)
+    assert store.close_landed(SCOPE, "sc@acme.example") is None  # closed rows stay as they are
+    assert store.get(rid).state == "discarded"
+    with pytest.raises(ValueError):
+        store.close_landed(" ", "sc@acme.example")
+
+
+def test_commit_after_a_successful_replay_closes_the_row(clock):
+    c, keys = keyed_api(clock)
+    email = "rp@acme.example"
+    rid = c.post(
+        "/v1/dlq", json={"scope": SCOPE, "row": row(email, "exhausted"), "payload": lead(email)}
+    ).json()["id"]
+    assert [i["id"] for i in c.post("/v1/dlq/replay", json={}).json()["replay"]] == [rid]
+    token = c.post("/v1/keys/claim", json={"scope": SCOPE, "key": email}).json()["token"]
+    r = c.post("/v1/keys/commit", json={"scope": SCOPE, "key": email, "token": token})
+    assert r.status_code == 200 and r.json() == {"state": "committed", "dlq_closed": rid}
+    assert c.get("/v1/dlq", params={"state": "replayed"}).json()["rows"] == []
+    assert c.get("/v1/dlq/summary").json()["states"]["resolved"] == 1
+
+
+def test_a_refused_commit_leaves_the_row_alone(clock):
+    c, keys = keyed_api(clock)
+    email = "rf@acme.example"
+    c.post("/v1/keys/claim", json={"scope": SCOPE, "key": email})
+    rid = c.post("/v1/dlq", json={"scope": SCOPE, "row": row(email, "exhausted")}).json()["id"]
+    wrong = c.post("/v1/keys/commit", json={"scope": SCOPE, "key": email, "token": "not-mine"})
+    assert wrong.status_code == 409
+    assert c.get("/v1/dlq", params={"state": "open"}).json()["rows"][0]["id"] == rid

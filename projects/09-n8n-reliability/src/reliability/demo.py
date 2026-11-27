@@ -111,6 +111,7 @@ class LeadRun:
     safe_to_resend: bool | None = None  # of the DLQ row after this stop
     dlq_outcome: str | None = None  # the row's outcome: an earlier failure can outrank this stop
     key_after: str | None = None  # committed | released | reserved
+    dlq_closed: int | None = None  # DLQ row the commit closed (a replay that landed)
 
     def as_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -187,12 +188,13 @@ class Demo:
                 body["error"] = answer["error"]
             decision = self.call("POST", "/v1/decide", body)
             if decision["action"] == "done":
-                self.call(
+                commit = self.call(
                     "POST",
                     "/v1/keys/commit",
                     {"scope": KEY_SCOPE, "key": email, "token": claim["token"]},
                 )
                 run.key_after = "committed"
+                run.dlq_closed = commit["dlq_closed"]
                 return run
             if decision["action"] == "retry":
                 run.waits_s.append(decision["wait_ms"] / 1000)
@@ -327,7 +329,8 @@ def render(report: dict[str, Any]) -> str:
         lines.append(f"   {r['email']:<22} {r['end']:<7} ({why})")
     lines.append("3. scheduled replay after the workspace block")
     for r in report["replay"]["sent_again"]:
-        lines.append(f"   sent again  {r['email']:<22} {r['end']} pushes={r['pushes']}")
+        closed = f" -> DLQ row {r['dlq_closed']} resolved" if r["dlq_closed"] else ""
+        lines.append(f"   sent again  {r['email']:<22} {r['end']} pushes={r['pushes']}{closed}")
     for r in report["replay"]["refused"]:
         lines.append(f"   refused     {r['key']:<22} {r['status']}")
     w = report["watchdog_after_replay"]

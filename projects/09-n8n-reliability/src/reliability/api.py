@@ -42,7 +42,9 @@ guarded call succeeded:
   ``reserved`` (go; keep ``token``), ``committed`` (skip), ``in_flight`` (skip this run),
   ``stale`` (may have landed: read back, then ``/v1/keys/resolve``);
 - ``POST /v1/keys/commit`` / ``/v1/keys/release`` ``{scope, key, token}``: 409 for another
-  execution's token or a committed key, 404 without a reservation;
+  execution's token or a committed key, 404 without a reservation. A commit also closes the
+  key's active DLQ row (open or replayed -> ``resolved``) and names it in ``dlq_closed``
+  (``null`` when the key had no row), so a replay that landed leaves nothing behind;
 - ``POST /v1/keys/resolve`` ``{scope, key, landed, force?}``: 409 while the reservation is
   younger than ``stale_after`` unless ``force``;
 - ``GET /v1/keys/pending?scope=&older_than=`` for a watchdog.
@@ -492,7 +494,7 @@ def create_app(
     now: Callable[[], float] = time.time,
     rand: Callable[[], float] = random.random,
 ) -> FastAPI:
-    app = FastAPI(title="n8n reliability kit", version="0.0.14")
+    app = FastAPI(title="n8n reliability kit", version="0.0.15")
     keys = store if store is not None else KeyStore(clock=now)
     dead = dlq if dlq is not None else DlqStore(clock=now)
     budget = rates if rates is not None else RateBudget(clock=now)
@@ -540,7 +542,9 @@ def create_app(
     @app.post("/v1/keys/commit", dependencies=[Depends(check_token)])
     def commit_route(body: TokenIn) -> dict[str, Any]:
         _key_errors(lambda: keys.commit(body.scope, body.key, body.token))
-        return {"state": "committed"}
+        # only after the commit: a refused commit (409 / 404) must not close the row
+        closed = dead.close_landed(body.scope, body.key)
+        return {"state": "committed", "dlq_closed": closed.id if closed else None}
 
     @app.post("/v1/keys/release", dependencies=[Depends(check_token)])
     def release_route(body: TokenIn) -> dict[str, Any]:
